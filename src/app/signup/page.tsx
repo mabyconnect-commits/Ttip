@@ -3,7 +3,7 @@
 import { Suspense, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { apiPost } from "@/lib/client";
 import { GradientButton } from "@/components/ui";
 import { Field } from "@/components/Field";
@@ -26,7 +26,6 @@ export default function SignupPage() {
 }
 
 function SignupInner() {
-  const router = useRouter();
   const params = useSearchParams();
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
@@ -49,8 +48,9 @@ function SignupInner() {
         defaultFiat: fiat,
         referralCode: params.get("ref") ?? undefined,
       });
-      router.push("/home");
-      router.refresh();
+      // Full-page navigation so the freshly-set session cookie is sent with the
+      // request for the protected /home route.
+      window.location.assign("/home");
     } catch (e: any) {
       setErr(e.message);
       setLoading(false);

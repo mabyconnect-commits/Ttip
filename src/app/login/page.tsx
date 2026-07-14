@@ -3,13 +3,11 @@
 import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
 import { apiPost } from "@/lib/client";
 import { GradientButton } from "@/components/ui";
 import { Field } from "@/components/Field";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
@@ -21,8 +19,9 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await apiPost("/api/auth/login", { identifier, password });
-      router.push("/home");
-      router.refresh();
+      // Full-page navigation so the freshly-set session cookie is sent with the
+      // request for the protected /home route.
+      window.location.assign("/home");
     } catch (e: any) {
       setErr(e.message);
       setLoading(false);
