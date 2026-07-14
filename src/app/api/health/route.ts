@@ -7,6 +7,8 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const out: Record<string, unknown> = {
     app: "ok",
+    commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "local",
+    deployedAt: process.env.VERCEL_GIT_COMMIT_MESSAGE?.split("\n")[0] ?? null,
     env: {
       DATABASE_URL: !!process.env.DATABASE_URL,
       AUTH_SECRET: !!process.env.AUTH_SECRET && process.env.AUTH_SECRET.length >= 16,
