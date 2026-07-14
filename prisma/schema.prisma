@@ -28,6 +28,9 @@ model User {
   referralCode   String   @unique
   referredById   String?
   referralEarned Decimal  @default(0) @db.Decimal(18, 2)
+  pinHash        String?
+  kycStatus      String   @default("unverified") // unverified | pending | verified
+  kycTier        Int      @default(1)
   createdAt      DateTime @default(now())
 
   balances     Balance[]

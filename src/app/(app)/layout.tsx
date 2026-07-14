@@ -3,6 +3,7 @@ import { getUserId } from "@/lib/auth";
 import { getAppState } from "@/lib/serialize";
 import { AppProvider } from "@/context/AppContext";
 import { Toasts } from "@/components/ui";
+import { AppLock } from "@/components/AppLock";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <AppProvider initial={state}>
       <div className="app-shell">
-        {children}
+        <AppLock>{children}</AppLock>
         <Toasts />
       </div>
     </AppProvider>

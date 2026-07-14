@@ -13,6 +13,9 @@ export interface UserSummary {
   freeSwapsLeft: number;
   referralCode: string;
   referralEarned: number;
+  hasPin: boolean;
+  kycStatus: string;
+  kycTier: number;
   initial: string;
 }
 

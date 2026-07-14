@@ -9,6 +9,8 @@ import { Icon } from "@/components/Icon";
 import { CRYPTO_ASSETS, FIATS, NETWORK_FEE_USDT } from "@/lib/constants";
 import { formatFiat, formatCrypto } from "@/lib/format";
 import { Receipt } from "@/components/Receipt";
+import { BankPicker } from "@/components/BankPicker";
+import type { Bank } from "@/lib/banks";
 
 const SEND_ASSETS = ["USDT", "USDC", "BTC", "ETH", "SOL", "BNB", "XRP", "TRX"];
 
@@ -20,7 +22,8 @@ export default function SendOutPage() {
   const [sym, setSym] = useState("USDT");
   const [amount, setAmount] = useState("");
   const [address, setAddress] = useState("");
-  const [bankName, setBankName] = useState("");
+  const [bank, setBank] = useState<Bank | null>(null);
+  const [bankOpen, setBankOpen] = useState(false);
   const [account, setAccount] = useState("");
   const [accountName, setAccountName] = useState("");
   const [loading, setLoading] = useState(false);
@@ -41,8 +44,9 @@ export default function SendOutPage() {
         if (!address) { setLoading(false); return toast("Enter a wallet address", "bad"); }
         body = { mode: "wallet", symbol: sym, amount: amt, address, network: asset?.networks[0]?.label };
       } else {
+        if (!bank) { setLoading(false); return toast("Choose a bank", "bad"); }
         if (!account) { setLoading(false); return toast("Enter an account number", "bad"); }
-        body = { mode: "bank", symbol: sym, amount: amt, fiat, bankName: bankName || "Bank", accountNumber: account, accountName };
+        body = { mode: "bank", symbol: sym, amount: amt, fiat, bankName: bank.name, accountNumber: account, accountName };
       }
       const res: any = await action("/api/send", body);
       setReceipt(res.receipt);
@@ -80,8 +84,14 @@ export default function SendOutPage() {
 
         {mode === "bank" && (
           <div className="flex flex-col gap-2.5 mt-3">
-            <input value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="Bank (e.g. GTBank)" className="bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] outline-none text-[14px] focus:border-brand-cyan/50" />
-            <input value={account} onChange={(e) => setAccount(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="Account number" className="bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] outline-none text-[14px] focus:border-brand-cyan/50" />
+            <button
+              onClick={() => setBankOpen(true)}
+              className="bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] flex items-center justify-between text-[14px] active:scale-[.99]"
+            >
+              <span className={bank ? "text-white font-medium" : "text-white/35"}>{bank ? bank.name : "Choose bank"}</span>
+              <span className="text-white/40">▾</span>
+            </button>
+            <input value={account} onChange={(e) => setAccount(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" maxLength={10} placeholder="Account number" className="bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] outline-none text-[14px] focus:border-brand-cyan/50" />
             <input value={accountName} onChange={(e) => setAccountName(e.target.value)} placeholder="Account name (optional)" className="bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] outline-none text-[14px] focus:border-brand-cyan/50" />
           </div>
         )}
@@ -114,6 +124,8 @@ export default function SendOutPage() {
           {mode === "bank" ? "Send to bank" : "Send to wallet"}
         </GradientButton>
       </div>
+
+      <BankPicker open={bankOpen} onClose={() => setBankOpen(false)} onPick={(b) => setBank(b)} />
 
       {receipt && (
         <Receipt

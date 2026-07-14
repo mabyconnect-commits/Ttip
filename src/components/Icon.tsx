@@ -7,7 +7,8 @@ export type IconName =
   | "home" | "swap" | "zap" | "activity" | "card" | "bills"
   | "bell" | "gift" | "arrowDown" | "arrowUp" | "back" | "settings"
   | "plus" | "check" | "snowflake" | "scan" | "copy" | "share"
-  | "chevronRight" | "grid" | "swapVertical" | "sun" | "search";
+  | "chevronRight" | "grid" | "swapVertical" | "sun" | "search"
+  | "user" | "shield" | "list" | "bank" | "headset" | "gauge" | "logout" | "lock" | "edit" | "trash";
 
 const P: Record<IconName, React.ReactNode> = {
   home: <path d="M3 10.5 12 3l9 7.5M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5" />,
@@ -89,6 +90,43 @@ const P: Record<IconName, React.ReactNode> = {
       <path d="m20 20-3.5-3.5" />
     </>
   ),
+  user: (
+    <>
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 20c0-3.5 3.6-6 8-6s8 2.5 8 6" />
+    </>
+  ),
+  shield: <path d="M12 2.5 20 5.5v6c0 5-3.4 8.5-8 10-4.6-1.5-8-5-8-10v-6L12 2.5Z" />,
+  list: <path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01" />,
+  bank: (
+    <>
+      <path d="M3 10 12 4l9 6" />
+      <path d="M5 10v8M9 10v8M15 10v8M19 10v8M3 21h18" />
+    </>
+  ),
+  headset: (
+    <>
+      <path d="M4 13v-1a8 8 0 0 1 16 0v1" />
+      <rect x="2.5" y="13" width="4" height="6" rx="1.5" />
+      <rect x="17.5" y="13" width="4" height="6" rx="1.5" />
+      <path d="M20 19v.5a3 3 0 0 1-3 3h-3" />
+    </>
+  ),
+  gauge: (
+    <>
+      <path d="M4 19a9 9 0 1 1 16 0" />
+      <path d="M12 15l4-4" />
+    </>
+  ),
+  logout: <path d="M15 4h3a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-3M10 8l-4 4 4 4M6 12h11" />,
+  lock: (
+    <>
+      <rect x="4" y="10.5" width="16" height="10" rx="2.5" />
+      <path d="M8 10.5V7a4 4 0 0 1 8 0v3.5" />
+    </>
+  ),
+  edit: <path d="M14 4.5 17.5 8 8 17.5 4 19l1.5-4L14 4.5ZM13 6l4 4" />,
+  trash: <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" />,
 };
 
 export function Icon({

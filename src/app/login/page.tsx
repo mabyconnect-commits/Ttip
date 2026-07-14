@@ -19,6 +19,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await apiPost("/api/auth/login", { identifier, password });
+      try { sessionStorage.setItem("ttip_unlocked", "1"); } catch {}
       // Full-page navigation so the freshly-set session cookie is sent with the
       // request for the protected /home route.
       window.location.assign("/home");

@@ -48,6 +48,7 @@ function SignupInner() {
         defaultFiat: fiat,
         referralCode: params.get("ref") ?? undefined,
       });
+      try { sessionStorage.setItem("ttip_unlocked", "1"); } catch {}
       // Full-page navigation so the freshly-set session cookie is sent with the
       // request for the protected /home route.
       window.location.assign("/home");
