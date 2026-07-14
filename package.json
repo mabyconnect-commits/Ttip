@@ -5,14 +5,14 @@
   "description": "Ttip — crypto in, cash out, tip anyone. Swap BTC/ETH/USDT to African fiat and tip friends instantly.",
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && next build",
+    "build": "prisma generate && node scripts/setup-db.mjs && next build",
     "start": "next start",
     "lint": "next lint",
     "postinstall": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
-    "db:reset": "prisma db push --force-reset && tsx prisma/seed.ts"
+    "db:reset": "prisma db push --force-reset && tsx prisma/seed.ts --force"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

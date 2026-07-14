@@ -38,16 +38,27 @@ async function createUser(opts: {
 }
 
 async function main() {
-  console.log("Resetting demo data…");
-  await prisma.feedItem.deleteMany();
-  await prisma.referral.deleteMany();
-  await prisma.transaction.deleteMany();
-  await prisma.beneficiary.deleteMany();
-  await prisma.walletAddress.deleteMany();
-  await prisma.card.deleteMany();
-  await prisma.balance.deleteMany();
-  await prisma.user.deleteMany();
+  // Idempotent: if the demo account already exists, do nothing. This lets the
+  // seed run safely on every deploy without wiping real sign-ups.
+  const force = process.argv.includes("--force");
+  const existing = await prisma.user.findUnique({ where: { username: "kola" } });
+  if (existing && !force) {
+    console.log("Demo data already present — skipping seed.");
+    return;
+  }
+  if (force) {
+    console.log("Resetting demo data (--force)…");
+    await prisma.feedItem.deleteMany();
+    await prisma.referral.deleteMany();
+    await prisma.transaction.deleteMany();
+    await prisma.beneficiary.deleteMany();
+    await prisma.walletAddress.deleteMany();
+    await prisma.card.deleteMany();
+    await prisma.balance.deleteMany();
+    await prisma.user.deleteMany();
+  }
 
+  console.log("Seeding demo data…");
   const kola = await createUser({
     name: "Kola Adeyemi", username: "kola", email: "kola@ttip.money",
     streak: 12, points: 2840, seedBalances: true,

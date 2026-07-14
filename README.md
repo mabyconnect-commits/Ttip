@@ -70,27 +70,29 @@ Open http://localhost:3000.
 ## Deploy to Vercel
 
 1. Push this repo to GitHub and **Import** it in Vercel.
-2. Create a database — **Vercel Postgres** (Storage tab) or a free **Neon** project — and
-   copy its connection string.
-3. In the Vercel project **Settings → Environment Variables**, add:
+2. **Add a database.** In the Vercel project, open the **Storage** tab → **Create
+   Database** → **Postgres** (or use a free [Neon](https://neon.tech) project). When you
+   create Vercel Postgres it auto-adds `DATABASE_URL` to your project for you.
+3. In **Settings → Environment Variables**, make sure these are set:
 
    | Variable | Value |
    |---|---|
-   | `DATABASE_URL` | your Postgres connection string |
-   | `AUTH_SECRET` | a long random string (`openssl rand -base64 48`) |
-   | `NEXT_PUBLIC_APP_URL` | your production URL, e.g. `https://ttip.vercel.app` |
+   | `DATABASE_URL` | Postgres connection string (auto-added by Vercel Postgres) |
+   | `AUTH_SECRET` | a long random string — run `openssl rand -base64 48` |
+   | `NEXT_PUBLIC_APP_URL` | your production URL, e.g. `https://your-app.vercel.app` |
    | `COINGECKO_API_KEY` | *(optional)* CoinGecko demo/pro key for higher rate limits |
 
-4. **Deploy.** The build runs `prisma generate` automatically.
-5. After the first deploy, create the tables and seed once. Easiest is locally with the
-   production `DATABASE_URL` exported:
+4. **Redeploy.** That's it — the build automatically creates the database tables and
+   seeds the demo account. No manual migration or seed step is needed.
 
-   ```bash
-   DATABASE_URL="<your prod url>" npm run db:push
-   DATABASE_URL="<your prod url>" npm run db:seed   # optional demo data
-   ```
+**Verify it worked:** open `https://your-app.vercel.app/api/health`. You want to see
+`"database":"connected"`, `"tables":"ready"`, `"AUTH_SECRET":true`, `"demoSeeded":true`.
+If any of those are off, the JSON tells you exactly what to fix. The sign-in / sign-up
+screens also now show the real reason instead of a generic error.
 
-That's it — the app is live.
+> **Important:** the app needs a database to work. If you deploy without adding one, the
+> app still loads but sign-in/sign-up will report that the database isn't configured —
+> add Postgres (step 2), set `AUTH_SECRET`, and redeploy.
 
 ### Mobile apps (iOS & Android)
 
