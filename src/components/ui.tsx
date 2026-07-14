@@ -144,21 +144,28 @@ export function Sheet({ open, onClose, children, title }: { open: boolean; onClo
 export function Toasts() {
   const { toasts } = useApp();
   return (
-    <div className="fixed left-1/2 bottom-24 z-[60] -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-none">
-      {toasts.map((t) => (
-        <div
-          key={t.id}
-          className="animate-toast px-4 py-3 rounded-2xl text-[13px] font-medium shadow-lg max-w-[90vw] text-center"
-          style={{
-            background: t.tone === "good" ? "rgba(61,245,176,.14)" : t.tone === "bad" ? "rgba(255,122,138,.14)" : "rgba(255,255,255,.1)",
-            border: `1px solid ${t.tone === "good" ? "rgba(61,245,176,.4)" : t.tone === "bad" ? "rgba(255,122,138,.4)" : "rgba(255,255,255,.15)"}`,
-            color: t.tone === "good" ? "#3DF5B0" : t.tone === "bad" ? "#FF7A8A" : "#fff",
-            backdropFilter: "blur(12px)",
-          }}
-        >
-          {t.msg}
-        </div>
-      ))}
+    <div className="fixed left-1/2 bottom-[86px] z-[60] -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-none w-full px-4">
+      {toasts.map((t) => {
+        const color = t.tone === "good" ? "#3DF5B0" : t.tone === "bad" ? "#FF7A8A" : "#2AC8FF";
+        return (
+          <div
+            key={t.id}
+            className="animate-toast inline-flex items-center gap-2.5 max-w-full pl-2.5 pr-4 py-2 rounded-full shadow-[0_10px_30px_rgba(0,0,0,.55)]"
+            style={{ background: "rgba(18,20,28,.92)", border: "1px solid rgba(255,255,255,.1)", backdropFilter: "blur(14px)" }}
+          >
+            <span className="w-[22px] h-[22px] rounded-full flex items-center justify-center shrink-0" style={{ background: `${color}26`, color }}>
+              {t.tone === "bad" ? (
+                <Icon name="plus" size={13} strokeWidth={2.8} className="rotate-45" />
+              ) : t.tone === "good" ? (
+                <Icon name="check" size={13} strokeWidth={2.8} />
+              ) : (
+                <span className="w-[6px] h-[6px] rounded-full" style={{ background: color }} />
+              )}
+            </span>
+            <span className="text-[13px] font-medium text-white/90 truncate">{t.msg}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }

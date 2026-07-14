@@ -24,7 +24,7 @@ export default function HomePage() {
     setFiatOpen(false);
     try {
       await action("/api/profile", { defaultFiat: code }, "PATCH");
-      toast(`Display currency set to ${code}`, "good");
+      toast(`Switched to ${code}`, "good");
     } catch (e: any) {
       toast(e.message, "bad");
     }
