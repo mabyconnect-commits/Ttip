@@ -1,0 +1,100 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --grad: linear-gradient(90deg, #6d5bff, #2ac8ff 55%, #3df5b0);
+  --grad-135: linear-gradient(135deg, #6d5bff, #2ac8ff 60%, #3df5b0);
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #07080d;
+  color: #fff;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+a {
+  color: #2ac8ff;
+  text-decoration: none;
+}
+a:hover {
+  color: #3df5b0;
+}
+
+input,
+button,
+textarea {
+  font-family: inherit;
+}
+input::placeholder,
+textarea::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+/* hide number spinners */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* thin scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* the gradient text used for the wordmark accent */
+.grad-text {
+  background: var(--grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.grad-bg {
+  background: var(--grad);
+}
+.grad-bg-135 {
+  background: var(--grad-135);
+}
+
+/* app viewport: phone-sized column, centered on desktop */
+.app-shell {
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background: #07080d;
+}
+
+@media (min-width: 500px) {
+  .app-shell {
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
+  }
+}

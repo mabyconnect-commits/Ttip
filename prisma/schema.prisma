@@ -1,0 +1,146 @@
+// Ttip — data model
+// Money is stored as Decimal to avoid floating point drift.
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  username       String   @unique
+  passwordHash   String
+  name           String
+  verified       Boolean  @default(false)
+  avatarGradient String   @default("135deg,#6D5BFF,#2AC8FF 60%,#3DF5B0")
+  defaultFiat    String   @default("NGN")
+  bankName       String?
+  bankAccount    String? // masked, e.g. "GTBank ••7204"
+  streakDays     Int      @default(0)
+  points         Int      @default(0)
+  freeSwapsLeft  Int      @default(3)
+  referralCode   String   @unique
+  referredById   String?
+  referralEarned Decimal  @default(0) @db.Decimal(18, 2)
+  createdAt      DateTime @default(now())
+
+  balances     Balance[]
+  transactions Transaction[]
+  addresses    WalletAddress[]
+  beneficiaries Beneficiary[]
+  card         Card?
+  feedItems    FeedItem[]      @relation("actor")
+  referrals    Referral[]      @relation("referrer")
+
+  @@index([username])
+}
+
+model Balance {
+  id     String  @id @default(cuid())
+  userId String
+  symbol String // BTC, ETH, USDT, USDC, SOL, NGN, GHS, KES, ZAR, USD
+  kind   String // "crypto" | "fiat"
+  amount Decimal @default(0) @db.Decimal(38, 18)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, symbol])
+  @@index([userId])
+}
+
+model WalletAddress {
+  id      String @id @default(cuid())
+  userId  String
+  symbol  String // BTC, ETH, USDT, etc.
+  network String // Bitcoin, ERC-20, TRC-20, Solana, ...
+  address String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, symbol, network])
+  @@index([userId])
+}
+
+model Transaction {
+  id           String   @id @default(cuid())
+  userId       String
+  type         String // swap | ttip_out | ttip_in | deposit | withdraw_wallet | withdraw_bank | bill | card_fund | card_spend | referral_bonus
+  status       String   @default("completed") // pending | completed | failed
+  assetIn      String?
+  amountIn     Decimal? @db.Decimal(38, 18)
+  assetOut     String?
+  amountOut    Decimal? @db.Decimal(38, 18)
+  counterparty String? // @username, bank acct, wallet address, provider
+  note         String?
+  emoji        String?
+  meta         Json?
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model Beneficiary {
+  id             String @id @default(cuid())
+  userId         String
+  name           String
+  handle         String? // @username or null
+  type           String // ttip | bank | wallet
+  detail         String // account / address / handle
+  avatarGradient String @default("135deg,#FF9A5B,#FF5B8F")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Card {
+  id         String   @id @default(cuid())
+  userId     String   @unique
+  last4      String
+  holder     String
+  balanceUsd Decimal  @default(0) @db.Decimal(18, 2)
+  frozen     Boolean  @default(false)
+  expMonth   Int
+  expYear    Int
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model FeedItem {
+  id         String   @id @default(cuid())
+  actorId    String
+  kind       String // tip | split | streak | swap
+  actorName  String
+  targetName String?
+  amount     Decimal? @db.Decimal(18, 2)
+  currency   String?
+  note       String?
+  emoji      String?
+  reactions  Json     @default("{}")
+  createdAt  DateTime @default(now())
+
+  actor User @relation("actor", fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+}
+
+model Referral {
+  id         String   @id @default(cuid())
+  referrerId String
+  joinedName String
+  bonus      Decimal  @default(2000) @db.Decimal(18, 2)
+  createdAt  DateTime @default(now())
+
+  referrer User @relation("referrer", fields: [referrerId], references: [id], onDelete: Cascade)
+
+  @@index([referrerId])
+}

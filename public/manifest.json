@@ -1,0 +1,13 @@
+{
+  "name": "Ttip — Crypto in. Cash out. Tip anyone.",
+  "short_name": "Ttip",
+  "description": "Swap crypto to African fiat and tip anyone instantly.",
+  "start_url": "/home",
+  "display": "standalone",
+  "background_color": "#07080D",
+  "theme_color": "#07080D",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/ttip-logo.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
