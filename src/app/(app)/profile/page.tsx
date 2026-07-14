@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import { apiGet } from "@/lib/client";
 import { BackHeader, Avatar, Sheet } from "@/components/ui";
+import { Icon } from "@/components/Icon";
 import { QR } from "@/components/QR";
 
 interface ProfileData {
@@ -36,7 +37,7 @@ export default function ProfilePage() {
 
   return (
     <div className="flex flex-col flex-1 px-[22px] min-h-0" style={{ background: "radial-gradient(100% 45% at 50% 0%,#141A2E 0%,#07080D 60%)" }}>
-      <BackHeader title="Profile" right={<button onClick={() => setSettings(true)} className="w-9 h-9 rounded-[18px] border border-white/12 flex items-center justify-center text-sm">⚙</button>} />
+      <BackHeader title="Profile" right={<button onClick={() => setSettings(true)} className="w-9 h-9 rounded-[18px] border border-white/12 flex items-center justify-center text-white/80"><Icon name="settings" size={17} /></button>} />
 
       <div className="flex-1 overflow-y-auto no-scrollbar">
         <div className="flex flex-col items-center gap-2 py-2">

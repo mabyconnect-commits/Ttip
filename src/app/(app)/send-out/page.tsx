@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import { usePrices } from "@/lib/usePrices";
 import { BackHeader, Segmented, GradientButton } from "@/components/ui";
+import { Icon } from "@/components/Icon";
 import { CRYPTO_ASSETS, FIATS, NETWORK_FEE_USDT } from "@/lib/constants";
 import { formatFiat, formatCrypto } from "@/lib/format";
 import { Receipt } from "@/components/Receipt";
@@ -71,7 +72,7 @@ export default function SendOutPage() {
 
         {mode === "wallet" && (
           <div className="bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] flex items-center gap-2 mt-3">
-            <span className="text-white/40">⌘</span>
+            <span className="text-white/40"><Icon name="scan" size={17} /></span>
             <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Wallet address or scan QR" className="flex-1 bg-transparent outline-none text-[14px]" />
             <button onClick={() => toast("QR scanner opens on device camera", "info")} className="text-brand-cyan text-[13px] font-semibold">Scan</button>
           </div>

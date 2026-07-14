@@ -7,6 +7,7 @@ import { useApp } from "@/context/AppContext";
 import { apiGet } from "@/lib/client";
 import { Ticker } from "@/components/Ticker";
 import { Avatar } from "@/components/ui";
+import { Icon, type IconName } from "@/components/Icon";
 import { formatFiat, formatUsd } from "@/lib/format";
 
 interface Txn {
@@ -15,13 +16,13 @@ interface Txn {
 }
 interface LeaderRow { rank: number; username: string; gradient: string; total: number; isYou: boolean }
 
-const NAV = [
-  { icon: "⌂", label: "Dashboard", href: "/dashboard", active: true },
-  { icon: "⇄", label: "Swap", href: "/swap" },
-  { icon: "⚡", label: "Ttip", href: "/ttip" },
-  { icon: "◎", label: "Feed", href: "/feed" },
-  { icon: "💳", label: "Card", href: "/card" },
-  { icon: "📱", label: "Bills", href: "/bills" },
+const NAV: { icon: IconName; label: string; href: string; active?: boolean }[] = [
+  { icon: "home", label: "Dashboard", href: "/dashboard", active: true },
+  { icon: "swap", label: "Swap", href: "/swap" },
+  { icon: "zap", label: "Ttip", href: "/ttip" },
+  { icon: "activity", label: "Feed", href: "/feed" },
+  { icon: "card", label: "Card", href: "/card" },
+  { icon: "bills", label: "Bills", href: "/bills" },
 ];
 
 const CHART = [34, 42, 38, 52, 47, 63, 58, 74, 69, 88];
@@ -52,7 +53,7 @@ export default function Dashboard() {
             onClick={() => router.push(n.href)}
             className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl font-sans text-[13.5px] transition ${n.active ? "bg-brand-cyan/12 text-brand-cyan font-semibold" : "text-white/55 hover:text-white hover:bg-white/5"}`}
           >
-            <span>{n.icon}</span> {n.label}
+            <Icon name={n.icon} size={19} /> {n.label}
           </button>
         ))}
         <div className="flex-1" />
@@ -125,9 +126,9 @@ export default function Dashboard() {
             <div className="bg-surface border border-white/[.06] rounded-[20px] p-[18px]">
               <div className="font-grotesk font-semibold text-[15px] mb-3">Quick actions</div>
               <div className="grid grid-cols-2 gap-2.5">
-                {[["⇄", "Swap", "/swap"], ["⚡", "Ttip", "/ttip"], ["↓", "Add money", "/deposit"], ["🧾", "Split", "/split"]].map(([i, l, h]) => (
-                  <button key={l} onClick={() => router.push(h)} className="bg-surface2 rounded-2xl py-4 flex flex-col items-center gap-1.5 hover:bg-white/5 transition">
-                    <span className="text-xl">{i}</span>
+                {([["swap", "Swap", "/swap"], ["zap", "Ttip", "/ttip"], ["arrowDown", "Add money", "/deposit"], ["gift", "Split", "/split"]] as [IconName, string, string][]).map(([i, l, h]) => (
+                  <button key={l} onClick={() => router.push(h)} className="bg-surface2 rounded-2xl py-4 flex flex-col items-center gap-1.5 hover:bg-white/5 transition text-white/85">
+                    <Icon name={i} size={22} />
                     <span className="text-[12px] text-white/70">{l}</span>
                   </button>
                 ))}

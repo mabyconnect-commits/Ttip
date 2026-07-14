@@ -7,6 +7,7 @@ import { useApp } from "@/context/AppContext";
 import { usePrices } from "@/lib/usePrices";
 import { TabBar } from "@/components/TabBar";
 import { Sheet, GradientButton } from "@/components/ui";
+import { Icon } from "@/components/Icon";
 import { formatUsd, formatCrypto } from "@/lib/format";
 
 const GOLD_TARGET = 4000;
@@ -86,8 +87,8 @@ export default function CardPage() {
           <button onClick={() => setFundOpen(true)} className="flex-1 h-[46px] rounded-[23px] flex items-center justify-center font-grotesk font-semibold text-[14px] text-[#04121A]" style={{ background: "linear-gradient(90deg,#6D5BFF,#2AC8FF)" }}>
             + Fund from crypto
           </button>
-          <button onClick={toggleFreeze} className="flex-1 h-[46px] rounded-[23px] border border-white/14 flex items-center justify-center font-grotesk font-semibold text-[14px]">
-            {card?.frozen ? "Unfreeze ☀️" : "Freeze ❄️"}
+          <button onClick={toggleFreeze} className="flex-1 h-[46px] rounded-[23px] border border-white/14 flex items-center justify-center gap-1.5 font-grotesk font-semibold text-[14px]">
+            <Icon name={card?.frozen ? "sun" : "snowflake"} size={16} /> {card?.frozen ? "Unfreeze" : "Freeze"}
           </button>
         </div>
 
@@ -117,7 +118,7 @@ export default function CardPage() {
             <div className="font-sans font-semibold text-[13.5px]">Bills &amp; airtime</div>
             <div className="font-sans text-[11.5px] text-white/45">Airtime, data, electricity, TV — pay straight from crypto</div>
           </div>
-          <span className="text-white/40">›</span>
+          <span className="text-white/40"><Icon name="chevronRight" size={18} /></span>
         </button>
       </div>
 

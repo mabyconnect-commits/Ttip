@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { Icon, type IconName } from "@/components/Icon";
 
-const tabs = [
-  { href: "/home", label: "Home", icon: "⌂" },
-  { href: "/swap", label: "Swap", icon: "⇄" },
-  { href: "/ttip", label: "", icon: "⚡", center: true },
-  { href: "/feed", label: "Feed", icon: "◎" },
-  { href: "/card", label: "Card", icon: "💳" },
+const tabs: { href: string; label: string; icon: IconName; center?: boolean }[] = [
+  { href: "/home", label: "Home", icon: "home" },
+  { href: "/swap", label: "Swap", icon: "swap" },
+  { href: "/ttip", label: "", icon: "zap", center: true },
+  { href: "/feed", label: "Feed", icon: "activity" },
+  { href: "/card", label: "Card", icon: "card" },
 ];
 
 export function TabBar() {
@@ -21,19 +22,19 @@ export function TabBar() {
           <button
             key={t.href}
             onClick={() => router.push(t.href)}
-            className="grad-bg-135 w-[52px] h-[52px] rounded-[26px] flex items-center justify-center text-[22px] text-[#04121A] -mt-6 shadow-[0_10px_24px_rgba(42,200,255,.35)] active:scale-95"
+            className="grad-bg-135 w-[52px] h-[52px] rounded-[26px] flex items-center justify-center text-[#04121A] -mt-6 shadow-[0_10px_24px_rgba(42,200,255,.35)] active:scale-95"
             aria-label="Ttip"
           >
-            {t.icon}
+            <Icon name="zap" size={24} fill="#04121A" strokeWidth={1.5} />
           </button>
         ) : (
           <Link
             key={t.href}
             href={t.href}
-            className="flex flex-col items-center gap-[3px]"
-            style={{ color: path === t.href ? "#2AC8FF" : "rgba(255,255,255,.4)" }}
+            className="flex flex-col items-center gap-[3px] w-14"
+            style={{ color: path === t.href ? "#2AC8FF" : "rgba(255,255,255,.42)" }}
           >
-            <span className="text-[19px]">{t.icon}</span>
+            <Icon name={t.icon} size={22} />
             <span className="font-medium text-[10px]">{t.label}</span>
           </Link>
         ),

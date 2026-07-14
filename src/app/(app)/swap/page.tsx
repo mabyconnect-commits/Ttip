@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import { usePrices } from "@/lib/usePrices";
 import { BackHeader, Sheet, GradientButton, grad } from "@/components/ui";
+import { Icon } from "@/components/Icon";
 import { AssetIcon } from "@/components/AssetIcon";
 import { formatFiat, formatCrypto } from "@/lib/format";
 import { CRYPTO_ASSETS, FIATS, SWAP_FEE_PCT } from "@/lib/constants";
@@ -107,10 +108,10 @@ export default function SwapPage() {
               // only allow flipping when both are crypto; otherwise keep fiat as target
               toast("Swaps go crypto → cash", "info");
             }}
-            className="w-11 h-11 rounded-[22px] flex items-center justify-center text-[18px] text-[#04121A] border-4 border-[#07080D]"
+            className="w-11 h-11 rounded-[22px] flex items-center justify-center text-[#04121A] border-4 border-[#07080D]"
             style={{ background: grad("135deg,#6D5BFF,#2AC8FF 60%,#3DF5B0") }}
           >
-            ⇅
+            <Icon name="swapVertical" size={18} strokeWidth={2.4} />
           </button>
         </div>
 
@@ -174,7 +175,7 @@ export default function SwapPage() {
         <Receipt
           onDone={() => { setReceipt(null); router.push("/home"); }}
           title={`${formatCrypto(receipt.amountIn, receipt.fromSymbol)} ${receipt.fromSymbol} swapped`}
-          emoji="⇄"
+          emoji="🔄"
           lines={[
             `You got ${toIsFiat ? formatFiat(receipt.amountOut, receipt.toSymbol) : formatCrypto(receipt.amountOut, receipt.toSymbol) + " " + receipt.toSymbol}`,
             `Rate 1 ${receipt.fromSymbol} = ${formatFiat(receipt.rate, receipt.toSymbol)}`,

@@ -3,6 +3,7 @@
 import { useApp } from "@/context/AppContext";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { Icon } from "@/components/Icon";
 
 export function grad(g: string) {
   return `linear-gradient(${g})`;
@@ -46,7 +47,7 @@ export function GradientButton({
       type={type}
       onClick={onClick}
       disabled={disabled || loading}
-      className={`grad-bg h-[56px] rounded-[28px] flex items-center justify-center font-grotesk font-semibold text-[17px] text-[#04121A] shadow-glow transition active:scale-[.98] disabled:opacity-50 disabled:active:scale-100 ${className}`}
+      className={`grad-bg w-full h-[56px] rounded-[28px] flex items-center justify-center gap-2 font-grotesk font-semibold text-[17px] text-[#04121A] shadow-glow transition active:scale-[.98] disabled:opacity-50 disabled:active:scale-100 px-4 text-center ${className}`}
     >
       {loading ? <Spinner /> : children}
     </button>
@@ -57,7 +58,7 @@ export function OutlineButton({ children, onClick, className = "" }: { children:
   return (
     <button
       onClick={onClick}
-      className={`h-[56px] rounded-[28px] border border-white/15 flex items-center justify-center font-medium text-[16px] text-white transition active:scale-[.98] ${className}`}
+      className={`w-full h-[56px] rounded-[28px] border border-white/15 flex items-center justify-center gap-2 font-medium text-[16px] text-white transition active:scale-[.98] px-4 ${className}`}
     >
       {children}
     </button>
@@ -79,10 +80,10 @@ export function BackHeader({ title, right }: { title: string; right?: React.Reac
     <div className="flex items-center justify-between pt-4 pb-3">
       <button
         onClick={() => router.back()}
-        className="w-9 h-9 rounded-[18px] border border-white/15 flex items-center justify-center text-lg active:scale-95"
+        className="w-9 h-9 rounded-[18px] border border-white/15 flex items-center justify-center text-white/80 active:scale-95"
         aria-label="Back"
       >
-        ‹
+        <Icon name="back" size={18} />
       </button>
       <div className="font-grotesk font-semibold text-[17px]">{title}</div>
       <div className="min-w-[36px] flex justify-end">{right}</div>

@@ -6,6 +6,7 @@ import { useApp } from "@/context/AppContext";
 import { usePrices } from "@/lib/usePrices";
 import { apiGet } from "@/lib/client";
 import { BackHeader, GradientButton, Sheet, Avatar } from "@/components/ui";
+import { Icon } from "@/components/Icon";
 import { formatFiat, formatCrypto } from "@/lib/format";
 import { Receipt } from "@/components/Receipt";
 
@@ -81,7 +82,7 @@ export default function TtipPage() {
 
   return (
     <div className="flex flex-col flex-1 px-[22px] min-h-0" style={{ background: "radial-gradient(100% 50% at 50% 0%,#131A2E 0%,#07080D 55%)" }}>
-      <BackHeader title="Ttip ⚡" right={<button onClick={() => setPickOpen(true)} className="w-9 h-9 rounded-[18px] border border-white/12 flex items-center justify-center text-sm">▦</button>} />
+      <BackHeader title="Ttip ⚡" right={<button onClick={() => setPickOpen(true)} className="w-9 h-9 rounded-[18px] border border-white/12 flex items-center justify-center text-white/80"><Icon name="grid" size={16} /></button>} />
 
       <div className="flex-1 overflow-y-auto no-scrollbar">
         {/* recipient */}

@@ -7,6 +7,7 @@ import { TabBar } from "@/components/TabBar";
 import { Ticker } from "@/components/Ticker";
 import { AssetIcon } from "@/components/AssetIcon";
 import { Avatar, Sheet, grad } from "@/components/ui";
+import { Icon, type IconName } from "@/components/Icon";
 import { formatFiat, formatUsd, formatCrypto } from "@/lib/format";
 import { FIATS } from "@/lib/constants";
 
@@ -45,11 +46,11 @@ export default function HomePage() {
           </div>
         </button>
         <div className="flex gap-2">
-          <button onClick={() => toast("No new notifications", "info")} className="w-9 h-9 rounded-[18px] border border-white/12 flex items-center justify-center text-[15px]">
-            🔔
+          <button onClick={() => toast("No new notifications", "info")} className="w-9 h-9 rounded-[18px] border border-white/12 flex items-center justify-center text-white/80">
+            <Icon name="bell" size={17} />
           </button>
-          <button onClick={() => router.push("/referrals")} className="w-9 h-9 rounded-[18px] border border-white/12 flex items-center justify-center text-[15px]">
-            ⌁
+          <button onClick={() => router.push("/referrals")} className="w-9 h-9 rounded-[18px] border border-white/12 flex items-center justify-center text-white/80">
+            <Icon name="gift" size={17} />
           </button>
         </div>
       </div>
@@ -78,19 +79,19 @@ export default function HomePage() {
         {/* add money / send */}
         <div className="grid grid-cols-2 gap-2.5 px-5 mt-4">
           <button onClick={() => router.push("/deposit")} className="grad-bg h-[46px] rounded-[23px] flex items-center justify-center gap-1.5 font-grotesk font-semibold text-[14px] text-[#04121A] active:scale-[.98]">
-            ↓ Add money
+            <Icon name="arrowDown" size={17} strokeWidth={2.4} /> Add money
           </button>
           <button onClick={() => router.push("/send-out")} className="h-[46px] rounded-[23px] border border-white/14 flex items-center justify-center gap-1.5 font-grotesk font-semibold text-[14px] active:scale-[.98]">
-            ↑ Send out
+            <Icon name="arrowUp" size={17} strokeWidth={2.4} /> Send out
           </button>
         </div>
 
         {/* quick actions */}
         <div className="grid grid-cols-4 gap-2.5 px-5 pt-4">
-          <QuickAction icon="⇄" label="Swap" gradient onClick={() => router.push("/swap")} />
-          <QuickAction icon="⚡" label="Ttip" onClick={() => router.push("/ttip")} />
-          <QuickAction icon="💳" label="Card" onClick={() => router.push("/card")} />
-          <QuickAction icon="📱" label="Bills" onClick={() => router.push("/bills")} />
+          <QuickAction icon="swap" label="Swap" gradient onClick={() => router.push("/swap")} />
+          <QuickAction icon="zap" label="Ttip" onClick={() => router.push("/ttip")} />
+          <QuickAction icon="card" label="Card" onClick={() => router.push("/card")} />
+          <QuickAction icon="bills" label="Bills" onClick={() => router.push("/bills")} />
         </div>
 
         {/* assets */}
@@ -149,14 +150,14 @@ export default function HomePage() {
   );
 }
 
-function QuickAction({ icon, label, onClick, gradient }: { icon: string; label: string; onClick: () => void; gradient?: boolean }) {
+function QuickAction({ icon, label, onClick, gradient }: { icon: IconName; label: string; onClick: () => void; gradient?: boolean }) {
   return (
     <button onClick={onClick} className="flex flex-col items-center gap-[7px] active:scale-95 transition">
       <div
-        className="w-[56px] h-[56px] rounded-[20px] flex items-center justify-center text-[22px]"
-        style={gradient ? { background: grad("135deg,#6D5BFF,#2AC8FF 60%,#3DF5B0"), color: "#04121A" } : { background: "#12141D", border: "1px solid rgba(255,255,255,.1)" }}
+        className="w-[56px] h-[56px] rounded-[20px] flex items-center justify-center"
+        style={gradient ? { background: grad("135deg,#6D5BFF,#2AC8FF 60%,#3DF5B0"), color: "#04121A" } : { background: "#12141D", border: "1px solid rgba(255,255,255,.1)", color: "#fff" }}
       >
-        {icon}
+        <Icon name={icon} size={24} fill={gradient && icon === "zap" ? "#04121A" : undefined} />
       </div>
       <span className="font-sans font-medium text-[11.5px] text-white/75">{label}</span>
     </button>
