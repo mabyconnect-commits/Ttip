@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import { usePrices } from "@/lib/usePrices";
@@ -13,6 +13,9 @@ import { Receipt } from "@/components/Receipt";
 import { AssetPicker } from "@/components/AssetPicker";
 
 const CRYPTO_SYMS = CRYPTO_ASSETS.map((a) => a.symbol);
+const ALL_SYMS = [...CRYPTO_SYMS, ...FIATS.map((f) => f.code)];
+const isFiatSym = (s: string) => FIATS.some((f) => f.code === s);
+const symLabel = (s: string) => (isFiatSym(s) ? FIATS.find((f) => f.code === s)?.flag ?? "" : CRYPTO_ASSETS.find((a) => a.symbol === s)?.glyph ?? "");
 
 export default function SwapPage() {
   const { state, action, toast } = useApp();
@@ -41,9 +44,16 @@ export default function SwapPage() {
   const net = gross * (1 - (free ? 0 : SWAP_FEE_PCT));
   const rate = amt > 0 ? convert(1, from, to) : convert(1, from, to);
   const bal = state.portfolio.assets.find((a) => a.symbol === from)?.amount ?? 0;
-  const toIsFiat = FIATS.some((f) => f.code === to);
+  const toIsFiat = isFiatSym(to);
+  const fromIsFiat = isFiatSym(from);
 
   const fromAsset = CRYPTO_ASSETS.find((a) => a.symbol === from);
+
+  function flip() {
+    setFrom(to);
+    setTo(from);
+    setPayoutToBank(false);
+  }
 
   async function doSwap() {
     if (amt <= 0) return toast("Enter an amount", "bad");
@@ -93,7 +103,11 @@ export default function SwapPage() {
               className="font-grotesk font-bold text-[36px] tracking-[-1px] bg-transparent outline-none w-full min-w-0"
             />
             <button onClick={() => setPickFrom(true)} className="flex items-center gap-2 bg-[#151827] rounded-[20px] px-3 py-[7px] shrink-0">
-              <AssetIcon color={fromAsset?.color ?? "#26A17B"} glyph={fromAsset?.glyph ?? "₮"} size={26} />
+              {fromIsFiat ? (
+                <span className="w-[26px] h-[26px] rounded-full bg-[#0D0F17] flex items-center justify-center text-[15px]">{symLabel(from)}</span>
+              ) : (
+                <AssetIcon color={fromAsset?.color ?? "#26A17B"} glyph={fromAsset?.glyph ?? "₮"} size={26} />
+              )}
               <span className="font-grotesk font-semibold text-[14px]">{from}</span>
               <span className="text-white/40">▾</span>
             </button>
@@ -103,12 +117,9 @@ export default function SwapPage() {
         {/* flip */}
         <div className="flex justify-center -my-3 relative z-[2]">
           <button
-            onClick={() => {
-              if (FIATS.some((f) => f.code === from)) return;
-              // only allow flipping when both are crypto; otherwise keep fiat as target
-              toast("Swaps go crypto → cash", "info");
-            }}
-            className="w-11 h-11 rounded-[22px] flex items-center justify-center text-[#04121A] border-4 border-[#07080D]"
+            onClick={flip}
+            aria-label="Flip direction"
+            className="w-11 h-11 rounded-[22px] flex items-center justify-center text-[#04121A] border-4 border-[#07080D] active:rotate-180 transition-transform"
             style={{ background: grad("135deg,#6D5BFF,#2AC8FF 60%,#3DF5B0") }}
           >
             <Icon name="swapVertical" size={18} strokeWidth={2.4} />
@@ -126,15 +137,15 @@ export default function SwapPage() {
               {toIsFiat ? formatFiat(net, to, { decimals: 0 }) : `${formatCrypto(net, to)}`}
             </div>
             <button onClick={() => setPickTo(true)} className="flex items-center gap-2 bg-[#151827] rounded-[20px] px-3 py-[7px] shrink-0">
-              <span className="text-base">{FIATS.find((f) => f.code === to)?.flag ?? CRYPTO_ASSETS.find((a) => a.symbol === to)?.glyph}</span>
+              <span className="text-base">{symLabel(to)}</span>
               <span className="font-grotesk font-semibold text-[14px]">{to}</span>
               <span className="text-white/40">▾</span>
             </button>
           </div>
           <div className="flex gap-1.5 mt-3 flex-wrap">
-            {FIATS.filter((f) => f.code !== to).map((f) => (
-              <button key={f.code} onClick={() => setTo(f.code)} className="font-grotesk font-medium text-[10.5px] text-white/50 border border-white/12 rounded-[10px] px-2 py-[3px]">
-                {f.flag} {f.code}
+            {(fromIsFiat ? CRYPTO_SYMS.slice(0, 5) : FIATS.map((f) => f.code)).filter((s) => s !== to && s !== from).map((s) => (
+              <button key={s} onClick={() => setTo(s)} className="font-grotesk font-medium text-[10.5px] text-white/50 border border-white/12 rounded-[10px] px-2 py-[3px]">
+                {symLabel(s)} {s}
               </button>
             ))}
           </div>
@@ -144,7 +155,7 @@ export default function SwapPage() {
         <div className="flex flex-col gap-2.5 px-1.5 py-[18px] font-sans text-[13px] text-white/55">
           <Row label="Rate">
             <b className="text-white font-grotesk">
-              1 {from} = {formatFiat(convert(1, from, to), to)}
+              1 {from} = {toIsFiat ? formatFiat(convert(1, from, to), to) : `${formatCrypto(convert(1, from, to), to)} ${to}`}
             </b>
           </Row>
           <Row label="Fee">
@@ -168,8 +179,8 @@ export default function SwapPage() {
         </GradientButton>
       </div>
 
-      <AssetPicker open={pickFrom} onClose={() => setPickFrom(false)} onPick={(s) => { setFrom(s); setPickFrom(false); }} symbols={CRYPTO_SYMS} balances={state.portfolio} title="Swap from" />
-      <AssetPicker open={pickTo} onClose={() => setPickTo(false)} onPick={(s) => { setTo(s); setPickTo(false); }} symbols={[...FIATS.map((f) => f.code), ...CRYPTO_SYMS.filter((s) => s !== from)]} balances={state.portfolio} title="Swap to" />
+      <AssetPicker open={pickFrom} onClose={() => setPickFrom(false)} onPick={(s) => { if (s === to) setTo(from); setFrom(s); setPickFrom(false); }} symbols={ALL_SYMS.filter((s) => s !== to)} balances={state.portfolio} title="Swap from" />
+      <AssetPicker open={pickTo} onClose={() => setPickTo(false)} onPick={(s) => { if (s === from) setFrom(to); setTo(s); setPickTo(false); }} symbols={ALL_SYMS.filter((s) => s !== from)} balances={state.portfolio} title="Swap to" />
 
       {receipt && (
         <Receipt
@@ -177,8 +188,8 @@ export default function SwapPage() {
           title={`${formatCrypto(receipt.amountIn, receipt.fromSymbol)} ${receipt.fromSymbol} swapped`}
           emoji="🔄"
           lines={[
-            `You got ${toIsFiat ? formatFiat(receipt.amountOut, receipt.toSymbol) : formatCrypto(receipt.amountOut, receipt.toSymbol) + " " + receipt.toSymbol}`,
-            `Rate 1 ${receipt.fromSymbol} = ${formatFiat(receipt.rate, receipt.toSymbol)}`,
+            `You got ${isFiatSym(receipt.toSymbol) ? formatFiat(receipt.amountOut, receipt.toSymbol) : formatCrypto(receipt.amountOut, receipt.toSymbol) + " " + receipt.toSymbol}`,
+            `Rate 1 ${receipt.fromSymbol} = ${isFiatSym(receipt.toSymbol) ? formatFiat(receipt.rate, receipt.toSymbol) : formatCrypto(receipt.rate, receipt.toSymbol) + " " + receipt.toSymbol}`,
             receipt.settledToBank ? `Paid to ${receipt.destination}` : `Added to your ${receipt.toSymbol} balance`,
           ]}
         />

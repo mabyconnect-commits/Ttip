@@ -1,13 +1,13 @@
 import { handler, ok } from "@/lib/api";
-import { getPrices } from "@/lib/prices";
-import { CRYPTO_ASSETS, FIAT_USD_RATE, FIATS } from "@/lib/constants";
+import { getPrices, getFiatRates } from "@/lib/prices";
+import { CRYPTO_ASSETS, FIATS } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 60;
 
 export async function GET() {
   return handler(async () => {
-    const prices = await getPrices();
+    const [prices, fiatRates] = await Promise.all([getPrices(), getFiatRates()]);
 
     // Build a ticker of common crypto/fiat pairs.
     const pairs: { pair: string; value: number; change: number; fiat: string }[] = [];
@@ -17,14 +17,14 @@ export async function GET() {
     ];
     for (const [c, f] of feature) {
       const usd = prices[c]?.usd ?? 0;
-      const value = usd / (FIAT_USD_RATE[f] ?? 1);
+      const value = usd / (fiatRates[f] ?? 1);
       pairs.push({ pair: `${c}/${f}`, value, change: prices[c]?.change24h ?? 0, fiat: f });
     }
 
     return ok({
       prices,
       pairs,
-      fiatRates: FIAT_USD_RATE,
+      fiatRates,
       fiats: FIATS,
       assets: CRYPTO_ASSETS.map((a) => ({ symbol: a.symbol, name: a.name, color: a.color, glyph: a.glyph })),
       updatedAt: Date.now(),

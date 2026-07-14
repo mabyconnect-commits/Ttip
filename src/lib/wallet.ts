@@ -56,7 +56,8 @@ export async function buildPortfolio(
   displayFiat: string,
 ): Promise<Portfolio> {
   const prices = await getPrices();
-  const { FIAT_USD_RATE } = await import("./constants");
+  const { getFiatRates } = await import("./prices");
+  const FIAT_USD_RATE = await getFiatRates();
   const fiatRate = FIAT_USD_RATE[displayFiat] ?? 1;
 
   const assets: PortfolioAsset[] = [];

@@ -79,6 +79,50 @@ export async function usdPrice(symbol: string): Promise<number> {
   return prices[symbol]?.usd ?? FALLBACK_USD_PRICE[symbol] ?? 1;
 }
 
+// ---- Live fiat FX rates (USD value of one unit of each fiat) ----
+interface FxCache {
+  at: number;
+  data: Record<string, number>;
+}
+const globalForFx = globalThis as unknown as { __ttipFx?: FxCache };
+const FX_TTL = 30 * 60 * 1000; // fiat moves slowly; refresh every 30 min
+
+async function fetchFiatRates(): Promise<Record<string, number> | null> {
+  // Free, no-key FX feed (mid-market). Two mirrors for reliability.
+  const urls = [
+    "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.min.json",
+    "https://latest.currency-api.pages.dev/v1/currencies/usd.min.json",
+  ];
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { next: { revalidate: 1800 } });
+      if (!res.ok) continue;
+      const json = (await res.json()) as { usd?: Record<string, number> };
+      const usd = json.usd;
+      if (!usd) continue;
+      const out: Record<string, number> = { USD: 1 };
+      for (const code of ["NGN", "GHS", "KES", "ZAR"]) {
+        const perUsd = usd[code.toLowerCase()];
+        if (typeof perUsd === "number" && perUsd > 0) out[code] = 1 / perUsd; // USD per 1 unit
+      }
+      if (Object.keys(out).length > 1) return out;
+    } catch {
+      /* try next mirror */
+    }
+  }
+  return null;
+}
+
+/** USD value of one unit of each supported fiat, live where possible. */
+export async function getFiatRates(): Promise<Record<string, number>> {
+  const cache = globalForFx.__ttipFx;
+  if (cache && Date.now() - cache.at < FX_TTL) return cache.data;
+  const live = await fetchFiatRates();
+  const data = live ?? cache?.data ?? FIAT_USD_RATE;
+  globalForFx.__ttipFx = { at: Date.now(), data };
+  return data;
+}
+
 /** Convert an amount of `from` asset into `to` asset. Both can be crypto or fiat. */
 export async function convert(amount: number, from: string, to: string): Promise<number> {
   if (from === to) return amount;
@@ -87,12 +131,14 @@ export async function convert(amount: number, from: string, to: string): Promise
 }
 
 export async function toUsd(amount: number, symbol: string): Promise<number> {
-  if (FIAT_USD_RATE[symbol] !== undefined) return amount * FIAT_USD_RATE[symbol];
+  const fx = await getFiatRates();
+  if (fx[symbol] !== undefined) return amount * fx[symbol];
   return amount * (await usdPrice(symbol));
 }
 
 export async function fromUsd(usd: number, symbol: string): Promise<number> {
-  if (FIAT_USD_RATE[symbol] !== undefined) return usd / FIAT_USD_RATE[symbol];
+  const fx = await getFiatRates();
+  if (fx[symbol] !== undefined) return usd / fx[symbol];
   return usd / (await usdPrice(symbol));
 }
 
