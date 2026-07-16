@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BackHeader } from "@/components/ui";
 import { useApp } from "@/context/AppContext";
+
+const STORE_KEY = "ttip_notif_prefs";
 
 const GROUPS = [
   {
@@ -32,13 +34,22 @@ const GROUPS = [
 
 export default function NotificationsPage() {
   const { toast } = useApp();
-  const [state, setState] = useState<Record<string, boolean>>(
-    Object.fromEntries(GROUPS.flatMap((g) => g.items.map((i) => [i.key, i.on]))),
-  );
+  const defaults = Object.fromEntries(GROUPS.flatMap((g) => g.items.map((i) => [i.key, i.on])));
+  const [state, setState] = useState<Record<string, boolean>>(defaults);
+
+  // Load saved preferences on mount.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORE_KEY);
+      if (saved) setState({ ...defaults, ...JSON.parse(saved) });
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function toggle(key: string) {
     setState((s) => {
       const next = { ...s, [key]: !s[key] };
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(next)); } catch {}
       toast(`${next[key] ? "On" : "Off"} · saved`, next[key] ? "good" : "info");
       return next;
     });

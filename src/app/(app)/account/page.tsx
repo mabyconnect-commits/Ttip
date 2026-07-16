@@ -15,7 +15,7 @@ export default function AccountPage() {
   const kycColor = user.kycStatus === "verified" ? "#3DF5B0" : user.kycStatus === "pending" ? "#FFC85B" : "#2AC8FF";
 
   const items: { icon: IconName; label: string; sub: string; href: string; badge?: string; badgeColor?: string }[] = [
-    { icon: "user", label: "My profile", sub: "Edit your account information", href: "/profile" },
+    { icon: "user", label: "My profile", sub: "Edit your account information", href: "/account/profile" },
     { icon: "shield", label: "KYC", sub: "Verify your account", href: "/account/kyc", badge: kycLabel, badgeColor: kycColor },
     { icon: "gauge", label: "Spending limits", sub: "See your tier & limits", href: "/account/limits" },
     { icon: "list", label: "Transactions", sub: "See all transactions", href: "/account/transactions" },

@@ -21,8 +21,9 @@ export default function LoginPage() {
       await apiPost("/api/auth/login", { identifier, password });
       try { sessionStorage.setItem("ttip_unlocked", "1"); } catch {}
       // Full-page navigation so the freshly-set session cookie is sent with the
-      // request for the protected /home route.
-      window.location.assign("/home");
+      // request for the protected route. Honor a safe internal ?next= target.
+      const next = new URLSearchParams(window.location.search).get("next");
+      window.location.assign(next && next.startsWith("/") ? next : "/home");
     } catch (e: any) {
       setErr(e.message);
       setLoading(false);

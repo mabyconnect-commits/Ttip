@@ -2,7 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { grad } from "@/components/ui";
+import { getUserId } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +10,12 @@ export default async function PublicTipPage({ params }: { params: { username: st
   const username = params.username.toLowerCase().replace(/^@/, "");
   const user = await prisma.user.findUnique({ where: { username } });
   if (!user) notFound();
+
+  const viewerId = await getUserId();
+  const loggedIn = !!viewerId;
+  const tipHref = loggedIn
+    ? `/ttip?to=${user.username}`
+    : `/login?next=${encodeURIComponent(`/ttip?to=${user.username}`)}`;
 
   const initial = user.name.charAt(0).toUpperCase();
   const received = await prisma.transaction.count({ where: { userId: user.id, type: "ttip_in" } });
@@ -24,7 +30,7 @@ export default async function PublicTipPage({ params }: { params: { username: st
 
         <div
           className="w-[92px] h-[92px] rounded-full flex items-center justify-center font-grotesk font-bold text-[34px] text-[#04121A]"
-          style={{ background: grad(user.avatarGradient), border: "3px solid rgba(42,200,255,.4)" }}
+          style={{ background: `linear-gradient(${user.avatarGradient})`, border: "3px solid rgba(42,200,255,.4)" }}
         >
           {initial}
         </div>
@@ -39,11 +45,11 @@ export default async function PublicTipPage({ params }: { params: { username: st
         </p>
 
         <div className="flex flex-col gap-3 w-full max-w-[320px] mt-2">
-          <Link href={`/ttip?to=${user.username}`} className="grad-bg h-[54px] rounded-[27px] flex items-center justify-center font-grotesk font-semibold text-[16px] text-[#04121A] shadow-glow">
+          <Link href={tipHref} className="grad-bg h-[54px] rounded-[27px] flex items-center justify-center font-grotesk font-semibold text-[16px] text-[#04121A] shadow-glow">
             ⚡ Ttip @{user.username}
           </Link>
-          <Link href="/signup" className="h-[54px] rounded-[27px] border border-white/15 flex items-center justify-center font-medium text-[15px]">
-            Get the app
+          <Link href={loggedIn ? "/home" : "/signup"} className="h-[54px] rounded-[27px] border border-white/15 flex items-center justify-center font-medium text-[15px]">
+            {loggedIn ? "Open Ttip" : "Get the app"}
           </Link>
         </div>
       </div>

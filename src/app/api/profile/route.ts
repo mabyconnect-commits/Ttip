@@ -42,7 +42,9 @@ export async function GET() {
 
 const patch = z.object({
   defaultFiat: z.string().optional(),
-  name: z.string().max(60).optional(),
+  name: z.string().min(1).max(60).optional(),
+  bankName: z.string().max(80).optional(),
+  bankAccount: z.string().max(20).optional(),
 });
 
 export async function PATCH(req: Request) {
@@ -55,6 +57,8 @@ export async function PATCH(req: Request) {
       data: {
         defaultFiat: input.defaultFiat && FIAT_BY_CODE[input.defaultFiat] ? input.defaultFiat : undefined,
         name: input.name,
+        bankName: input.bankName,
+        bankAccount: input.bankName && input.bankAccount ? `${input.bankName} ••${input.bankAccount.slice(-4)}` : undefined,
       },
     });
     const state = await getAppState(userId);
