@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { getUserId } from "@/lib/auth";
 import { handler, ok, unauthorized } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
+import { baseUrl } from "@/lib/url";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,7 @@ export async function GET() {
       take: 50,
     });
 
-    const base = process.env.NEXT_PUBLIC_APP_URL ?? "";
+    const base = baseUrl();
     return ok({
       code: user.referralCode,
       link: `${base}/join?ref=${user.referralCode}`,

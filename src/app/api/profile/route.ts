@@ -5,6 +5,7 @@ import { handler, ok, unauthorized } from "@/lib/api";
 import { getAppState } from "@/lib/serialize";
 import { timeAgo } from "@/lib/format";
 import { FIAT_BY_CODE } from "@/lib/constants";
+import { baseUrl } from "@/lib/url";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,7 @@ export async function GET() {
       take: 6,
     });
 
-    const base = process.env.NEXT_PUBLIC_APP_URL ?? "";
+    const base = baseUrl();
     return ok({
       link: `${base.replace(/^https?:\/\//, "")}/u/${user.username}`.replace(/\/$/, ""),
       fullLink: `${base}/u/${user.username}`,
