@@ -25,13 +25,16 @@ export default function TransactionsPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  function fmtFiat(v: number, s: string) {
+    return formatFiat(v, s, { decimals: s === "USD" ? 2 : 0 });
+  }
   function amountText(t: Txn) {
     if (t.direction === "in") {
       const s = t.assetOut ?? state.user.defaultFiat;
-      return "+" + (isFiat(s) ? formatFiat(t.amountOut ?? 0, s, { decimals: 0 }) : `${formatCrypto(t.amountOut ?? 0, s)} ${s}`);
+      return "+" + (isFiat(s) ? fmtFiat(t.amountOut ?? 0, s) : `${formatCrypto(t.amountOut ?? 0, s)} ${s}`);
     }
     const s = t.assetIn ?? "USDT";
-    return "−" + (isFiat(s) ? formatFiat(t.amountIn ?? 0, s, { decimals: 0 }) : `${formatCrypto(t.amountIn ?? 0, s)} ${s}`);
+    return "−" + (isFiat(s) ? fmtFiat(t.amountIn ?? 0, s) : `${formatCrypto(t.amountIn ?? 0, s)} ${s}`);
   }
 
   return (

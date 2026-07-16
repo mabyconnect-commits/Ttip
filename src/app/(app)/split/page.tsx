@@ -67,7 +67,9 @@ export default function SplitPage() {
             />
           </div>
           <div className="text-[13px] text-good mt-1">
-            {formatFiat(share, fiat, { decimals: 0 })} each · {heads} {heads === 1 ? "person" : "people"}
+            {picked.length === 0
+              ? "Select who's splitting below"
+              : `${formatFiat(share, fiat, { decimals: 0 })} each · ${heads} people`}
           </div>
         </div>
 

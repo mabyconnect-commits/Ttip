@@ -24,6 +24,11 @@ export function AppLock({ children }: { children: React.ReactNode }) {
   const [clearToken, setClearToken] = useState(0);
 
   useEffect(() => {
+    if (!hasPin) {
+      setLocked(false);
+      setReady(true);
+      return;
+    }
     const unlocked = (() => {
       try {
         return sessionStorage.getItem(KEY) === "1";
@@ -52,6 +57,8 @@ export function AppLock({ children }: { children: React.ReactNode }) {
     }
   }
 
+  // Users without a PIN are never gated — render immediately (no SSR flash).
+  if (!hasPin) return <>{children}</>;
   if (!ready) return null;
   if (!locked) return <>{children}</>;
 
