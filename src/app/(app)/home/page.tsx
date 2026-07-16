@@ -46,7 +46,7 @@ export default function HomePage() {
           </div>
         </button>
         <div className="flex gap-2">
-          <button onClick={() => toast("No new notifications", "info")} className="w-9 h-9 rounded-[18px] border border-white/12 flex items-center justify-center text-white/80">
+          <button onClick={() => router.push("/notifications")} className="w-9 h-9 rounded-[18px] border border-white/12 flex items-center justify-center text-white/80">
             <Icon name="bell" size={17} />
           </button>
           <button onClick={() => router.push("/referrals")} className="w-9 h-9 rounded-[18px] border border-white/12 flex items-center justify-center text-white/80">

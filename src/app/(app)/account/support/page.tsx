@@ -7,10 +7,10 @@ import { Icon } from "@/components/Icon";
 export default function SupportPage() {
   const { toast } = useApp();
   const channels = [
-    { icon: "💬", label: "Live chat", sub: "Typical reply in a few minutes", action: () => toast("Live chat opens here", "info") },
+    { icon: "💬", label: "Live chat", sub: "Typical reply in a few minutes", action: () => toast("Live chat coming soon — email us for now", "info") },
     { icon: "✉️", label: "Email us", sub: "support@ttip.money", href: "mailto:support@ttip.money" },
-    { icon: "📱", label: "WhatsApp", sub: "Chat on WhatsApp", action: () => toast("Opens WhatsApp", "info") },
-    { icon: "🐦", label: "X / Twitter", sub: "@ttipmoney", action: () => toast("Opens X", "info") },
+    { icon: "📱", label: "WhatsApp", sub: "Chat on WhatsApp", href: "https://wa.me/2348000000000?text=Hi%20Ttip%20support" },
+    { icon: "🐦", label: "X / Twitter", sub: "@ttipmoney", href: "https://x.com/ttipmoney" },
   ];
   const faqs = [
     { q: "How long do bank payouts take?", a: "Most payouts settle in seconds. Bank downtime can add a few minutes." },
@@ -30,7 +30,7 @@ export default function SupportPage() {
         <div className="grid grid-cols-2 gap-2.5">
           {channels.map((c) =>
             c.href ? (
-              <a key={c.label} href={c.href} className="bg-surface border border-white/[.06] rounded-2xl p-4 active:scale-[.98]">
+              <a key={c.label} href={c.href} target={c.href.startsWith("http") ? "_blank" : undefined} rel="noopener noreferrer" className="bg-surface border border-white/[.06] rounded-2xl p-4 active:scale-[.98]">
                 <div className="text-2xl">{c.icon}</div>
                 <div className="font-medium text-[13.5px] mt-2">{c.label}</div>
                 <div className="text-white/40 text-[11px]">{c.sub}</div>

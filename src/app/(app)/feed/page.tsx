@@ -51,6 +51,13 @@ export default function FeedPage() {
   const you = board.find((b) => b.isYou);
   const ahead = board.find((b) => you && b.rank === you.rank - 1);
 
+  // Filter/sort the feed by the active tab.
+  const shownFeed = (() => {
+    if (tab === "Top") return [...feed].sort((a, b) => (b.amount ?? 0) - (a.amount ?? 0));
+    if (tab === "Lagos 🔥") return feed.filter((it) => it.kind === "tip" || it.kind === "split");
+    return feed; // Friends → recent (default order)
+  })();
+
   return (
     <>
       <div className="flex items-center justify-between px-[22px] pt-3.5 pb-3">
@@ -81,7 +88,7 @@ export default function FeedPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto no-scrollbar px-[22px] py-3.5 flex flex-col gap-2.5">
-        {feed.map((it) => (
+        {shownFeed.map((it) => (
           <div key={it.id} className="bg-surface border border-white/[.06] rounded-[18px] p-3.5">
             <div className="flex items-center gap-2.5">
               <Avatar gradient={it.gradient} initial={it.initial} size={34} />
@@ -107,7 +114,10 @@ export default function FeedPage() {
               ))}
               <button onClick={() => react(it.id, "🔥")} className="opacity-60">＋</button>
               <button
-                onClick={() => router.push("/ttip")}
+                onClick={() => {
+                  const handle = it.actorName.replace(/^@/, "");
+                  router.push(it.kind === "split" ? "/split" : `/ttip?to=${encodeURIComponent(handle)}`);
+                }}
                 className="ml-auto text-brand-cyan"
               >
                 ⚡ {it.kind === "split" ? "Split" : it.kind === "streak" ? "Congratulate" : "Ttip back"}
@@ -115,7 +125,7 @@ export default function FeedPage() {
             </div>
           </div>
         ))}
-        {feed.length === 0 && <div className="text-center text-white/40 text-[13px] py-10">No activity yet. Send a Ttip to start the feed.</div>}
+        {shownFeed.length === 0 && <div className="text-center text-white/40 text-[13px] py-10">Nothing here yet.</div>}
       </div>
 
       <TabBar />

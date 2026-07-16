@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { getUserId } from "@/lib/auth";
 import { handler, ok, unauthorized, ApiError } from "@/lib/api";
 import { getAppState } from "@/lib/serialize";
-import { CRYPTO_ASSETS } from "@/lib/constants";
+import { CRYPTO_ASSETS, FIAT_BY_CODE } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
 
@@ -42,12 +42,13 @@ export async function POST(req: Request) {
     const userId = await getUserId();
     if (!userId) return unauthorized();
     const { symbol, amount, network } = simSchema.parse(await req.json());
-    if (!CRYPTO_ASSETS.find((a) => a.symbol === symbol)) throw new ApiError("Unsupported asset", 400);
+    const isFiat = !!FIAT_BY_CODE[symbol];
+    if (!isFiat && !CRYPTO_ASSETS.find((a) => a.symbol === symbol)) throw new ApiError("Unsupported asset", 400);
 
     await prisma.$transaction(async (tx) => {
       await tx.balance.upsert({
         where: { userId_symbol: { userId, symbol } },
-        create: { userId, symbol, kind: "crypto", amount: new Prisma.Decimal(amount) },
+        create: { userId, symbol, kind: isFiat ? "fiat" : "crypto", amount: new Prisma.Decimal(amount) },
         update: { amount: { increment: amount } },
       });
       await tx.transaction.create({
@@ -56,9 +57,9 @@ export async function POST(req: Request) {
           type: "deposit",
           assetOut: symbol,
           amountOut: new Prisma.Decimal(amount),
-          counterparty: "On-chain",
-          note: `Received ${symbol}${network ? " · " + network : ""}`,
-          emoji: "📥",
+          counterparty: isFiat ? "Bank transfer" : "On-chain",
+          note: isFiat ? `Funded ${symbol} via bank` : `Received ${symbol}${network ? " · " + network : ""}`,
+          emoji: isFiat ? "🏦" : "📥",
         },
       });
     });

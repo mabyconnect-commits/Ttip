@@ -31,6 +31,7 @@ model User {
   pinHash        String?
   kycStatus      String   @default("unverified") // unverified | pending | verified
   kycTier        Int      @default(1)
+  lastDropAt     DateTime?
   createdAt      DateTime @default(now())
 
   balances     Balance[]

@@ -7,6 +7,7 @@ import { BackHeader, Segmented, GradientButton } from "@/components/ui";
 import { AssetIcon } from "@/components/AssetIcon";
 import { QR } from "@/components/QR";
 import { Receipt } from "@/components/Receipt";
+import { formatFiat } from "@/lib/format";
 import { useRouter } from "next/navigation";
 
 interface DepAsset {
@@ -52,6 +53,18 @@ export default function DepositPage() {
     }
   }
 
+  async function simulateNaira() {
+    setLoading(true);
+    try {
+      const res: any = await action("/api/deposit", { symbol: fiat, amount: 50000 });
+      setReceipt(res.receipt);
+    } catch (e: any) {
+      toast(e.message, "bad");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div className="flex flex-col flex-1 px-[22px] min-h-0">
       <BackHeader title="Add money" />
@@ -70,6 +83,9 @@ export default function DepositPage() {
               ⚠️ Transfers reflect in seconds. This is a dedicated account for your wallet.
             </div>
           </div>
+          <button onClick={simulateNaira} disabled={loading} className="w-full mt-3 rounded-2xl border border-dashed border-good/40 text-good py-3.5 font-grotesk font-semibold text-[14px] active:scale-[.99] disabled:opacity-50">
+            ▶ Simulate transfer +{fiat === "NGN" ? "₦50,000" : "50,000 " + fiat}
+          </button>
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto no-scrollbar pt-4">
@@ -132,8 +148,8 @@ export default function DepositPage() {
         <Receipt
           onDone={() => { setReceipt(null); router.push("/home"); }}
           emoji="📥"
-          title={`${receipt.amount} ${receipt.symbol} received`}
-          lines={[`Credited to your wallet`, receipt.network ? `via ${receipt.network}` : "Confirmed on-chain"]}
+          title={`${receipt.symbol === fiat ? formatFiat(receipt.amount, fiat, { decimals: 0 }) : receipt.amount + " " + receipt.symbol} received`}
+          lines={[`Credited to your wallet`, receipt.network ? `via ${receipt.network}` : receipt.symbol === fiat ? "Bank transfer confirmed" : "Confirmed on-chain"]}
         />
       )}
     </div>

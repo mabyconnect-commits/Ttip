@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { useApp } from "@/context/AppContext";
 import { usePrices } from "@/lib/usePrices";
+import { apiGet } from "@/lib/client";
 import { TabBar } from "@/components/TabBar";
 import { Sheet, GradientButton } from "@/components/ui";
 import { Icon } from "@/components/Icon";
@@ -12,12 +13,35 @@ import { formatUsd, formatCrypto } from "@/lib/format";
 
 const GOLD_TARGET = 4000;
 
+interface Quest { id: string; title: string; reward: number; icon: string; progress: number; goal: number }
+
 export default function CardPage() {
   const { state, action, toast } = useApp();
   const { convert } = usePrices();
   const router = useRouter();
   const card = state.card;
   const [fundOpen, setFundOpen] = useState(false);
+  const [questsOpen, setQuestsOpen] = useState(false);
+  const [quests, setQuests] = useState<Quest[]>([]);
+  const [claiming, setClaiming] = useState(false);
+
+  async function claimDrop() {
+    if (claiming) return;
+    setClaiming(true);
+    try {
+      const res: any = await action("/api/rewards", { action: "daily" });
+      toast(`Claimed +${res.awarded} pts 🎁`, "good");
+    } catch (e: any) {
+      toast(e.message, "bad");
+    } finally {
+      setClaiming(false);
+    }
+  }
+
+  function openQuests() {
+    setQuestsOpen(true);
+    apiGet<{ quests: Quest[] }>("/api/rewards").then((d) => setQuests(d.quests)).catch(() => {});
+  }
   const [usd, setUsd] = useState("50");
   const [src, setSrc] = useState("USDT");
   const [loading, setLoading] = useState(false);
@@ -105,8 +129,8 @@ export default function CardPage() {
             {toGold > 0 ? <>{toGold.toLocaleString()} pts to <b className="text-good">Gold</b> — zero-fee swaps all month + a custom card skin</> : <><b className="text-good">Gold unlocked</b> — zero-fee swaps + custom skin 🎉</>}
           </div>
           <div className="flex gap-2 mt-3.5">
-            <RewardTile icon="🎁" label="Daily drop" onClick={() => toast("You claimed +50 pts 🎁", "good")} />
-            <RewardTile icon="🎯" label="Quests" onClick={() => toast("3 quests available", "info")} />
+            <RewardTile icon="🎁" label="Daily drop" onClick={claimDrop} />
+            <RewardTile icon="🎯" label="Quests" onClick={openQuests} />
             <RewardTile icon="👯" label="Invite = ₦2k" onClick={() => router.push("/referrals")} />
           </div>
         </div>
@@ -145,6 +169,34 @@ export default function CardPage() {
         <GradientButton onClick={fund} loading={loading}>
           Add {formatUsd(parseFloat(usd) || 0)} to card
         </GradientButton>
+      </Sheet>
+
+      <Sheet open={questsOpen} onClose={() => setQuestsOpen(false)} title="Quests · earn points">
+        <div className="flex flex-col gap-2">
+          {quests.map((q) => {
+            const done = q.progress >= q.goal;
+            return (
+              <div key={q.id} className="bg-surface border border-white/[.06] rounded-2xl p-3.5">
+                <div className="flex items-center gap-3">
+                  <span className="text-xl">{q.icon}</span>
+                  <div className="flex-1">
+                    <div className="font-medium text-[14px]">{q.title}</div>
+                    <div className="text-white/40 text-[11.5px]">+{q.reward} pts</div>
+                  </div>
+                  {done ? (
+                    <span className="text-good"><Icon name="check" size={18} strokeWidth={3} /></span>
+                  ) : (
+                    <span className="text-white/50 font-grotesk text-[12px]">{q.progress}/{q.goal}</span>
+                  )}
+                </div>
+                <div className="h-1.5 rounded-full bg-white/[.08] mt-2.5 overflow-hidden">
+                  <div className="h-full rounded-full grad-bg" style={{ width: `${Math.round((q.progress / q.goal) * 100)}%` }} />
+                </div>
+              </div>
+            );
+          })}
+          {quests.length === 0 && <div className="text-center text-white/40 text-[13px] py-4">Loading quests…</div>}
+        </div>
       </Sheet>
     </>
   );
