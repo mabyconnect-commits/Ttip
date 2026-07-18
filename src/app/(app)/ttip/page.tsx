@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import { usePrices } from "@/lib/usePrices";
 import { apiGet } from "@/lib/client";
+import { pickFunding } from "@/lib/funding";
 import { BackHeader, GradientButton, Sheet, Avatar } from "@/components/ui";
 import { Icon } from "@/components/Icon";
 import { formatFiat, formatCrypto } from "@/lib/format";
@@ -40,9 +41,9 @@ export default function TtipPage() {
   const [loading, setLoading] = useState(false);
   const [receipt, setReceipt] = useState<any>(null);
 
-  const funding = "USDT";
+  const funding = pickFunding(state.portfolio.assets);
   const cost = convert(amount, fiat, funding);
-  const usdtBal = state.portfolio.assets.find((a) => a.symbol === funding)?.amount ?? 0;
+  const fundBal = state.portfolio.assets.find((a) => a.symbol === funding)?.amount ?? 0;
 
   useEffect(() => {
     apiGet<{ contacts: Contact[] }>("/api/contacts?q=" + encodeURIComponent(query))
@@ -60,7 +61,7 @@ export default function TtipPage() {
   async function send() {
     if (!recipient) return toast("Choose someone to Ttip", "bad");
     if (amount <= 0) return toast("Enter an amount", "bad");
-    if (cost > usdtBal) return toast("Not enough USDT to cover this tip", "bad");
+    if (cost > fundBal) return toast(`Not enough ${funding} to cover this tip`, "bad");
     setLoading(true);
     try {
       const res: any = await action("/api/send", {

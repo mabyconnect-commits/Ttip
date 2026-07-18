@@ -7,6 +7,7 @@ import { getAppState } from "@/lib/serialize";
 import { convert, isCrypto } from "@/lib/prices";
 import { adjust, balanceOf } from "@/lib/wallet";
 import { NETWORK_FEE_USDT } from "@/lib/constants";
+import { dayStr, isYesterday } from "@/lib/format";
 
 const schema = z.object({
   mode: z.enum(["ttip", "wallet", "bank"]),
@@ -49,7 +50,7 @@ export async function POST(req: Request) {
 
 async function handleTtip(
   userId: string,
-  user: { name: string; username: string; avatarGradient: string; bankAccount: string | null },
+  user: { name: string; username: string; avatarGradient: string; bankAccount: string | null; streakDays: number; lastTipDay: string | null },
   input: z.infer<typeof schema>,
 ) {
   const fiat = input.fiat ?? "NGN";
@@ -58,6 +59,15 @@ async function handleTtip(
   const recipientHandle = (input.recipient ?? "").trim().replace(/^@/, "").toLowerCase();
   if (!fiatAmount) throw new ApiError("Enter an amount", 400);
   if (!recipientHandle) throw new ApiError("Choose someone to Ttip", 400);
+  if (recipientHandle === user.username.toLowerCase()) throw new ApiError("You can't Ttip yourself", 400);
+
+  // Streak: increments once per day; continues if the last tip was yesterday,
+  // resets to 1 if a day was missed, unchanged if already tipped today.
+  const today = dayStr();
+  const newStreak =
+    user.lastTipDay === today ? user.streakDays
+    : user.lastTipDay && isYesterday(user.lastTipDay) ? user.streakDays + 1
+    : 1;
 
   // cost to sender in their funding asset
   const cost = await convert(fiatAmount, fiat, funding);
@@ -106,7 +116,7 @@ async function handleTtip(
 
     await tx.user.update({
       where: { id: userId },
-      data: { points: { increment: 120 }, streakDays: { increment: 0 } },
+      data: { points: { increment: 120 }, streakDays: newStreak, lastTipDay: today },
     });
 
     await tx.feedItem.create({

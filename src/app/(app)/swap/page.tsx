@@ -42,7 +42,6 @@ export default function SwapPage() {
   const gross = ready ? convert(amt, from, to) : 0;
   const free = state.user.freeSwapsLeft > 0;
   const net = gross * (1 - (free ? 0 : SWAP_FEE_PCT));
-  const rate = amt > 0 ? convert(1, from, to) : convert(1, from, to);
   const bal = state.portfolio.assets.find((a) => a.symbol === from)?.amount ?? 0;
   const toIsFiat = isFiatSym(to);
   const fromIsFiat = isFiatSym(from);

@@ -27,6 +27,8 @@ async function createUser(opts: {
         defaultFiat: opts.fiat ?? "NGN",
         streakDays: opts.streak ?? 0,
         points: opts.points ?? 0,
+        // last tip was "yesterday" so an existing streak continues on the next tip
+        lastTipDay: opts.streak ? new Date(Date.now() - 864e5).toISOString().slice(0, 10) : null,
         referralCode: makeReferralCode(opts.username),
         bankName: "GTBank",
         bankAccount: "GTBank ••7204",

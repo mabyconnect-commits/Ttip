@@ -38,6 +38,18 @@ export function formatUsd(amount: number): string {
   return "$" + amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/** YYYY-MM-DD for a date (UTC). */
+export function dayStr(d: Date = new Date()): string {
+  return d.toISOString().slice(0, 10);
+}
+
+/** True if `day` (YYYY-MM-DD) is exactly one calendar day before `ref`. */
+export function isYesterday(day: string, ref: Date = new Date()): boolean {
+  const y = new Date(ref);
+  y.setUTCDate(y.getUTCDate() - 1);
+  return day === y.toISOString().slice(0, 10);
+}
+
 export function timeAgo(date: Date | string): string {
   const d = typeof date === "string" ? new Date(date) : date;
   const secs = Math.floor((Date.now() - d.getTime()) / 1000);

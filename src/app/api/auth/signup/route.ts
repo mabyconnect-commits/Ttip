@@ -77,6 +77,25 @@ export async function POST(req: Request) {
             emoji: "👯",
           },
         });
+
+        // The joiner gets a ₦2,000 welcome bonus too ("give ₦2k, get ₦2k").
+        await tx.balance.upsert({
+          where: { userId_symbol: { userId: created.id, symbol: "NGN" } },
+          create: { userId: created.id, symbol: "NGN", kind: "fiat", amount: 2000 },
+          update: { amount: { increment: 2000 } },
+        });
+        await tx.user.update({ where: { id: created.id }, data: { points: { increment: 100 } } });
+        await tx.transaction.create({
+          data: {
+            userId: created.id,
+            type: "referral_bonus",
+            assetOut: "NGN",
+            amountOut: 2000,
+            counterparty: "@" + referrer.username,
+            note: "Welcome bonus",
+            emoji: "🎁",
+          },
+        });
       }
       return created;
     });

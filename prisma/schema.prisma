@@ -32,6 +32,8 @@ model User {
   kycStatus      String   @default("unverified") // unverified | pending | verified
   kycTier        Int      @default(1)
   lastDropAt     DateTime?
+  freeSwapDay    String? // YYYY-MM-DD the free-swap allowance was last counted
+  lastTipDay     String? // YYYY-MM-DD of the last tip sent (for streaks)
   createdAt      DateTime @default(now())
 
   balances     Balance[]

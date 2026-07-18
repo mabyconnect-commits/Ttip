@@ -6,6 +6,7 @@ import { useApp } from "@/context/AppContext";
 import { usePrices } from "@/lib/usePrices";
 import { BackHeader, GradientButton } from "@/components/ui";
 import { BILL_CATEGORIES } from "@/lib/constants";
+import { pickFunding } from "@/lib/funding";
 import { formatFiat, formatCrypto } from "@/lib/format";
 import { Receipt } from "@/components/Receipt";
 
@@ -22,9 +23,9 @@ export default function BillsPage() {
   const [loading, setLoading] = useState(false);
   const [receipt, setReceipt] = useState<any>(null);
 
-  const funding = "USDT";
+  const funding = pickFunding(state.portfolio.assets);
   const cost = convert(amount, fiat, funding);
-  const usdtBal = state.portfolio.assets.find((a) => a.symbol === funding)?.amount ?? 0;
+  const fundBal = state.portfolio.assets.find((a) => a.symbol === funding)?.amount ?? 0;
 
   function openCat(c: (typeof BILL_CATEGORIES)[number]) {
     setCat(c);
@@ -37,7 +38,7 @@ export default function BillsPage() {
     if (!cat) return;
     if (!account) return toast("Enter the account / phone number", "bad");
     if (amount <= 0) return toast("Choose an amount", "bad");
-    if (cost > usdtBal) return toast("Not enough USDT to pay this bill", "bad");
+    if (cost > fundBal) return toast(`Not enough ${funding} to pay this bill`, "bad");
     setLoading(true);
     try {
       const res: any = await action("/api/bills", {

@@ -1,5 +1,8 @@
 import { prisma } from "./db";
 import { buildPortfolio } from "./wallet";
+import { dayStr } from "./format";
+
+const FREE_SWAPS_PER_DAY = 3;
 
 /** Full app-state payload the client needs after auth. */
 export async function getAppState(userId: string) {
@@ -10,6 +13,9 @@ export async function getAppState(userId: string) {
   if (!user) return null;
 
   const portfolio = await buildPortfolio(user.balances, user.defaultFiat);
+
+  // Free-swap allowance is per-day; show the full amount on a fresh day.
+  const freeSwapsLeft = user.freeSwapDay === dayStr() ? user.freeSwapsLeft : FREE_SWAPS_PER_DAY;
 
   return {
     user: {
@@ -24,7 +30,7 @@ export async function getAppState(userId: string) {
       bankAccount: user.bankAccount,
       streakDays: user.streakDays,
       points: user.points,
-      freeSwapsLeft: user.freeSwapsLeft,
+      freeSwapsLeft,
       referralCode: user.referralCode,
       referralEarned: Number(user.referralEarned),
       hasPin: !!user.pinHash,
