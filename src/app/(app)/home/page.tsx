@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useApp } from "@/context/AppContext";
 import { TabBar } from "@/components/TabBar";
-import { Ticker } from "@/components/Ticker";
 import { AssetIcon } from "@/components/AssetIcon";
 import { Avatar, Sheet } from "@/components/ui";
 import { Icon, type IconName } from "@/components/Icon";
@@ -51,10 +50,6 @@ export default function HomePage() {
             <Icon name="gift" size={17} />
           </button>
         </div>
-      </div>
-
-      <div className="px-[22px]">
-        <Ticker />
       </div>
 
       <div className="flex-1 overflow-y-auto no-scrollbar pb-4">
