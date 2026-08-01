@@ -120,7 +120,7 @@ export default function DepositPage() {
       </div>
 
       {tab === "naira" ? (
-        <div className="flex-1 overflow-y-auto no-scrollbar pt-4">
+        <div className="flex-1 overflow-y-auto no-scrollbar pt-4 pb-10">
           <div className="bg-surface border border-white/[.08] rounded-[22px] p-5">
             <div className="text-[12px] text-white/45 mb-3">Fund your {fiat} balance via bank transfer</div>
             <Detail label="Bank" value="Providus Bank" onCopy={copy} />
@@ -137,7 +137,7 @@ export default function DepositPage() {
           )}
         </div>
       ) : live ? (
-        <div className="flex-1 overflow-y-auto no-scrollbar pt-4">
+        <div className="flex-1 overflow-y-auto no-scrollbar pt-4 pb-10">
           {/* pick network + asset (any of Dextopus's supported chains/tokens) */}
           <button onClick={() => setChainSheet(true)} className="w-full flex items-center justify-between bg-surface border border-white/[.08] rounded-2xl px-4 h-[54px] active:scale-[.99]">
             <span className="text-[12px] text-white/40">Network</span>
@@ -188,7 +188,7 @@ export default function DepositPage() {
           )}
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto no-scrollbar pt-4">
+        <div className="flex-1 overflow-y-auto no-scrollbar pt-4 pb-10">
           {/* asset tabs */}
           <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
             {assets.map((a) => (
