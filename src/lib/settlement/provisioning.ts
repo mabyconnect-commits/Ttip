@@ -14,12 +14,15 @@ import { createDepositAddress } from "./dextopus";
  * `GET /deposit/chains` and override with the DEXTOPUS_CHAIN_IDS env (JSON).
  * Networks with no mapping keep their demo address.
  */
+// Verified against Dextopus GET /api/deposit/chains.
 const DEFAULT_CHAIN_IDS: Record<string, number> = {
   erc20: 1, // Ethereum
   bep20: 56, // BNB Smart Chain
   poly: 137, // Polygon
   avax: 43114, // Avalanche C-Chain
-  trc20: 728126428, // Tron (verify)
+  trc20: 728126428, // Tron
+  sol: 792703809, // Solana
+  btc: 8253038, // Bitcoin
 };
 
 function chainIds(): Record<string, number> {
@@ -31,8 +34,9 @@ function chainIds(): Record<string, number> {
   }
 }
 
-// Primary receive rails we auto-provision; stablecoins first.
-const RECEIVE_ASSETS = ["USDT", "USDC"];
+// Assets we auto-provision addresses for, across each of their supported
+// networks. Every one settles to your treasury (Solana USDC) via Dextopus.
+const RECEIVE_ASSETS = ["USDT", "USDC", "BTC", "ETH", "SOL", "BNB"];
 
 export async function ensureDepositAddresses(userId: string): Promise<number> {
   if (depositProvider() !== "dextopus") return 0;
