@@ -139,9 +139,18 @@ so the app runs identically whether money is simulated or live:
    `/api/webhooks/payout`. **Failed payouts auto-refund** the debited crypto.
 
 Every movement is recorded in the `Settlement` table (unique `externalId`) for a
-clean audit trail. Swapping Flutterwave for Paystack/Kor/Fincra, or plugging in a
-deposit provider (Blockradar, NOWPayments, Circle…), is a single new file
+clean audit trail.
+
+**Payout providers.** Two are built in — **Paystack** and **Flutterwave** — behind
+one interface; `PAYOUT_PROVIDER` (or whichever keys are present) picks which sends
+naira. Both payout webhooks land on `/api/webhooks/payout`, distinguished and
+verified by their own signature header. Adding another (Korapay, Fincra…) or a
+deposit provider (Blockradar, NOWPayments, Circle…) is a single new file
 implementing the same interface — no route or UI changes.
+
+> **On cost:** naira *payouts* are a small flat/capped fee per transfer on both
+> Paystack and Flutterwave — not a percentage. (The ~1.4% percentage fee is on
+> card/bank *collections*, which this flow doesn't use.)
 
 See `.env.example` for the keys each provider needs.
 

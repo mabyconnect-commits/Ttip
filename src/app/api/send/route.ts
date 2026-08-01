@@ -9,7 +9,7 @@ import { convert, isCrypto } from "@/lib/prices";
 import { adjust, balanceOf } from "@/lib/wallet";
 import { NETWORK_FEE_USDT } from "@/lib/constants";
 import { dayStr, isYesterday } from "@/lib/format";
-import { payoutFiat, finalizePayout, isLive } from "@/lib/settlement";
+import { payoutFiat, finalizePayout, payoutProvider } from "@/lib/settlement";
 
 const schema = z.object({
   mode: z.enum(["ttip", "wallet", "bank"]),
@@ -207,7 +207,7 @@ async function handleBankSend(
   const fiatAmount = await convert(amount, symbol, fiat);
   const bankLabel = `${input.bankName ?? user.bankName ?? "Bank"} ••${accountNumber.slice(-4)}`;
   const reference = "pyt_" + crypto.randomUUID();
-  const provider = isLive() ? "flutterwave" : "sandbox";
+  const provider = payoutProvider();
 
   // 1. Debit the crypto and record the payout as pending — one atomic step, so
   //    the money can never leave the wallet without a settlement row to match it.

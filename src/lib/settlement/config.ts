@@ -29,6 +29,21 @@ export function depositWebhookSecret(): string | null {
   return process.env.DEPOSIT_WEBHOOK_SECRET || null;
 }
 
+export type PayoutProvider = "sandbox" | "flutterwave" | "paystack";
+
+/**
+ * Which provider actually moves the fiat. In sandbox mode it's always the
+ * sandbox provider. In live mode, PAYOUT_PROVIDER decides; if unset we pick
+ * whichever provider has keys (Paystack preferred, then Flutterwave).
+ */
+export function payoutProvider(): PayoutProvider {
+  if (!isLive()) return "sandbox";
+  const explicit = process.env.PAYOUT_PROVIDER?.toLowerCase();
+  if (explicit === "paystack" || explicit === "flutterwave") return explicit;
+  if (process.env.PAYSTACK_SECRET_KEY) return "paystack";
+  return "flutterwave";
+}
+
 export interface FlutterwaveConfig {
   secretKey: string;
   webhookHash: string | null;
@@ -42,5 +57,19 @@ export function flutterwaveConfig(): FlutterwaveConfig | null {
     secretKey,
     webhookHash: process.env.FLUTTERWAVE_WEBHOOK_HASH || null,
     baseUrl: process.env.FLUTTERWAVE_BASE_URL || "https://api.flutterwave.com/v3",
+  };
+}
+
+export interface PaystackConfig {
+  secretKey: string;
+  baseUrl: string;
+}
+
+export function paystackConfig(): PaystackConfig | null {
+  const secretKey = process.env.PAYSTACK_SECRET_KEY;
+  if (!secretKey) return null;
+  return {
+    secretKey,
+    baseUrl: process.env.PAYSTACK_BASE_URL || "https://api.paystack.co",
   };
 }

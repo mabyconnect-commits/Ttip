@@ -2,13 +2,14 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { kindOf } from "../wallet";
-import { isLive } from "./config";
+import { payoutProvider } from "./config";
 import { sandboxPayout } from "./sandbox";
 import { flutterwavePayout } from "./flutterwave";
+import { paystackPayout } from "./paystack";
 import type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
 
 export type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
-export { settlementMode, isLive } from "./config";
+export { settlementMode, isLive, payoutProvider } from "./config";
 export { parseDeposit, verifyDepositSignature } from "./webhook";
 
 /**
@@ -85,10 +86,16 @@ export async function creditDeposit(
   }
 }
 
-/** Send a fiat payout through the active provider (sandbox or Flutterwave). */
+/** Send a fiat payout through the active provider (sandbox, Paystack or Flutterwave). */
 export async function payoutFiat(req: PayoutRequest): Promise<PayoutResult> {
-  if (isLive()) return flutterwavePayout(req);
-  return sandboxPayout(req);
+  switch (payoutProvider()) {
+    case "paystack":
+      return paystackPayout(req);
+    case "flutterwave":
+      return flutterwavePayout(req);
+    default:
+      return sandboxPayout(req);
+  }
 }
 
 /**
@@ -111,15 +118,13 @@ export async function finalizePayout(
   match: { externalId?: string; reference?: string },
   status: "completed" | "failed",
 ): Promise<{ updated: boolean; refunded?: boolean }> {
-  const where = match.externalId
-    ? { externalId: match.externalId }
-    : match.reference
-      ? { reference: match.reference }
-      : null;
-  if (!where) return { updated: false };
+  const ors: { externalId?: string; reference?: string }[] = [];
+  if (match.reference) ors.push({ reference: match.reference });
+  if (match.externalId) ors.push({ externalId: match.externalId });
+  if (!ors.length) return { updated: false };
 
   return prisma.$transaction(async (tx) => {
-    const settlement = await tx.settlement.findFirst({ where: { ...where, kind: "payout" } });
+    const settlement = await tx.settlement.findFirst({ where: { kind: "payout", OR: ors } });
     if (!settlement || settlement.status !== "pending") return { updated: false };
 
     await tx.settlement.update({ where: { id: settlement.id }, data: { status } });

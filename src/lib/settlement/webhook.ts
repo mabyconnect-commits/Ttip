@@ -39,3 +39,18 @@ export function parseDeposit(body: unknown): NormalizedDeposit {
   }
   return { externalId, address, asset, chain, amount, status, provider: String(b.provider ?? "generic"), raw: body };
 }
+
+/** Paystack amounts are in the currency's smallest unit (kobo/pesewas). */
+export function toSubunit(amount: number): number {
+  return Math.round(amount * 100);
+}
+
+/** Verify a Paystack webhook (HMAC-SHA512 of the raw body with the secret key). */
+export function verifyPaystackWebhook(rawBody: string, signature: string | null): boolean {
+  const secret = process.env.PAYSTACK_SECRET_KEY || null;
+  if (!secret || !signature) return false;
+  const expected = crypto.createHmac("sha512", secret).update(rawBody).digest("hex");
+  const a = Buffer.from(expected);
+  const b = Buffer.from(signature);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
