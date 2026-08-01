@@ -47,7 +47,7 @@ export function GradientButton({
       type={type}
       onClick={onClick}
       disabled={disabled || loading}
-      className={`grad-bg w-full h-[56px] rounded-[28px] flex items-center justify-center gap-2 font-grotesk font-semibold text-[17px] text-[#04121A] shadow-glow transition active:scale-[.98] disabled:opacity-50 disabled:active:scale-100 px-4 text-center ${className}`}
+      className={`w-full h-[54px] rounded-2xl flex items-center justify-center gap-2 font-grotesk font-semibold text-[16px] bg-good text-ink transition active:scale-[.98] disabled:opacity-40 disabled:active:scale-100 px-4 text-center ${className}`}
     >
       {loading ? <Spinner /> : children}
     </button>
@@ -58,7 +58,7 @@ export function OutlineButton({ children, onClick, className = "" }: { children:
   return (
     <button
       onClick={onClick}
-      className={`w-full h-[56px] rounded-[28px] border border-white/15 flex items-center justify-center gap-2 font-medium text-[16px] text-white transition active:scale-[.98] px-4 ${className}`}
+      className={`w-full h-[54px] rounded-2xl border border-white/12 flex items-center justify-center gap-2 font-grotesk font-medium text-[15px] text-white transition active:scale-[.98] px-4 ${className}`}
     >
       {children}
     </button>
