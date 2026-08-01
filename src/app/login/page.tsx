@@ -50,9 +50,11 @@ export default function LoginPage() {
           </GradientButton>
         </form>
 
-        <div className="mt-4 rounded-2xl bg-surface border border-white/[.07] p-3 text-[12px] text-white/50">
-          Demo account · <b className="text-white/75">kola@ttip.money</b> / <b className="text-white/75">password123</b>
-        </div>
+        {process.env.NEXT_PUBLIC_SHOW_DEMO === "1" && (
+          <div className="mt-4 rounded-2xl bg-surface border border-white/[.07] p-3 text-[12px] text-white/50">
+            Demo account · <b className="text-white/75">kola@ttip.money</b> / <b className="text-white/75">password123</b>
+          </div>
+        )}
       </div>
 
       <p className="text-center text-white/50 text-sm pb-8">
