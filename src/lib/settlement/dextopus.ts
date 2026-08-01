@@ -50,6 +50,66 @@ export async function resolveTokenAddress(cfg: DextopusConfig, chainId: number, 
   return bySymbol[symbol.toUpperCase()];
 }
 
+// ---- Discovery: every supported chain + token (for the on-demand deposit UI) ----
+
+export interface DxChain {
+  chainId: number;
+  name: string;
+}
+export interface DxToken {
+  symbol: string;
+  name: string;
+}
+
+let chainsCache: { at: number; chains: DxChain[] } | null = null;
+
+/** All chains Dextopus supports (cached 6h). */
+export async function listChains(): Promise<DxChain[]> {
+  const cfg = dextopusConfig();
+  if (!cfg) return [];
+  if (chainsCache && Date.now() - chainsCache.at < 6 * 60 * 60 * 1000) return chainsCache.chains;
+  const res = await fetch(`${cfg.baseUrl}/deposit/chains`, { headers: { "x-api-key": cfg.apiKey } });
+  if (!res.ok) return chainsCache?.chains ?? [];
+  const body = (await res.json().catch(() => null)) as Record<string, unknown> | unknown[] | null;
+  const list = (Array.isArray(body) ? body : ((body as Record<string, unknown>)?.chains ?? (body as Record<string, unknown>)?.data)) as
+    | Record<string, unknown>[]
+    | undefined;
+  const chains = (list ?? [])
+    .map((c) => ({ chainId: Number(c.chainId ?? c.id), name: String(c.name ?? "") }))
+    .filter((c) => c.chainId && c.name)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  chainsCache = { at: Date.now(), chains };
+  return chains;
+}
+
+// Cache the full token objects per chain (for names + symbols).
+const tokenListCache = new Map<number, { at: number; tokens: DxToken[] }>();
+
+/** Tokens available on a chain (cached 6h). */
+export async function listTokens(chainId: number): Promise<DxToken[]> {
+  const cfg = dextopusConfig();
+  if (!cfg) return [];
+  const cached = tokenListCache.get(chainId);
+  if (cached && Date.now() - cached.at < 6 * 60 * 60 * 1000) return cached.tokens;
+  const res = await fetch(`${cfg.baseUrl}/deposit/tokens?chainId=${chainId}`, { headers: { "x-api-key": cfg.apiKey } });
+  const tokens: DxToken[] = [];
+  if (res.ok) {
+    const body = (await res.json().catch(() => null)) as Record<string, unknown> | unknown[] | null;
+    const list = (Array.isArray(body) ? body : ((body as Record<string, unknown>)?.tokens ?? (body as Record<string, unknown>)?.data)) as
+      | Record<string, unknown>[]
+      | undefined;
+    const seen = new Set<string>();
+    for (const t of list ?? []) {
+      const symbol = String(t.symbol ?? "").toUpperCase();
+      if (!symbol || seen.has(symbol)) continue;
+      seen.add(symbol);
+      tokens.push({ symbol, name: String(t.name ?? symbol) });
+    }
+  }
+  tokenListCache.set(chainId, { at: Date.now(), tokens });
+  return tokens;
+}
+
 /**
  * Generate a reusable (static) deposit address for a user, for `originSymbol` on
  * `originChainId`, settling to the configured treasury asset/address. Returns

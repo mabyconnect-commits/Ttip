@@ -15,7 +15,8 @@ export type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
 export { settlementMode, isLive, payoutProvider } from "./config";
 export { parseDeposit, verifyDepositSignature, parseDextopusDeposit, verifyDextopusSignature } from "./webhook";
 export { ensureFloat, debitFloat, treasuryBalance, adjustTreasury } from "./treasury";
-export { ensureDepositAddresses } from "./provisioning";
+export { ensureDepositAddresses, getOrCreateDepositAddress } from "./provisioning";
+export { listChains, listTokens } from "./dextopus";
 
 /**
  * Credit a crypto deposit to a user's balance — the single path both the live

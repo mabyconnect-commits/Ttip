@@ -5,6 +5,33 @@ import { depositProvider, dextopusConfig } from "./config";
 import { createDepositAddress } from "./dextopus";
 
 /**
+ * On-demand: return the user's static deposit address for one (chain, asset),
+ * generating + persisting it the first time. This is what powers the "pick any
+ * chain / any token" deposit flow — an address is minted only when a user
+ * actually selects that combination. `network` is the human chain name and part
+ * of the unique key (so USDC-on-Ethereum ≠ USDC-on-Polygon).
+ */
+export async function getOrCreateDepositAddress(
+  userId: string,
+  chainId: number,
+  symbol: string,
+  network: string,
+): Promise<{ address: string; network: string; symbol: string } | null> {
+  const existing = await prisma.walletAddress.findFirst({ where: { userId, symbol, network, provider: "dextopus" } });
+  if (existing) return { address: existing.address, network, symbol };
+
+  const res = await createDepositAddress(userId, chainId, symbol).catch(() => null);
+  if (!res) return null;
+
+  await prisma.walletAddress.upsert({
+    where: { userId_symbol_network: { userId, symbol, network } },
+    create: { userId, symbol, network, address: res.address, provider: "dextopus" },
+    update: { address: res.address, provider: "dextopus" },
+  });
+  return { address: res.address, network, symbol };
+}
+
+/**
  * Provision real Dextopus static deposit addresses for a user, lazily and
  * idempotently. Called when the deposit screen loads; if Dextopus isn't
  * configured it's a no-op and the built-in demo addresses stay in place.
