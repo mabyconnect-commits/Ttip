@@ -1,0 +1,151 @@
+import "server-only";
+import { Prisma } from "@prisma/client";
+import { prisma } from "../db";
+import { kindOf } from "../wallet";
+import { isLive } from "./config";
+import { sandboxPayout } from "./sandbox";
+import { flutterwavePayout } from "./flutterwave";
+import type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
+
+export type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
+export { settlementMode, isLive } from "./config";
+export { parseDeposit, verifyDepositSignature } from "./webhook";
+
+/**
+ * Credit a crypto deposit to a user's balance — the single path both the live
+ * provider webhook and the in-app simulator flow through. Idempotent on
+ * `externalId`: a webhook delivered twice credits exactly once.
+ *
+ * Returns the resolved userId, or null if the deposit could not be matched to a
+ * user (unknown address) or was a duplicate.
+ */
+export async function creditDeposit(
+  deposit: NormalizedDeposit,
+  opts: { userId?: string } = {},
+): Promise<{ credited: boolean; userId: string | null; reason?: string }> {
+  // Resolve the user: either passed directly (simulator) or by deposit address.
+  let userId = opts.userId ?? null;
+  if (!userId) {
+    const addr = await prisma.walletAddress.findFirst({ where: { address: deposit.address } });
+    userId = addr?.userId ?? null;
+  }
+  if (!userId) return { credited: false, userId: null, reason: "no user for address" };
+
+  if (deposit.status !== "confirmed") {
+    return { credited: false, userId, reason: "not yet confirmed" };
+  }
+
+  const resolvedUserId = userId;
+
+  try {
+    return await prisma.$transaction(async (tx) => {
+      // Idempotency guard — unique externalId. A replay throws P2002 below.
+      await tx.settlement.create({
+        data: {
+          userId: resolvedUserId,
+          kind: "deposit",
+          provider: deposit.provider,
+          externalId: deposit.externalId,
+          status: "completed",
+          asset: deposit.asset,
+          amount: new Prisma.Decimal(deposit.amount),
+          chain: deposit.chain,
+          address: deposit.address,
+          raw: (deposit.raw ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+        },
+      });
+
+      await tx.balance.upsert({
+        where: { userId_symbol: { userId: resolvedUserId, symbol: deposit.asset } },
+        create: { userId: resolvedUserId, symbol: deposit.asset, kind: kindOf(deposit.asset), amount: new Prisma.Decimal(deposit.amount) },
+        update: { amount: { increment: deposit.amount } },
+      });
+
+      await tx.transaction.create({
+        data: {
+          userId: resolvedUserId,
+          type: "deposit",
+          status: "completed",
+          assetOut: deposit.asset,
+          amountOut: new Prisma.Decimal(deposit.amount),
+          counterparty: "On-chain",
+          note: `Received ${deposit.asset} · ${deposit.chain}`,
+          emoji: "📥",
+          meta: { chain: deposit.chain, externalId: deposit.externalId, provider: deposit.provider },
+        },
+      });
+
+      return { credited: true, userId: resolvedUserId };
+    });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      return { credited: false, userId: resolvedUserId, reason: "duplicate" };
+    }
+    throw e;
+  }
+}
+
+/** Send a fiat payout through the active provider (sandbox or Flutterwave). */
+export async function payoutFiat(req: PayoutRequest): Promise<PayoutResult> {
+  if (isLive()) return flutterwavePayout(req);
+  return sandboxPayout(req);
+}
+
+/**
+ * Verify + parse an inbound crypto-deposit webhook into a NormalizedDeposit.
+ *
+ * The generic contract (used by the sandbox and by a thin provider adapter): the
+ * provider POSTs JSON and signs the raw body with HMAC-SHA256 using
+ * DEPOSIT_WEBHOOK_SECRET, sending the hex digest in `x-ttip-signature`.
+ *
+ * Body shape:
+ *   { id, address, asset, chain, amount, status? }
+ */
+/**
+ * Finalize a fiat payout when the provider confirms it (via webhook). Marks the
+ * settlement and its transaction completed/failed, and on failure refunds the
+ * crypto that was debited when the payout was requested. Idempotent: acting on
+ * an already-finalized settlement is a no-op.
+ */
+export async function finalizePayout(
+  match: { externalId?: string; reference?: string },
+  status: "completed" | "failed",
+): Promise<{ updated: boolean; refunded?: boolean }> {
+  const where = match.externalId
+    ? { externalId: match.externalId }
+    : match.reference
+      ? { reference: match.reference }
+      : null;
+  if (!where) return { updated: false };
+
+  return prisma.$transaction(async (tx) => {
+    const settlement = await tx.settlement.findFirst({ where: { ...where, kind: "payout" } });
+    if (!settlement || settlement.status !== "pending") return { updated: false };
+
+    await tx.settlement.update({ where: { id: settlement.id }, data: { status } });
+
+    // The payout's transaction carries the crypto debit and shares our reference.
+    const txn = settlement.reference
+      ? await tx.transaction.findFirst({
+          where: { userId: settlement.userId, type: "withdraw_bank", meta: { path: ["reference"], equals: settlement.reference } },
+        })
+      : null;
+
+    if (txn) {
+      await tx.transaction.update({ where: { id: txn.id }, data: { status } });
+    }
+
+    if (status === "failed" && txn?.assetIn && txn.amountIn) {
+      // Refund the debited crypto so the user isn't left short after a failed payout.
+      await tx.balance.upsert({
+        where: { userId_symbol: { userId: settlement.userId, symbol: txn.assetIn } },
+        create: { userId: settlement.userId, symbol: txn.assetIn, kind: kindOf(txn.assetIn), amount: txn.amountIn },
+        update: { amount: { increment: txn.amountIn } },
+      });
+      return { updated: true, refunded: true };
+    }
+
+    return { updated: true, refunded: false };
+  });
+}
+

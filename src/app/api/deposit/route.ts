@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
@@ -5,6 +6,7 @@ import { getUserId } from "@/lib/auth";
 import { handler, ok, unauthorized, ApiError } from "@/lib/api";
 import { getAppState } from "@/lib/serialize";
 import { CRYPTO_ASSETS, FIAT_BY_CODE } from "@/lib/constants";
+import { creditDeposit } from "@/lib/settlement";
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +38,9 @@ const simSchema = z.object({
   network: z.string().optional(),
 });
 
-// Simulate an incoming on-chain deposit (demo / testnet helper).
+// Simulate an incoming deposit (demo / testnet helper). Crypto deposits flow
+// through the exact same settlement path a live provider webhook uses, so the
+// sandbox and production credit code are identical.
 export async function POST(req: Request) {
   return handler(async () => {
     const userId = await getUserId();
@@ -45,24 +49,41 @@ export async function POST(req: Request) {
     const isFiat = !!FIAT_BY_CODE[symbol];
     if (!isFiat && !CRYPTO_ASSETS.find((a) => a.symbol === symbol)) throw new ApiError("Unsupported asset", 400);
 
-    await prisma.$transaction(async (tx) => {
-      await tx.balance.upsert({
-        where: { userId_symbol: { userId, symbol } },
-        create: { userId, symbol, kind: isFiat ? "fiat" : "crypto", amount: new Prisma.Decimal(amount) },
-        update: { amount: { increment: amount } },
+    if (isFiat) {
+      // Fiat funding (bank transfer) — credited directly.
+      await prisma.$transaction(async (tx) => {
+        await tx.balance.upsert({
+          where: { userId_symbol: { userId, symbol } },
+          create: { userId, symbol, kind: "fiat", amount: new Prisma.Decimal(amount) },
+          update: { amount: { increment: amount } },
+        });
+        await tx.transaction.create({
+          data: {
+            userId,
+            type: "deposit",
+            assetOut: symbol,
+            amountOut: new Prisma.Decimal(amount),
+            counterparty: "Bank transfer",
+            note: `Funded ${symbol} via bank`,
+            emoji: "🏦",
+          },
+        });
       });
-      await tx.transaction.create({
-        data: {
-          userId,
-          type: "deposit",
-          assetOut: symbol,
-          amountOut: new Prisma.Decimal(amount),
-          counterparty: isFiat ? "Bank transfer" : "On-chain",
-          note: isFiat ? `Funded ${symbol} via bank` : `Received ${symbol}${network ? " · " + network : ""}`,
-          emoji: isFiat ? "🏦" : "📥",
+    } else {
+      // Crypto — go through the shared, idempotent settlement credit path.
+      await creditDeposit(
+        {
+          externalId: "sim_" + crypto.randomUUID(),
+          address: "",
+          asset: symbol,
+          chain: (network ?? "sandbox").toLowerCase(),
+          amount,
+          status: "confirmed",
+          provider: "sandbox",
         },
-      });
-    });
+        { userId },
+      );
+    }
 
     const state = await getAppState(userId);
     return ok({ ...state, receipt: { kind: "deposit", symbol, amount, network } });

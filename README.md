@@ -114,6 +114,37 @@ static shell) and submit. No rewrite needed; the UI is already mobile-first.
 
 ---
 
+## Settlement — crypto in, naira out
+
+The real-money rails live behind one provider-agnostic layer (`src/lib/settlement/`)
+so the app runs identically whether money is simulated or live:
+
+- **`SETTLEMENT_MODE=sandbox`** (default) — no external money moves. Crypto
+  deposits are credited by the in-app simulator or a signed webhook; naira
+  payouts settle instantly. The ledger, balances and receipts behave exactly as
+  in production, so the whole **deposit → withdraw** loop is demoable today.
+- **`SETTLEMENT_MODE=live`** — real crypto deposits arrive via the provider
+  webhook and real naira payouts go out through Flutterwave.
+
+**How the loop works**
+
+1. **Crypto in.** A deposit provider watches each user's addresses and, when
+   funds land and are swept into treasury, POSTs `/api/webhooks/deposit`
+   (HMAC-signed with `DEPOSIT_WEBHOOK_SECRET`). `creditDeposit()` credits the
+   user's balance — **idempotently**, keyed on the provider's `externalId`, so a
+   replayed webhook can never double-credit.
+2. **Naira out.** On a bank withdrawal the crypto is debited and a `pending`
+   payout is recorded atomically, then `payoutFiat()` calls the provider. A
+   terminal result settles immediately; a `pending` one is finalised later by
+   `/api/webhooks/payout`. **Failed payouts auto-refund** the debited crypto.
+
+Every movement is recorded in the `Settlement` table (unique `externalId`) for a
+clean audit trail. Swapping Flutterwave for Paystack/Kor/Fincra, or plugging in a
+deposit provider (Blockradar, NOWPayments, Circle…), is a single new file
+implementing the same interface — no route or UI changes.
+
+See `.env.example` for the keys each provider needs.
+
 ## Security hardening
 
 Baked in and applied on every deploy:

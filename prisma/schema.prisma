@@ -40,6 +40,7 @@ model User {
   transactions Transaction[]
   addresses    WalletAddress[]
   beneficiaries Beneficiary[]
+  settlements  Settlement[]
   card         Card?
   feedItems    FeedItem[]      @relation("actor")
   referrals    Referral[]      @relation("referrer")
@@ -91,6 +92,32 @@ model Transaction {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+}
+
+// Real-money movements handled by an external provider (crypto deposits swept
+// into treasury, fiat payouts sent from the float). `externalId` is the
+// provider's own id / on-chain tx hash and is unique, giving idempotency:
+// a webhook that fires twice can never credit or pay out twice.
+model Settlement {
+  id         String   @id @default(cuid())
+  userId     String
+  kind       String // "deposit" | "payout"
+  provider   String // "sandbox" | "flutterwave" | "blockradar" | "nowpayments"
+  externalId String   @unique
+  reference  String? // our own idempotency reference (payouts)
+  status     String   @default("pending") // pending | completed | failed
+  asset      String // USDT, USDC, NGN, ...
+  amount     Decimal  @db.Decimal(38, 18)
+  chain      String? // tron, bsc, ethereum, solana, ...
+  address    String? // deposit address, or destination bank account
+  raw        Json? // provider payload, kept for audit
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([reference])
 }
 
 model Beneficiary {
