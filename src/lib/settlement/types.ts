@@ -16,6 +16,10 @@ export interface NormalizedDeposit {
   provider: string;
   /** Provider-supplied user id (e.g. Dextopus echoes the userId we set). */
   userId?: string;
+  /** On-chain tx hash, for a block-explorer trace link. */
+  txHash?: string;
+  /** Numeric chain id, for building the explorer URL. */
+  chainId?: number;
   /** Raw payload, kept for audit. */
   raw?: unknown;
 }

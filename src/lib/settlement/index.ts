@@ -84,7 +84,13 @@ export async function creditDeposit(
           counterparty: "On-chain",
           note: `Received ${deposit.asset} via ${chainName(deposit.chain)}`,
           emoji: "📥",
-          meta: { chain: chainName(deposit.chain), chainId: deposit.chain, externalId: deposit.externalId, provider: deposit.provider },
+          meta: {
+            chain: chainName(deposit.chain),
+            chainId: deposit.chainId ?? deposit.chain,
+            txHash: deposit.txHash,
+            externalId: deposit.externalId,
+            provider: deposit.provider,
+          },
         },
       });
 

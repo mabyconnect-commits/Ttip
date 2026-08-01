@@ -90,6 +90,8 @@ export function parseDextopusDeposit(body: unknown): NormalizedDeposit {
     status: confirmed ? "confirmed" : "pending",
     provider: "dextopus",
     userId: d.userId ? String(d.userId) : undefined,
+    txHash: String(d.originTxHash ?? d.settlementTxHash ?? "") || undefined,
+    chainId: Number(d.originChainId ?? d.settlementChainId) || undefined,
     raw: body,
   };
 }

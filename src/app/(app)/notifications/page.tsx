@@ -12,6 +12,7 @@ import { FIATS } from "@/lib/constants";
 interface Txn {
   id: string; type: string; direction: string; counterparty: string | null; note: string | null; emoji: string | null;
   assetIn: string | null; amountIn: number | null; assetOut: string | null; amountOut: number | null; time: string; status?: string;
+  explorerUrl?: string | null;
 }
 const isFiat = (s: string | null) => !!s && FIATS.some((f) => f.code === s);
 const fmt = (v: number, s: string) => (isFiat(s) ? formatFiat(v, s, { decimals: 0 }) : `${formatCrypto(v, s)} ${s}`);
@@ -106,6 +107,17 @@ export default function NotificationsPage() {
               <DetailRow label="When" value={sel.time === "now" ? "Just now" : sel.time + " ago"} />
               <DetailRow label="Reference" value={sel.id} mono />
             </div>
+            {sel.explorerUrl && (
+              <a
+                href={sel.explorerUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-4 flex items-center justify-center gap-2 rounded-2xl border border-white/12 py-3.5 font-grotesk font-semibold text-[13px] text-brand-cyan active:scale-[.99]"
+              >
+                View on explorer
+                <Icon name="share" size={15} />
+              </a>
+            )}
           </div>
         )}
       </Sheet>
