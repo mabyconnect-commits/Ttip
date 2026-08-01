@@ -56,20 +56,44 @@ export async function GET(req: Request) {
     /* leave as unreadable */
   }
 
-  const generateAttempt = await call("/deposit/static/generate", {
-    method: "POST",
-    headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      userId,
-      originChainId,
-      originAsset,
-      settlementChainId: cfg.settlementChainId,
-      settlementAsset: cfg.settlementAsset,
-      settlementAddress: cfg.settlementAddress,
-      ...(cfg.refundTo ? { refundTo: cfg.refundTo } : {}),
-      metadata: { source: "ttip-debug" },
-    }),
-  });
+  // Fetch a chain's tokens and normalize to [{symbol, address, decimals}].
+  async function tokens(chainId: number) {
+    const r = await call(`/deposit/tokens?chainId=${chainId}`);
+    const body = (r as { body?: unknown }).body as Record<string, unknown> | unknown[] | undefined;
+    const list = (Array.isArray(body) ? body : ((body as Record<string, unknown>)?.tokens ?? (body as Record<string, unknown>)?.data)) as
+      | Record<string, unknown>[]
+      | undefined;
+    if (!Array.isArray(list)) return { raw: r };
+    return list.map((t) => ({ symbol: t.symbol, address: t.address ?? t.contractAddress ?? t.mint, decimals: t.decimals }));
+  }
+
+  function findAddr(list: unknown, symbol: string): string | undefined {
+    if (!Array.isArray(list)) return undefined;
+    const hit = list.find((t) => String((t as { symbol?: string }).symbol ?? "").toUpperCase() === symbol.toUpperCase());
+    return hit ? String((hit as { address?: string }).address ?? "") : undefined;
+  }
+
+  const settlementTokens = await tokens(cfg.settlementChainId!);
+  const originTokens = await tokens(originChainId);
+  const resolvedSettlementAsset = findAddr(settlementTokens, cfg.settlementAsset ?? "USDC");
+  const resolvedOriginAsset = findAddr(originTokens, originAsset);
+
+  async function tryGenerate(oAsset: string, sAsset: string) {
+    return call("/deposit/static/generate", {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId,
+        originChainId,
+        originAsset: oAsset,
+        settlementChainId: cfg!.settlementChainId,
+        settlementAsset: sAsset,
+        settlementAddress: cfg!.settlementAddress,
+        ...(cfg!.refundTo ? { refundTo: cfg!.refundTo } : {}),
+        metadata: { source: "ttip-debug" },
+      }),
+    });
+  }
 
   const out = {
     settlementTarget: {
@@ -78,8 +102,13 @@ export async function GET(req: Request) {
       address: cfg.settlementAddress ? cfg.settlementAddress.slice(0, 6) + "…" + cfg.settlementAddress.slice(-4) : null,
       refundToSet: !!cfg.refundTo,
     },
-    chainSummary, // ← the readable list: [{chainId, name, static}]
-    generateAttempt, // ← the real error/success for originChainId=originAsset above
+    resolvedOriginAsset,
+    resolvedSettlementAsset,
+    settlementTokensSample: Array.isArray(settlementTokens) ? settlementTokens.slice(0, 8) : settlementTokens,
+    originTokensSample: Array.isArray(originTokens) ? originTokens.slice(0, 8) : originTokens,
+    generateWithSymbols: await tryGenerate(originAsset, cfg.settlementAsset ?? "USDC"),
+    generateWithAddresses: resolvedOriginAsset && resolvedSettlementAsset ? await tryGenerate(resolvedOriginAsset, resolvedSettlementAsset) : "could not resolve token addresses",
+    chainSummaryCount: Array.isArray(chainSummary) ? chainSummary.length : chainSummary,
   };
 
   return NextResponse.json(out, { status: 200 });
