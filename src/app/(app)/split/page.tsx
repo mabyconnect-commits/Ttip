@@ -106,7 +106,7 @@ export default function SplitPage() {
           onDone={() => { setReceipt(null); router.push("/feed"); }}
           emoji="🧾"
           title="Split settled"
-          lines={[`${formatFiat(receipt.total, receipt.fiat, { decimals: 0 })} total`, `${receipt.settled} friends paid ${formatFiat(receipt.share, receipt.fiat, { decimals: 0 })} each`, "Everybody paid in seconds flat"]}
+          lines={[`${formatFiat(receipt.total, receipt.fiat, { decimals: 0 })} total`, `${receipt.settled} friends · ${formatFiat(receipt.share, receipt.fiat, { decimals: 0 })} each`]}
         />
       )}
     </div>

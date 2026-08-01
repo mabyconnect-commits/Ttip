@@ -200,7 +200,7 @@ export default function TtipPage() {
           lines={[
             `${receipt.delivered ? "Delivered to" : "Invite sent to"} ${receipt.recipient}`,
             `Paid ${formatCrypto(receipt.cost, receipt.funding)} ${receipt.funding}`,
-            receipt.note ? `"${receipt.note}"` : "Keep your streak alive 🔥",
+            receipt.note ? `"${receipt.note}"` : null,
           ]}
         />
       )}

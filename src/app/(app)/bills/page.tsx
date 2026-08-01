@@ -129,7 +129,7 @@ export default function BillsPage() {
           onDone={() => { setReceipt(null); router.push("/home"); }}
           emoji={BILL_CATEGORIES.find((c) => c.title === receipt.category)?.icon ?? "📱"}
           title={`${receipt.category} paid`}
-          lines={[`${receipt.provider} · ${receipt.account}`, `${formatFiat(receipt.fiatAmount, receipt.fiat, { decimals: 0 })} · paid ${formatCrypto(receipt.cost, receipt.funding)} ${receipt.funding}`, "Delivered instantly"]}
+          lines={[`${receipt.provider} · ${receipt.account}`, `Paid ${formatCrypto(receipt.cost, receipt.funding)} ${receipt.funding}`]}
         />
       )}
     </div>

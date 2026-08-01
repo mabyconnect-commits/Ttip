@@ -133,8 +133,8 @@ export default function SendOutPage() {
           emoji={receipt.kind === "wallet" ? "🔗" : "🏦"}
           title={receipt.kind === "wallet" ? `${formatCrypto(receipt.amount, receipt.symbol)} ${receipt.symbol} sent` : `${formatFiat(receipt.fiatAmount, receipt.fiat)} on the way`}
           lines={receipt.kind === "wallet"
-            ? [`To ${receipt.address.slice(0, 10)}…${receipt.address.slice(-6)}`, `via ${receipt.network} · fee ${formatCrypto(receipt.fee, receipt.symbol)} ${receipt.symbol}`, "Track it in activity"]
-            : [`To ${receipt.bank}`, `Debited ${formatCrypto(receipt.amount, receipt.symbol)} ${receipt.symbol}`, "Instant payout ⚡"]}
+            ? [`To ${receipt.address.slice(0, 10)}…${receipt.address.slice(-6)}`, `via ${receipt.network} · fee ${formatCrypto(receipt.fee, receipt.symbol)} ${receipt.symbol}`]
+            : [`To ${receipt.bank}`, `Debited ${formatCrypto(receipt.amount, receipt.symbol)} ${receipt.symbol}`]}
         />
       )}
     </div>
