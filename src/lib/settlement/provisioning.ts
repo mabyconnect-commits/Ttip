@@ -47,23 +47,29 @@ export async function ensureDepositAddresses(userId: string): Promise<number> {
   const existing = await prisma.walletAddress.findMany({ where: { userId, provider: "dextopus" } });
   const have = new Set(existing.map((a) => `${a.symbol}:${a.network}`));
 
-  let created = 0;
+  // Collect the (asset, chain) pairs still needing an address.
+  const tasks: { symbol: string; network: string; chainId: number }[] = [];
   for (const asset of CRYPTO_ASSETS.filter((a) => RECEIVE_ASSETS.includes(a.symbol))) {
     for (const net of asset.networks) {
       const chainId = map[net.id];
       if (!chainId) continue; // unmapped chain → keep demo address
       if (have.has(`${asset.symbol}:${net.label}`)) continue; // already provisioned
-
-      const res = await createDepositAddress(userId, chainId, asset.symbol).catch(() => null);
-      if (!res) continue;
-
-      await prisma.walletAddress.upsert({
-        where: { userId_symbol_network: { userId, symbol: asset.symbol, network: net.label } },
-        create: { userId, symbol: asset.symbol, network: net.label, address: res.address, provider: "dextopus" },
-        update: { address: res.address, provider: "dextopus" },
-      });
-      created++;
+      tasks.push({ symbol: asset.symbol, network: net.label, chainId });
     }
   }
-  return created;
+
+  // Generate them in parallel so the first deposit-screen load stays fast.
+  const results = await Promise.all(
+    tasks.map(async (t) => {
+      const res = await createDepositAddress(userId, t.chainId, t.symbol).catch(() => null);
+      if (!res) return 0;
+      await prisma.walletAddress.upsert({
+        where: { userId_symbol_network: { userId, symbol: t.symbol, network: t.network } },
+        create: { userId, symbol: t.symbol, network: t.network, address: res.address, provider: "dextopus" },
+        update: { address: res.address, provider: "dextopus" },
+      });
+      return 1;
+    }),
+  );
+  return results.reduce((a: number, b: number) => a + b, 0);
 }
