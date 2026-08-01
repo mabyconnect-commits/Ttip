@@ -174,9 +174,14 @@ export default function DepositPage() {
                   <button onClick={() => { if (navigator.share) navigator.share({ text: addr }).catch(() => {}); else copy(addr); }} className="rounded-full px-5 py-2.5 font-grotesk font-semibold text-[13px] border border-white/14">Share</button>
                 </div>
               </div>
-              <div className="mt-3 rounded-xl px-3.5 py-3 text-[12.5px] flex gap-2" style={{ background: "rgba(255,200,91,.08)", border: "1px solid rgba(255,200,91,.3)", color: "rgba(255,255,255,.75)" }}>
-                <span>⚠️</span>
-                <span>Send only <b className="text-warn">{selToken?.symbol}</b> on <b className="text-warn">{selChain?.name}</b>. It arrives as USDC in your wallet. Other assets or networks will be lost.</span>
+              <div className="mt-3 rounded-2xl px-4 py-3.5 text-[12.5px] leading-[1.55] flex gap-2.5" style={{ background: "rgba(255,200,91,.1)", border: "1px solid rgba(255,200,91,.35)", color: "rgba(255,255,255,.8)" }}>
+                <span className="text-warn shrink-0">⚠</span>
+                <span>
+                  Send <b className="text-warn">only {selToken?.symbol}</b> on <b className="text-warn">{selChain?.name}</b> to this exact address.
+                  Do <b className="text-warn">not</b> send any other coin — including the network&apos;s native coin
+                  {selChain && [1, 10, 56, 137, 8453, 42161].includes(selChain.chainId) ? " (ETH)" : selChain?.name === "Tron" ? " (TRX)" : selChain?.name === "Solana" ? " (SOL)" : ""} —
+                  it will be lost. It arrives as USDC in your wallet.
+                </span>
               </div>
             </>
           )}

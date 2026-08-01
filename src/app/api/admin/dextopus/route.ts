@@ -24,6 +24,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const originChainId = Number(url.searchParams.get("originChainId") ?? 728126428); // default Tron
   const originAsset = url.searchParams.get("originAsset") ?? "USDT";
+  const depositsFor = url.searchParams.get("deposits"); // a deposit address to inspect
 
   const headers = { "x-api-key": cfg.apiKey };
   async function call(path: string, init?: RequestInit) {
@@ -34,6 +35,15 @@ export async function GET(req: Request) {
     } catch (e) {
       return { error: String((e as Error)?.message ?? e) };
     }
+  }
+
+  // ?deposits=<address> → what Dextopus recorded for that address (incl. failed/
+  // refunded), to trace a wrong-asset deposit.
+  if (depositsFor) {
+    return NextResponse.json({
+      depositAddress: depositsFor,
+      deposits: await call(`/deposit/static/deposits?depositAddress=${encodeURIComponent(depositsFor)}`, { headers }),
+    });
   }
 
   const chains = await call("/deposit/chains", { headers });
