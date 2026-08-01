@@ -101,7 +101,7 @@ async function fetchFiatRates(): Promise<Record<string, number> | null> {
       const usd = json.usd;
       if (!usd) continue;
       const out: Record<string, number> = { USD: 1 };
-      for (const code of ["NGN", "GHS", "KES", "ZAR"]) {
+      for (const code of ["NGN", "GHS", "KES", "ZAR", "XOF", "XAF", "UGX", "TZS", "RWF", "ZMW", "EGP", "MAD", "ETB"]) {
         const perUsd = usd[code.toLowerCase()];
         if (typeof perUsd === "number" && perUsd > 0) out[code] = 1 / perUsd; // USD per 1 unit
       }

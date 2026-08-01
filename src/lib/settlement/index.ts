@@ -6,11 +6,15 @@ import { payoutProvider } from "./config";
 import { sandboxPayout } from "./sandbox";
 import { flutterwavePayout } from "./flutterwave";
 import { paystackPayout } from "./paystack";
+import { monnifyPayout } from "./monnify";
+import { coralpayPayout } from "./coralpay";
+import { adjustTreasury } from "./treasury";
 import type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
 
 export type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
 export { settlementMode, isLive, payoutProvider } from "./config";
 export { parseDeposit, verifyDepositSignature } from "./webhook";
+export { ensureFloat, debitFloat, treasuryBalance, adjustTreasury } from "./treasury";
 
 /**
  * Credit a crypto deposit to a user's balance — the single path both the live
@@ -62,6 +66,10 @@ export async function creditDeposit(
         update: { amount: { increment: deposit.amount } },
       });
 
+      // The swept crypto is now held by the platform — record it in treasury so
+      // the liquidity engine can later sell it into the fiat float.
+      await adjustTreasury(tx, deposit.asset, deposit.amount);
+
       await tx.transaction.create({
         data: {
           userId: resolvedUserId,
@@ -93,6 +101,10 @@ export async function payoutFiat(req: PayoutRequest): Promise<PayoutResult> {
       return paystackPayout(req);
     case "flutterwave":
       return flutterwavePayout(req);
+    case "monnify":
+      return monnifyPayout(req);
+    case "coralpay":
+      return coralpayPayout(req);
     default:
       return sandboxPayout(req);
   }
@@ -125,14 +137,15 @@ export async function finalizePayout(
 
   return prisma.$transaction(async (tx) => {
     const settlement = await tx.settlement.findFirst({ where: { kind: "payout", OR: ors } });
-    if (!settlement || settlement.status !== "pending") return { updated: false };
+    if (!settlement || settlement.status !== "pending" || !settlement.userId) return { updated: false };
+    const settlementUserId = settlement.userId;
 
     await tx.settlement.update({ where: { id: settlement.id }, data: { status } });
 
     // The payout's transaction carries the crypto debit and shares our reference.
     const txn = settlement.reference
       ? await tx.transaction.findFirst({
-          where: { userId: settlement.userId, type: "withdraw_bank", meta: { path: ["reference"], equals: settlement.reference } },
+          where: { userId: settlementUserId, type: "withdraw_bank", meta: { path: ["reference"], equals: settlement.reference } },
         })
       : null;
 
@@ -143,8 +156,8 @@ export async function finalizePayout(
     if (status === "failed" && txn?.assetIn && txn.amountIn) {
       // Refund the debited crypto so the user isn't left short after a failed payout.
       await tx.balance.upsert({
-        where: { userId_symbol: { userId: settlement.userId, symbol: txn.assetIn } },
-        create: { userId: settlement.userId, symbol: txn.assetIn, kind: kindOf(txn.assetIn), amount: txn.amountIn },
+        where: { userId_symbol: { userId: settlementUserId, symbol: txn.assetIn } },
+        create: { userId: settlementUserId, symbol: txn.assetIn, kind: kindOf(txn.assetIn), amount: txn.amountIn },
         update: { amount: { increment: txn.amountIn } },
       });
       return { updated: true, refunded: true };

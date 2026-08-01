@@ -9,7 +9,8 @@ import { convert, isCrypto } from "@/lib/prices";
 import { adjust, balanceOf } from "@/lib/wallet";
 import { NETWORK_FEE_USDT } from "@/lib/constants";
 import { dayStr, isYesterday } from "@/lib/format";
-import { payoutFiat, finalizePayout, payoutProvider } from "@/lib/settlement";
+import { payoutFiat, finalizePayout, payoutProvider, ensureFloat, debitFloat } from "@/lib/settlement";
+import { quoteSell } from "@/lib/pricing";
 
 const schema = z.object({
   mode: z.enum(["ttip", "wallet", "bank"]),
@@ -204,10 +205,27 @@ async function handleBankSend(
 
   const bal = await balanceOf(userId, symbol);
   if (bal + 1e-12 < amount) throw new ApiError(`Insufficient ${symbol} balance`, 400);
-  const fiatAmount = await convert(amount, symbol, fiat);
+
+  // Competitive pricing: the user is paid the live market rate minus our margin
+  // when converting crypto → fiat; that spread is platform revenue. A same-fiat
+  // withdrawal carries no spread.
+  const marketFiat = await convert(amount, symbol, fiat);
+  let fiatAmount = marketFiat;
+  let spreadFiat = 0;
+  if (symbol !== fiat && isCrypto(symbol)) {
+    const marketRate = amount > 0 ? marketFiat / amount : 0;
+    const q = quoteSell({ asset: symbol, fiat, amountAsset: amount, marketRate });
+    fiatAmount = q.userFiat;
+    spreadFiat = q.spreadFiat;
+  }
+
   const bankLabel = `${input.bankName ?? user.bankName ?? "Bank"} ••${accountNumber.slice(-4)}`;
   const reference = "pyt_" + crypto.randomUUID();
   const provider = payoutProvider();
+
+  // Make sure the fiat float can cover this payout; if it's short, auto-sell
+  // treasury crypto into the float so a large withdrawal still goes out now.
+  await ensureFloat(fiat, fiatAmount);
 
   // 1. Debit the crypto and record the payout as pending — one atomic step, so
   //    the money can never leave the wallet without a settlement row to match it.
@@ -225,7 +243,7 @@ async function handleBankSend(
         note: input.accountName ? `To ${input.accountName}` : "Bank payout",
         emoji: "🏦",
         status: "pending",
-        meta: { reference, provider, network: "bank" },
+        meta: { reference, provider, network: "bank", spreadFiat, marketFiat },
       },
     });
     await tx.settlement.create({
@@ -239,6 +257,7 @@ async function handleBankSend(
         asset: fiat,
         amount: new Prisma.Decimal(fiatAmount),
         address: accountNumber,
+        raw: { spreadFiat, marketFiat } as Prisma.InputJsonValue,
       },
     });
   });
@@ -271,6 +290,11 @@ async function handleBankSend(
   if (payoutStatus === "failed") {
     // finalizePayout has refunded the debited crypto.
     throw new ApiError("Payout could not be sent — your balance was not charged.", 502);
+  }
+
+  // The fiat has left the float — draw it down.
+  if (payoutStatus === "completed") {
+    await prisma.$transaction((tx) => debitFloat(tx, fiat, fiatAmount));
   }
 
   const state = await getAppState(userId);

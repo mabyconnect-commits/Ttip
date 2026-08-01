@@ -141,12 +141,30 @@ so the app runs identically whether money is simulated or live:
 Every movement is recorded in the `Settlement` table (unique `externalId`) for a
 clean audit trail.
 
-**Payout providers.** Two are built in — **Paystack** and **Flutterwave** — behind
-one interface; `PAYOUT_PROVIDER` (or whichever keys are present) picks which sends
-naira. Both payout webhooks land on `/api/webhooks/payout`, distinguished and
-verified by their own signature header. Adding another (Korapay, Fincra…) or a
-deposit provider (Blockradar, NOWPayments, Circle…) is a single new file
-implementing the same interface — no route or UI changes.
+**Payout providers.** Four are built in — **Paystack, Flutterwave, Monnify,
+CoralPay** — behind one interface; `PAYOUT_PROVIDER` (or whichever keys are
+present) picks which sends fiat, so you can run the cheapest per function. Payout
+webhooks land on `/api/webhooks/payout`, distinguished and verified by their own
+signature header.
+
+**Crypto deposits.** **Dextopus** (cross-chain, 70+ networks, non-custodial,
+~0.25%/tx) is wired as the deposit provider — it issues static addresses and posts
+to `/api/webhooks/deposit`, verified with its own secret. Any other provider
+(Blockradar, NOWPayments…) is one new file behind the same interface.
+
+**Treasury, float & liquidity.** Swept deposits accrue in a `TreasuryBalance`
+crypto pot; payouts draw from the fiat float. When a payout exceeds the float,
+`ensureFloat()` **auto-sells treasury crypto into the float at the live rate**, so
+a large withdrawal still goes out immediately even on a thin float — the core
+exchange liquidity trick. The liquidity venue is provider-agnostic (sandbox now;
+an exchange/OTC/P2P desk plugs in later).
+
+**Competitive pricing.** `src/lib/pricing.ts` quotes users the live market/P2P
+reference rate **minus a thin margin** (`PLATFORM_MARGIN_PCT`, default 1.5%), so
+Ttip tracks Bybit P2P automatically; the spread is captured as revenue.
+
+**Currencies.** Naira plus 8 more African currencies (GHS, KES, ZAR, XOF, XAF,
+UGX, TZS, RWF, ZMW, EGP, MAD, ETB), all priced live off the USD pivot.
 
 > **On cost:** naira *payouts* are a small flat/capped fee per transfer on both
 > Paystack and Flutterwave — not a percentage. (The ~1.4% percentage fee is on

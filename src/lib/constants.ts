@@ -57,11 +57,23 @@ export interface Fiat {
   country: string;
 }
 
+// Naira is the primary market; the rest let Ttip expand across Africa. Every
+// currency here is priced live off the USD pivot (see getFiatRates) and works
+// end-to-end through swap, payout and pricing.
 export const FIATS: Fiat[] = [
   { code: "NGN", name: "Nigerian Naira", symbol: "₦", flag: "🇳🇬", country: "Nigeria" },
   { code: "GHS", name: "Ghanaian Cedi", symbol: "₵", flag: "🇬🇭", country: "Ghana" },
   { code: "KES", name: "Kenyan Shilling", symbol: "KSh", flag: "🇰🇪", country: "Kenya" },
   { code: "ZAR", name: "South African Rand", symbol: "R", flag: "🇿🇦", country: "South Africa" },
+  { code: "XOF", name: "West African CFA Franc", symbol: "CFA", flag: "🌍", country: "West Africa" },
+  { code: "XAF", name: "Central African CFA Franc", symbol: "FCFA", flag: "🌍", country: "Central Africa" },
+  { code: "UGX", name: "Ugandan Shilling", symbol: "USh", flag: "🇺🇬", country: "Uganda" },
+  { code: "TZS", name: "Tanzanian Shilling", symbol: "TSh", flag: "🇹🇿", country: "Tanzania" },
+  { code: "RWF", name: "Rwandan Franc", symbol: "FRw", flag: "🇷🇼", country: "Rwanda" },
+  { code: "ZMW", name: "Zambian Kwacha", symbol: "ZK", flag: "🇿🇲", country: "Zambia" },
+  { code: "EGP", name: "Egyptian Pound", symbol: "E£", flag: "🇪🇬", country: "Egypt" },
+  { code: "MAD", name: "Moroccan Dirham", symbol: "DH", flag: "🇲🇦", country: "Morocco" },
+  { code: "ETB", name: "Ethiopian Birr", symbol: "Br", flag: "🇪🇹", country: "Ethiopia" },
   { code: "USD", name: "US Dollar", symbol: "$", flag: "🇺🇸", country: "United States" },
 ];
 
@@ -75,6 +87,15 @@ export const FIAT_USD_RATE: Record<string, number> = {
   GHS: 1 / 15.1,
   KES: 1 / 129.1,
   ZAR: 1 / 18.3,
+  XOF: 1 / 605,
+  XAF: 1 / 605,
+  UGX: 1 / 3700,
+  TZS: 1 / 2550,
+  RWF: 1 / 1300,
+  ZMW: 1 / 27,
+  EGP: 1 / 49,
+  MAD: 1 / 9.9,
+  ETB: 1 / 125,
 };
 
 // Fallback USD prices if the live price feed is unavailable.
@@ -95,3 +116,9 @@ export const BILL_CATEGORIES = [
 
 export const SWAP_FEE_PCT = 0.005; // 0.5% after free swaps used
 export const NETWORK_FEE_USDT = 1; // flat network fee on external sends (USDT-equivalent)
+
+// The spread Ttip keeps on crypto↔fiat conversion. The user is quoted the live
+// market/P2P reference rate minus this margin; the difference is platform
+// revenue. Keep it tight to stay competitive with Bybit P2P. Override per
+// deploy with PLATFORM_MARGIN_PCT.
+export const PLATFORM_MARGIN_PCT = 0.015; // 1.5%

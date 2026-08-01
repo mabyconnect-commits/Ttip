@@ -100,9 +100,9 @@ model Transaction {
 // a webhook that fires twice can never credit or pay out twice.
 model Settlement {
   id         String   @id @default(cuid())
-  userId     String
-  kind       String // "deposit" | "payout"
-  provider   String // "sandbox" | "flutterwave" | "blockradar" | "nowpayments"
+  userId     String? // null for system-level movements (e.g. treasury liquidation)
+  kind       String // "deposit" | "payout" | "liquidation"
+  provider   String // "sandbox" | "flutterwave" | "paystack" | "dextopus" | ...
   externalId String   @unique
   reference  String? // our own idempotency reference (payouts)
   status     String   @default("pending") // pending | completed | failed
@@ -114,10 +114,22 @@ model Settlement {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
   @@index([reference])
+}
+
+// Platform-owned balances: the naira (and other fiat) float payouts draw from,
+// and the crypto treasury swept from user deposits. The liquidity engine sells
+// treasury crypto into the float to keep payouts instant even when the float
+// alone can't cover a large withdrawal.
+model TreasuryBalance {
+  id        String   @id @default(cuid())
+  symbol    String   @unique // USDT, NGN, GHS, ...
+  kind      String // "crypto" | "fiat"
+  amount    Decimal  @default(0) @db.Decimal(38, 18)
+  updatedAt DateTime @updatedAt
 }
 
 model Beneficiary {

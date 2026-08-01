@@ -40,6 +40,20 @@ export function parseDeposit(body: unknown): NormalizedDeposit {
   return { externalId, address, asset, chain, amount, status, provider: String(b.provider ?? "generic"), raw: body };
 }
 
+/**
+ * Verify a Dextopus deposit webhook (HMAC-SHA256 of the raw body with
+ * DEXTOPUS_WEBHOOK_SECRET, in the `x-dextopus-signature` header). Confirm the
+ * exact header/scheme against Dextopus's webhook docs when you go live.
+ */
+export function verifyDextopusSignature(rawBody: string, signature: string | null): boolean {
+  const secret = process.env.DEXTOPUS_WEBHOOK_SECRET || null;
+  if (!secret || !signature) return false;
+  const expected = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
+  const a = Buffer.from(expected);
+  const b = Buffer.from(signature);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 /** Paystack amounts are in the currency's smallest unit (kobo/pesewas). */
 export function toSubunit(amount: number): number {
   return Math.round(amount * 100);

@@ -29,19 +29,82 @@ export function depositWebhookSecret(): string | null {
   return process.env.DEPOSIT_WEBHOOK_SECRET || null;
 }
 
-export type PayoutProvider = "sandbox" | "flutterwave" | "paystack";
+export type PayoutProvider = "sandbox" | "flutterwave" | "paystack" | "monnify" | "coralpay";
+
+const PAYOUT_PROVIDERS = ["paystack", "flutterwave", "monnify", "coralpay"] as const;
 
 /**
  * Which provider actually moves the fiat. In sandbox mode it's always the
  * sandbox provider. In live mode, PAYOUT_PROVIDER decides; if unset we pick
- * whichever provider has keys (Paystack preferred, then Flutterwave).
+ * whichever provider has keys. Pick cheapest-per-function: e.g. Monnify for
+ * transfers, another for collection.
  */
 export function payoutProvider(): PayoutProvider {
   if (!isLive()) return "sandbox";
   const explicit = process.env.PAYOUT_PROVIDER?.toLowerCase();
-  if (explicit === "paystack" || explicit === "flutterwave") return explicit;
+  if ((PAYOUT_PROVIDERS as readonly string[]).includes(explicit ?? "")) return explicit as PayoutProvider;
+  if (process.env.MONNIFY_SECRET_KEY) return "monnify";
   if (process.env.PAYSTACK_SECRET_KEY) return "paystack";
+  if (process.env.CORALPAY_SECRET_KEY) return "coralpay";
   return "flutterwave";
+}
+
+/** Which provider issues crypto deposit addresses + fires deposit webhooks. */
+export function depositProvider(): string {
+  return process.env.DEPOSIT_PROVIDER?.toLowerCase() || (process.env.DEXTOPUS_API_KEY ? "dextopus" : "sandbox");
+}
+
+export interface MonnifyConfig {
+  apiKey: string;
+  secretKey: string;
+  contractCode: string;
+  sourceAccountNumber: string;
+  baseUrl: string;
+}
+
+export function monnifyConfig(): MonnifyConfig | null {
+  const apiKey = process.env.MONNIFY_API_KEY;
+  const secretKey = process.env.MONNIFY_SECRET_KEY;
+  if (!apiKey || !secretKey) return null;
+  return {
+    apiKey,
+    secretKey,
+    contractCode: process.env.MONNIFY_CONTRACT_CODE || "",
+    sourceAccountNumber: process.env.MONNIFY_SOURCE_ACCOUNT || "",
+    baseUrl: process.env.MONNIFY_BASE_URL || "https://api.monnify.com",
+  };
+}
+
+export interface CoralpayConfig {
+  merchantId: string;
+  secretKey: string;
+  baseUrl: string;
+}
+
+export function coralpayConfig(): CoralpayConfig | null {
+  const secretKey = process.env.CORALPAY_SECRET_KEY;
+  if (!secretKey) return null;
+  return {
+    merchantId: process.env.CORALPAY_MERCHANT_ID || "",
+    secretKey,
+    baseUrl: process.env.CORALPAY_BASE_URL || "https://api.coralpay.com",
+  };
+}
+
+export interface DextopusConfig {
+  apiKey: string;
+  webhookSecret: string | null;
+  baseUrl: string;
+}
+
+export function dextopusConfig(): DextopusConfig | null {
+  const apiKey = process.env.DEXTOPUS_API_KEY;
+  if (!apiKey) return null;
+  return {
+    apiKey,
+    webhookSecret: process.env.DEXTOPUS_WEBHOOK_SECRET || null,
+    baseUrl: process.env.DEXTOPUS_BASE_URL || "https://api.dextopus.com",
+  };
 }
 
 export interface FlutterwaveConfig {
