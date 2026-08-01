@@ -91,8 +91,8 @@ export default function HomePage() {
         <div className="px-5 pt-7">
           <div className="flex justify-between items-baseline mb-3">
             <span className="font-grotesk font-semibold text-[14px] tracking-[-0.2px]">Your assets</span>
-            <button onClick={() => router.push("/swap")} className="font-sans text-[12px] text-white/45 active:text-white/70">
-              See all
+            <button onClick={() => router.push("/account/transactions")} className="font-sans text-[12px] text-white/45 active:text-white/70">
+              Activity
             </button>
           </div>
           <div className="flex flex-col gap-1.5">

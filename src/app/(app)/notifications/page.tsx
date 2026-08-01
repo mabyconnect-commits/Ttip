@@ -15,6 +15,11 @@ interface Txn {
 }
 const isFiat = (s: string | null) => !!s && FIATS.some((f) => f.code === s);
 const fmt = (v: number, s: string) => (isFiat(s) ? formatFiat(v, s, { decimals: 0 }) : `${formatCrypto(v, s)} ${s}`);
+function amountText(t: Txn): string | null {
+  if (t.direction === "in" && t.amountOut) return "+" + fmt(t.amountOut, t.assetOut ?? "");
+  if (t.direction === "out" && t.amountIn) return "−" + fmt(t.amountIn, t.assetIn ?? "");
+  return null;
+}
 
 function title(t: Txn): string {
   const inAmt = () => fmt(t.amountOut ?? 0, t.assetOut ?? "");
@@ -63,7 +68,14 @@ export default function NotificationsPage() {
                 {t.note && t.type !== "bill" && <div className="text-white/45 text-[12px] mt-0.5 truncate">{prettifyChains(t.note)}</div>}
                 <div className="text-white/35 text-[11px] mt-0.5">{t.time === "now" ? "just now" : t.time + " ago"}</div>
               </div>
-              <Icon name="chevronRight" size={15} className="text-white/25 mt-1 shrink-0" />
+              <div className="flex items-center gap-1 shrink-0">
+                {amountText(t) && (
+                  <span className="font-grotesk font-semibold text-[13px] tabular-nums" style={{ color: t.direction === "in" ? "#3DF5B0" : "#FF7A8A" }}>
+                    {amountText(t)}
+                  </span>
+                )}
+                <Icon name="chevronRight" size={15} className="text-white/25" />
+              </div>
             </button>
           ))}
         </div>
