@@ -109,7 +109,7 @@ export function dextopusConfig(): DextopusConfig | null {
   return {
     apiKey,
     webhookSecret: process.env.DEXTOPUS_WEBHOOK_SECRET || null,
-    baseUrl: process.env.DEXTOPUS_BASE_URL || "https://swap-api.dextopus.com",
+    baseUrl: process.env.DEXTOPUS_BASE_URL || "https://swap-api.dextopus.com/api",
     settlementChainId: Number.isFinite(chain) ? chain : null,
     settlementAsset: process.env.DEXTOPUS_SETTLEMENT_ASSET || null,
     settlementAddress: process.env.DEXTOPUS_SETTLEMENT_ADDRESS || null,
