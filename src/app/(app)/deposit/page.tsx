@@ -26,10 +26,13 @@ export default function DepositPage() {
   const [sym, setSym] = useState("USDT");
   const [netIdx, setNetIdx] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [live, setLive] = useState(false);
   const [receipt, setReceipt] = useState<any>(null);
 
   useEffect(() => {
-    apiGet<{ assets: DepAsset[] }>("/api/deposit").then((d) => setAssets(d.assets)).catch(() => {});
+    apiGet<{ assets: DepAsset[]; live: boolean }>("/api/deposit")
+      .then((d) => { setAssets(d.assets); setLive(!!d.live); })
+      .catch(() => {});
   }, []);
 
   const asset = assets.find((a) => a.symbol === sym);
@@ -83,9 +86,11 @@ export default function DepositPage() {
               ⚠️ Transfers reflect in seconds. This is a dedicated account for your wallet.
             </div>
           </div>
-          <button onClick={simulateNaira} disabled={loading} className="w-full mt-3 rounded-2xl border border-dashed border-good/40 text-good py-3.5 font-grotesk font-semibold text-[14px] active:scale-[.99] disabled:opacity-50">
-            ▶ Simulate transfer +{fiat === "NGN" ? "₦50,000" : "50,000 " + fiat}
-          </button>
+          {!live && (
+            <button onClick={simulateNaira} disabled={loading} className="w-full mt-3 rounded-2xl border border-dashed border-good/40 text-good py-3.5 font-grotesk font-semibold text-[14px] active:scale-[.99] disabled:opacity-50">
+              ▶ Simulate transfer +{fiat === "NGN" ? "₦50,000" : "50,000 " + fiat}
+            </button>
+          )}
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto no-scrollbar pt-4">
@@ -138,9 +143,11 @@ export default function DepositPage() {
             </span>
           </div>
 
-          <button onClick={simulate} disabled={loading} className="w-full mt-3 mb-6 rounded-2xl border border-dashed border-good/40 text-good py-3.5 font-grotesk font-semibold text-[14px] active:scale-[.99] disabled:opacity-50">
-            ▶ Simulate incoming {sym === "BTC" ? "+0.005 BTC" : sym === "ETH" ? "+0.1 ETH" : "+200 " + sym}
-          </button>
+          {!live && (
+            <button onClick={simulate} disabled={loading} className="w-full mt-3 mb-6 rounded-2xl border border-dashed border-good/40 text-good py-3.5 font-grotesk font-semibold text-[14px] active:scale-[.99] disabled:opacity-50">
+              ▶ Simulate incoming {sym === "BTC" ? "+0.005 BTC" : sym === "ETH" ? "+0.1 ETH" : "+200 " + sym}
+            </button>
+          )}
         </div>
       )}
 

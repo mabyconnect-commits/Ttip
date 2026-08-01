@@ -7,6 +7,7 @@ import { handler, ok, unauthorized, ApiError } from "@/lib/api";
 import { getAppState } from "@/lib/serialize";
 import { CRYPTO_ASSETS, FIAT_BY_CODE } from "@/lib/constants";
 import { creditDeposit, ensureDepositAddresses } from "@/lib/settlement";
+import { depositProvider } from "@/lib/settlement/config";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,13 @@ export async function GET() {
     if (!userId) return unauthorized();
     // Lazily provision real Dextopus addresses when configured (no-op otherwise).
     await ensureDepositAddresses(userId).catch(() => {});
-    const addresses = await prisma.walletAddress.findMany({ where: { userId } });
+    const all = await prisma.walletAddress.findMany({ where: { userId } });
+
+    // SAFETY: when a live provider (Dextopus) is active, only ever surface its
+    // real, provider-issued addresses. Never show the deterministic demo
+    // addresses in production — a user could send real crypto to a dead address.
+    const live = depositProvider() !== "sandbox";
+    const addresses = live ? all.filter((a) => a.provider === "dextopus") : all;
 
     const bySymbol: Record<string, { network: string; address: string }[]> = {};
     for (const a of addresses) {
@@ -30,7 +37,7 @@ export async function GET() {
       glyph: a.glyph,
       networks: bySymbol[a.symbol],
     }));
-    return ok({ assets });
+    return ok({ assets, live });
   });
 }
 
@@ -47,6 +54,11 @@ export async function POST(req: Request) {
   return handler(async () => {
     const userId = await getUserId();
     if (!userId) return unauthorized();
+    // SAFETY: the simulator credits balances without real funds — it must never
+    // be reachable once a live deposit provider is configured.
+    if (depositProvider() !== "sandbox") {
+      throw new ApiError("Deposit simulation is disabled in live mode", 403);
+    }
     const { symbol, amount, network } = simSchema.parse(await req.json());
     const isFiat = !!FIAT_BY_CODE[symbol];
     if (!isFiat && !CRYPTO_ASSETS.find((a) => a.symbol === symbol)) throw new ApiError("Unsupported asset", 400);
