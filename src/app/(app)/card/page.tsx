@@ -8,7 +8,7 @@ import { usePrices } from "@/lib/usePrices";
 import { apiGet } from "@/lib/client";
 import { TabBar } from "@/components/TabBar";
 import { Sheet, GradientButton } from "@/components/ui";
-import { Icon } from "@/components/Icon";
+import { Icon, type IconName } from "@/components/Icon";
 import { formatUsd, formatCrypto } from "@/lib/format";
 
 const GOLD_TARGET = 4000;
@@ -30,7 +30,7 @@ export default function CardPage() {
     setClaiming(true);
     try {
       const res: any = await action("/api/rewards", { action: "daily" });
-      toast(`Claimed +${res.awarded} pts 🎁`, "good");
+      toast(`Claimed +${res.awarded} pts`, "good");
     } catch (e: any) {
       toast(e.message, "bad");
     } finally {
@@ -68,7 +68,7 @@ export default function CardPage() {
   async function toggleFreeze() {
     try {
       await action("/api/card", { action: card?.frozen ? "unfreeze" : "freeze" });
-      toast(card?.frozen ? "Card unfrozen" : "Card frozen ❄️", "good");
+      toast(card?.frozen ? "Card unfrozen" : "Card frozen", "good");
     } catch (e: any) {
       toast(e.message, "bad");
     }
@@ -81,8 +81,8 @@ export default function CardPage() {
     <>
       <div className="flex items-center justify-between px-[22px] pt-3.5 pb-4">
         <div className="font-grotesk font-bold text-[22px]">Card</div>
-        <span className="font-grotesk font-semibold text-[11px] text-good border border-good/35 rounded-xl px-2.5 py-1">
-          {card?.frozen ? "Frozen ❄️" : "Active · USD"}
+        <span className="font-grotesk font-semibold text-[11px] text-white/60 border border-white/12 rounded-full px-2.5 py-1">
+          {card?.frozen ? "Frozen" : "Active · USD"}
         </span>
       </div>
 
@@ -108,10 +108,10 @@ export default function CardPage() {
         </div>
 
         <div className="flex gap-2.5 py-3.5">
-          <button onClick={() => setFundOpen(true)} className="flex-1 h-[46px] rounded-[23px] flex items-center justify-center font-grotesk font-semibold text-[14px] text-[#04121A]" style={{ background: "linear-gradient(90deg,#6D5BFF,#2AC8FF)" }}>
-            + Fund from crypto
+          <button onClick={() => setFundOpen(true)} className="flex-1 h-[48px] rounded-2xl flex items-center justify-center gap-1.5 font-grotesk font-semibold text-[14px] bg-good text-ink">
+            <Icon name="plus" size={16} strokeWidth={2.6} /> Fund from crypto
           </button>
-          <button onClick={toggleFreeze} className="flex-1 h-[46px] rounded-[23px] border border-white/14 flex items-center justify-center gap-1.5 font-grotesk font-semibold text-[14px]">
+          <button onClick={toggleFreeze} className="flex-1 h-[48px] rounded-2xl border border-white/12 flex items-center justify-center gap-1.5 font-grotesk font-semibold text-[14px]">
             <Icon name={card?.frozen ? "sun" : "snowflake"} size={16} /> {card?.frozen ? "Unfreeze" : "Freeze"}
           </button>
         </div>
@@ -119,25 +119,25 @@ export default function CardPage() {
         {/* rewards */}
         <div className="bg-surface border border-white/[.06] rounded-[20px] p-4">
           <div className="flex justify-between items-center">
-            <span className="font-grotesk font-semibold text-[14px]">🔥 {state.user.streakDays}-day streak</span>
-            <span className="font-grotesk font-semibold text-[12px] text-brand-cyan">{points.toLocaleString()} pts</span>
+            <span className="font-grotesk font-semibold text-[14px]">Rewards</span>
+            <span className="font-grotesk font-semibold text-[12px] text-white/60">{points.toLocaleString()} pts</span>
           </div>
-          <div className="h-2.5 rounded-full bg-white/[.08] mt-3 overflow-hidden">
-            <div className="h-full rounded-full grad-bg" style={{ width: `${pct}%` }} />
+          <div className="h-2 rounded-full bg-white/[.08] mt-3 overflow-hidden">
+            <div className="h-full rounded-full bg-good" style={{ width: `${pct}%` }} />
           </div>
           <div className="font-sans text-[12px] text-white/50 mt-2.5">
-            {toGold > 0 ? <>{toGold.toLocaleString()} pts to <b className="text-good">Gold</b> — zero-fee swaps all month + a custom card skin</> : <><b className="text-good">Gold unlocked</b> — zero-fee swaps + custom skin 🎉</>}
+            {toGold > 0 ? <>{toGold.toLocaleString()} pts to <b className="text-good">Gold</b> — zero-fee swaps all month</> : <><b className="text-good">Gold unlocked</b> — zero-fee swaps all month</>}
           </div>
           <div className="flex gap-2 mt-3.5">
-            <RewardTile icon="🎁" label="Daily drop" onClick={claimDrop} />
-            <RewardTile icon="🎯" label="Quests" onClick={openQuests} />
-            <RewardTile icon="👯" label="Invite = ₦2k" onClick={() => router.push("/referrals")} />
+            <RewardTile icon="gift" label="Daily drop" onClick={claimDrop} />
+            <RewardTile icon="grid" label="Quests" onClick={openQuests} />
+            <RewardTile icon="user" label="Invite = ₦2k" onClick={() => router.push("/referrals")} />
           </div>
         </div>
 
         {/* bills shortcut */}
         <button onClick={() => router.push("/bills")} className="w-full flex items-center gap-3 bg-surface border border-white/[.06] rounded-[18px] p-3.5 mt-2.5 active:scale-[.99]">
-          <span className="text-xl">📱</span>
+          <span className="w-9 h-9 rounded-full bg-surface2 flex items-center justify-center text-white/70 shrink-0"><Icon name="bills" size={17} /></span>
           <div className="flex-1 text-left">
             <div className="font-sans font-semibold text-[13.5px]">Bills &amp; airtime</div>
             <div className="font-sans text-[11.5px] text-white/45">Airtime, data, electricity, TV — pay straight from crypto</div>
@@ -190,7 +190,7 @@ export default function CardPage() {
                   )}
                 </div>
                 <div className="h-1.5 rounded-full bg-white/[.08] mt-2.5 overflow-hidden">
-                  <div className="h-full rounded-full grad-bg" style={{ width: `${Math.round((q.progress / q.goal) * 100)}%` }} />
+                  <div className="h-full rounded-full bg-good" style={{ width: `${Math.round((q.progress / q.goal) * 100)}%` }} />
                 </div>
               </div>
             );
@@ -202,11 +202,11 @@ export default function CardPage() {
   );
 }
 
-function RewardTile({ icon, label, onClick }: { icon: string; label: string; onClick: () => void }) {
+function RewardTile({ icon, label, onClick }: { icon: IconName; label: string; onClick: () => void }) {
   return (
-    <button onClick={onClick} className="flex-1 bg-surface2 rounded-[14px] p-2.5 text-center active:scale-95 transition">
-      <div className="text-lg">{icon}</div>
-      <div className="font-sans font-medium text-[10.5px] text-white/60 mt-1">{label}</div>
+    <button onClick={onClick} className="flex-1 bg-surface2 rounded-2xl p-3 flex flex-col items-center gap-1.5 active:scale-95 transition">
+      <Icon name={icon} size={18} className="text-white/80" />
+      <div className="font-sans font-medium text-[10.5px] text-white/60">{label}</div>
     </button>
   );
 }
