@@ -31,6 +31,9 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
       }
       const deposit = parseDextopusDeposit(JSON.parse(raw));
+      // Every Dextopus deposit cross-chain-settles to our treasury asset, so
+      // credit the user in that symbol (the payload may carry a mint address).
+      deposit.asset = (process.env.DEXTOPUS_SETTLEMENT_ASSET || deposit.asset).toUpperCase();
       const result = await creditDeposit(deposit);
       return NextResponse.json({ ok: true, ...result });
     }
