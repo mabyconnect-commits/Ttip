@@ -85,21 +85,26 @@ export async function listChains(): Promise<DxChain[]> {
 // Cache the full token objects per chain (for names + symbols).
 const tokenListCache = new Map<number, { at: number; tokens: DxToken[] }>();
 
-/** Tokens available on a chain (cached 6h). */
+/** Tokens on a chain that actually support static deposit addresses (cached 6h). */
 export async function listTokens(chainId: number): Promise<DxToken[]> {
   const cfg = dextopusConfig();
   if (!cfg) return [];
   const cached = tokenListCache.get(chainId);
   if (cached && Date.now() - cached.at < 6 * 60 * 60 * 1000) return cached.tokens;
-  const res = await fetch(`${cfg.baseUrl}/deposit/tokens?chainId=${chainId}`, { headers: { "x-api-key": cfg.apiKey } });
+  // Ask Dextopus for only the tokens that support static addresses, so users
+  // never see a token that would fail with "not available".
+  const res = await fetch(`${cfg.baseUrl}/deposit/tokens?chainId=${chainId}&supportsStaticAddress=true`, { headers: { "x-api-key": cfg.apiKey } });
   const tokens: DxToken[] = [];
   if (res.ok) {
     const body = (await res.json().catch(() => null)) as Record<string, unknown> | unknown[] | null;
     const list = (Array.isArray(body) ? body : ((body as Record<string, unknown>)?.tokens ?? (body as Record<string, unknown>)?.data)) as
       | Record<string, unknown>[]
       | undefined;
+    // Belt-and-braces: if the payload still carries the flag, honour it.
+    const flagged = (list ?? []).some((t) => "supportsStaticAddress" in t);
     const seen = new Set<string>();
     for (const t of list ?? []) {
+      if (flagged && t.supportsStaticAddress === false) continue;
       const symbol = String(t.symbol ?? "").toUpperCase();
       if (!symbol || seen.has(symbol)) continue;
       seen.add(symbol);
