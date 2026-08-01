@@ -75,7 +75,8 @@ export function parseDextopusDeposit(body: unknown): NormalizedDeposit {
   const externalId = String(d.requestId ?? d.depositId ?? "");
   const asset = String(d.settlementAsset ?? d.originAsset ?? "").toUpperCase();
   const amount = Number(d.settlementAmountFormatted ?? d.originAmountFormatted ?? 0);
-  const chain = String(d.settlementChainId ?? d.originChainId ?? "").toLowerCase();
+  // Where the user actually sent from (origin) is what to show them.
+  const chain = String(d.originChainId ?? d.settlementChainId ?? "");
   const confirmed = String(d.status ?? "").toUpperCase() === "COMPLETED" || b.event === "deposit.completed";
   if (!externalId || !asset || !(amount > 0)) {
     throw new Error("Invalid Dextopus payload: requestId, settlementAsset and a positive amount are required.");

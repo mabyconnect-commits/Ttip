@@ -1,19 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BackHeader } from "@/components/ui";
+import { useRouter } from "next/navigation";
+import { BackHeader, Sheet } from "@/components/ui";
+import { Icon } from "@/components/Icon";
 import { apiGet } from "@/lib/client";
 import { formatFiat, formatCrypto } from "@/lib/format";
+import { prettifyChains } from "@/lib/chains";
 import { FIATS } from "@/lib/constants";
 
 interface Txn {
   id: string; type: string; direction: string; counterparty: string | null; note: string | null; emoji: string | null;
-  assetIn: string | null; amountIn: number | null; assetOut: string | null; amountOut: number | null; time: string;
+  assetIn: string | null; amountIn: number | null; assetOut: string | null; amountOut: number | null; time: string; status?: string;
 }
 const isFiat = (s: string | null) => !!s && FIATS.some((f) => f.code === s);
+const fmt = (v: number, s: string) => (isFiat(s) ? formatFiat(v, s, { decimals: 0 }) : `${formatCrypto(v, s)} ${s}`);
 
 function title(t: Txn): string {
-  const inAmt = () => (isFiat(t.assetOut) ? formatFiat(t.amountOut ?? 0, t.assetOut!, { decimals: 0 }) : `${formatCrypto(t.amountOut ?? 0, t.assetOut ?? "")} ${t.assetOut ?? ""}`);
+  const inAmt = () => fmt(t.amountOut ?? 0, t.assetOut ?? "");
   switch (t.type) {
     case "ttip_in": return `You received ${inAmt()} from ${t.counterparty ?? "someone"}`;
     case "ttip_out": return `You Ttipped ${t.counterparty ?? ""}`;
@@ -29,8 +33,10 @@ function title(t: Txn): string {
 }
 
 export default function NotificationsPage() {
+  const router = useRouter();
   const [txns, setTxns] = useState<Txn[]>([]);
   const [loading, setLoading] = useState(true);
+  const [sel, setSel] = useState<Txn | null>(null);
 
   useEffect(() => {
     apiGet<{ transactions: Txn[] }>("/api/transactions?limit=40").then((d) => setTxns(d.transactions)).finally(() => setLoading(false));
@@ -43,24 +49,64 @@ export default function NotificationsPage() {
         {loading && <div className="text-center text-white/40 text-[13px] py-10">Loading…</div>}
         {!loading && txns.length === 0 && (
           <div className="flex flex-col items-center justify-center text-center py-16 gap-2">
-            <div className="text-4xl">🔔</div>
+            <div className="w-14 h-14 rounded-full border border-white/10 flex items-center justify-center text-white/50"><Icon name="bell" size={22} /></div>
             <div className="font-grotesk font-semibold text-[16px]">You&apos;re all caught up</div>
             <div className="text-white/45 text-[13px]">Tips, deposits and payouts will show up here.</div>
           </div>
         )}
         <div className="flex flex-col gap-2 mt-1">
           {txns.map((t) => (
-            <div key={t.id} className="flex items-start gap-3 bg-surface border border-white/[.06] rounded-[16px] px-3.5 py-3">
+            <button key={t.id} onClick={() => setSel(t)} className="flex items-start gap-3 bg-surface border border-white/[.06] rounded-[16px] px-3.5 py-3 text-left active:scale-[.99] transition">
               <span className="w-10 h-10 rounded-full bg-surface2 flex items-center justify-center text-lg shrink-0">{t.emoji ?? "•"}</span>
               <div className="flex-1 min-w-0">
                 <div className="font-medium text-[13.5px] leading-snug">{title(t)}</div>
-                {t.note && t.type !== "bill" && <div className="text-white/45 text-[12px] mt-0.5 truncate">“{t.note}”</div>}
+                {t.note && t.type !== "bill" && <div className="text-white/45 text-[12px] mt-0.5 truncate">{prettifyChains(t.note)}</div>}
                 <div className="text-white/35 text-[11px] mt-0.5">{t.time === "now" ? "just now" : t.time + " ago"}</div>
               </div>
-            </div>
+              <Icon name="chevronRight" size={15} className="text-white/25 mt-1 shrink-0" />
+            </button>
           ))}
         </div>
+
+        {!loading && txns.length > 0 && (
+          <button onClick={() => router.push("/account/transactions")} className="w-full mt-4 rounded-2xl border border-white/10 py-3 font-grotesk font-semibold text-[13px] text-white/70 active:scale-[.99]">
+            View full transaction history
+          </button>
+        )}
       </div>
+
+      <Sheet open={!!sel} onClose={() => setSel(null)} title="Transaction details">
+        {sel && (
+          <div className="flex flex-col">
+            <div className="flex flex-col items-center text-center py-2">
+              <div className="w-14 h-14 rounded-full bg-surface2 flex items-center justify-center text-2xl">{sel.emoji ?? "•"}</div>
+              <div className="font-grotesk font-bold text-[18px] mt-3">{title(sel)}</div>
+              <div className={`font-grotesk font-bold text-[24px] mt-1 ${sel.direction === "in" ? "text-good" : "text-white"}`}>
+                {sel.direction === "in"
+                  ? "+" + fmt(sel.amountOut ?? 0, sel.assetOut ?? "")
+                  : "−" + fmt(sel.amountIn ?? 0, sel.assetIn ?? "")}
+              </div>
+            </div>
+            <div className="mt-3 flex flex-col divide-y divide-white/[.06]">
+              <DetailRow label="Status" value={(sel.status ?? "completed").replace(/^\w/, (c) => c.toUpperCase())} tone={sel.status === "pending" ? "warn" : "good"} />
+              {sel.counterparty && <DetailRow label={sel.type === "deposit" ? "Source" : "To / From"} value={prettifyChains(sel.counterparty)} />}
+              {sel.note && <DetailRow label="Note" value={prettifyChains(sel.note)} />}
+              <DetailRow label="When" value={sel.time === "now" ? "Just now" : sel.time + " ago"} />
+              <DetailRow label="Reference" value={sel.id} mono />
+            </div>
+          </div>
+        )}
+      </Sheet>
+    </div>
+  );
+}
+
+function DetailRow({ label, value, tone, mono }: { label: string; value: string; tone?: "good" | "warn"; mono?: boolean }) {
+  const color = tone === "good" ? "text-good" : tone === "warn" ? "text-warn" : "text-white/90";
+  return (
+    <div className="flex items-center justify-between gap-3 py-3">
+      <span className="text-[12.5px] text-white/45 shrink-0">{label}</span>
+      <span className={`text-[13px] font-medium text-right break-all ${color} ${mono ? "font-mono text-[11px]" : ""}`}>{value}</span>
     </div>
   );
 }

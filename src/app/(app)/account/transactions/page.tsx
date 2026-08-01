@@ -5,6 +5,7 @@ import { useApp } from "@/context/AppContext";
 import { apiGet } from "@/lib/client";
 import { BackHeader } from "@/components/ui";
 import { formatFiat, formatCrypto } from "@/lib/format";
+import { prettifyChains } from "@/lib/chains";
 import { FIATS } from "@/lib/constants";
 
 interface Txn {
@@ -48,9 +49,9 @@ export default function TransactionsPage() {
             <div key={t.id} className="flex items-center gap-3 bg-surface border border-white/[.06] rounded-[16px] px-3.5 py-3">
               <span className="w-10 h-10 rounded-full bg-surface2 flex items-center justify-center text-lg shrink-0">{t.emoji ?? "•"}</span>
               <div className="flex-1 min-w-0">
-                <div className="font-medium text-[13.5px] truncate">{t.note ?? label(t.type)}</div>
+                <div className="font-medium text-[13.5px] truncate">{prettifyChains(t.note) || label(t.type)}</div>
                 <div className="text-white/40 text-[11.5px] truncate">
-                  {t.counterparty ?? label(t.type)} · {t.time}
+                  {prettifyChains(t.counterparty) || label(t.type)} · {t.time}
                   {t.status !== "completed" ? ` · ${t.status}` : ""}
                 </div>
               </div>

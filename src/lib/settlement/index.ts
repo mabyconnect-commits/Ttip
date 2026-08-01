@@ -9,6 +9,7 @@ import { paystackPayout } from "./paystack";
 import { monnifyPayout } from "./monnify";
 import { coralpayPayout } from "./coralpay";
 import { adjustTreasury } from "./treasury";
+import { chainName } from "../chains";
 import type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
 
 export type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
@@ -81,9 +82,9 @@ export async function creditDeposit(
           assetOut: deposit.asset,
           amountOut: new Prisma.Decimal(deposit.amount),
           counterparty: "On-chain",
-          note: `Received ${deposit.asset} · ${deposit.chain}`,
+          note: `Received ${deposit.asset} via ${chainName(deposit.chain)}`,
           emoji: "📥",
-          meta: { chain: deposit.chain, externalId: deposit.externalId, provider: deposit.provider },
+          meta: { chain: chainName(deposit.chain), chainId: deposit.chain, externalId: deposit.externalId, provider: deposit.provider },
         },
       });
 
