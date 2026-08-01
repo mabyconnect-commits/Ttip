@@ -95,15 +95,25 @@ export interface DextopusConfig {
   apiKey: string;
   webhookSecret: string | null;
   baseUrl: string;
+  // Cross-chain settlement target — where deposits land (your treasury).
+  settlementChainId: number | null;
+  settlementAsset: string | null;
+  settlementAddress: string | null;
+  refundTo: string | null;
 }
 
 export function dextopusConfig(): DextopusConfig | null {
   const apiKey = process.env.DEXTOPUS_API_KEY;
   if (!apiKey) return null;
+  const chain = Number(process.env.DEXTOPUS_SETTLEMENT_CHAIN_ID);
   return {
     apiKey,
     webhookSecret: process.env.DEXTOPUS_WEBHOOK_SECRET || null,
-    baseUrl: process.env.DEXTOPUS_BASE_URL || "https://api.dextopus.com",
+    baseUrl: process.env.DEXTOPUS_BASE_URL || "https://swap-api.dextopus.com",
+    settlementChainId: Number.isFinite(chain) ? chain : null,
+    settlementAsset: process.env.DEXTOPUS_SETTLEMENT_ASSET || null,
+    settlementAddress: process.env.DEXTOPUS_SETTLEMENT_ADDRESS || null,
+    refundTo: process.env.DEXTOPUS_REFUND_TO || null,
   };
 }
 

@@ -13,7 +13,7 @@ import type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
 
 export type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
 export { settlementMode, isLive, payoutProvider } from "./config";
-export { parseDeposit, verifyDepositSignature } from "./webhook";
+export { parseDeposit, verifyDepositSignature, parseDextopusDeposit, verifyDextopusSignature } from "./webhook";
 export { ensureFloat, debitFloat, treasuryBalance, adjustTreasury } from "./treasury";
 
 /**
@@ -28,8 +28,9 @@ export async function creditDeposit(
   deposit: NormalizedDeposit,
   opts: { userId?: string } = {},
 ): Promise<{ credited: boolean; userId: string | null; reason?: string }> {
-  // Resolve the user: either passed directly (simulator) or by deposit address.
-  let userId = opts.userId ?? null;
+  // Resolve the user: passed directly (simulator), echoed by the provider
+  // (Dextopus sets our userId), or looked up by deposit address.
+  let userId = opts.userId ?? deposit.userId ?? null;
   if (!userId) {
     const addr = await prisma.walletAddress.findFirst({ where: { address: deposit.address } });
     userId = addr?.userId ?? null;

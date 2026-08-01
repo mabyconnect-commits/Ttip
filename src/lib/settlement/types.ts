@@ -14,6 +14,8 @@ export interface NormalizedDeposit {
   status: "confirmed" | "pending";
   /** Which provider produced this event. */
   provider: string;
+  /** Provider-supplied user id (e.g. Dextopus echoes the userId we set). */
+  userId?: string;
   /** Raw payload, kept for audit. */
   raw?: unknown;
 }

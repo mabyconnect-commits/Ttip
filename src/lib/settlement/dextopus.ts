@@ -3,44 +3,68 @@ import { dextopusConfig } from "./config";
 
 /**
  * Dextopus crypto-deposit provider — cross-chain settlement across 70+ networks
- * (Bitcoin, Tron, Solana, every major EVM chain), non-custodial, with static
- * per-user deposit addresses. Protocol fee ~0.25%/tx; you can add your own
- * partner fee on top as extra revenue.
+ * (Bitcoin, Tron, Solana, every major EVM chain), non-custodial, ~0.25%/tx.
  *
- * Deposits arrive at /api/webhooks/deposit (verified with the Dextopus secret),
- * are normalized by parseDeposit(), then credited + swept into treasury by
- * creditDeposit — the same path every deposit provider uses.
+ * A static per-user deposit address is generated once; whatever the user sends
+ * (any supported origin chain/asset) is cross-chain-settled to your configured
+ * treasury asset/address, and a signed webhook hits /api/webhooks/deposit —
+ * which credits + sweeps via creditDeposit (resolving the user from the echoed
+ * userId).
  *
- * Docs: https://dextopus.gitbook.io/dextopus-docs
+ * API: https://swap-api.dextopus.com/llms.txt  (auth: `x-api-key: pk_...`)
  */
 
 export interface DextopusAddress {
+  id: string;
   address: string;
-  asset: string;
-  chain: string;
+  originChainId: number;
+  originAsset: string;
 }
 
 /**
- * Create (or fetch) a static deposit address for a user on a given chain.
- * Confirm the exact endpoint/payload against the Dextopus API reference. Returns
- * null when Dextopus isn't configured, so the caller can fall back to the
- * built-in demo address generator.
+ * Generate a reusable (static) deposit address for a user on a given origin
+ * chain/asset. Settlement target (your treasury) comes from config. Returns null
+ * when Dextopus isn't configured, so callers fall back to the demo generator.
  */
 export async function createDepositAddress(
-  reference: string,
-  asset: string,
-  chain: string,
+  userId: string,
+  originChainId: number,
+  originAsset: string,
 ): Promise<DextopusAddress | null> {
   const cfg = dextopusConfig();
-  if (!cfg) return null;
+  if (!cfg || cfg.settlementChainId == null || !cfg.settlementAsset || !cfg.settlementAddress) return null;
 
-  const res = await fetch(`${cfg.baseUrl}/v1/deposit/address`, {
+  const res = await fetch(`${cfg.baseUrl}/deposit/static/generate`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${cfg.apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ reference, asset, chain }),
+    headers: { "x-api-key": cfg.apiKey, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      userId,
+      originChainId,
+      originAsset,
+      settlementChainId: cfg.settlementChainId,
+      settlementAsset: cfg.settlementAsset,
+      settlementAddress: cfg.settlementAddress,
+      ...(cfg.refundTo ? { refundTo: cfg.refundTo } : {}),
+      metadata: { source: "ttip" },
+    }),
   });
   if (!res.ok) return null;
-  const json = (await res.json().catch(() => ({}))) as { address?: string; data?: { address?: string } };
-  const address = json.address ?? json.data?.address;
-  return address ? { address, asset, chain } : null;
+  const json = (await res.json().catch(() => ({}))) as { data?: { id?: string; depositAddress?: string } };
+  const address = json.data?.depositAddress;
+  return address ? { id: json.data!.id ?? "", address, originChainId, originAsset } : null;
+}
+
+/** Register (or update) the deposit webhook URL + events with Dextopus. */
+export async function configureWebhook(webhookUrl: string): Promise<boolean> {
+  const cfg = dextopusConfig();
+  if (!cfg) return false;
+  const res = await fetch(`${cfg.baseUrl}/deposit/static/webhook`, {
+    method: "POST",
+    headers: { "x-api-key": cfg.apiKey, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      webhookUrl,
+      events: ["deposit.created", "deposit.completed", "deposit.failed", "deposit.refunded"],
+    }),
+  });
+  return res.ok;
 }

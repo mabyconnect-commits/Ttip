@@ -41,17 +41,56 @@ export function parseDeposit(body: unknown): NormalizedDeposit {
 }
 
 /**
- * Verify a Dextopus deposit webhook (HMAC-SHA256 of the raw body with
- * DEXTOPUS_WEBHOOK_SECRET, in the `x-dextopus-signature` header). Confirm the
- * exact header/scheme against Dextopus's webhook docs when you go live.
+ * Verify a Dextopus deposit webhook. Dextopus signs
+ * `HMAC-SHA256("{timestamp}.{rawBody}", webhookSecret)` and sends the hex digest
+ * in `X-Signature-SHA256` with the ms timestamp in `X-Signature-Timestamp`.
+ * Optionally rejects timestamps older than `maxAgeMs` (default 5 min) to stop
+ * replay.
  */
-export function verifyDextopusSignature(rawBody: string, signature: string | null): boolean {
+export function verifyDextopusSignature(
+  timestamp: string | null,
+  rawBody: string,
+  signature: string | null,
+  maxAgeMs = 5 * 60_000,
+): boolean {
   const secret = process.env.DEXTOPUS_WEBHOOK_SECRET || null;
-  if (!secret || !signature) return false;
-  const expected = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
+  if (!secret || !signature || !timestamp) return false;
+  const ts = Number(timestamp);
+  if (!Number.isFinite(ts) || Math.abs(Date.now() - ts) > maxAgeMs) return false;
+  const expected = crypto.createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex");
   const a = Buffer.from(expected);
   const b = Buffer.from(signature);
   return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+/**
+ * Map a Dextopus webhook body to a NormalizedDeposit. What lands in your
+ * treasury is the *settlement* asset (Dextopus cross-chain-settles the user's
+ * origin asset to your configured treasury asset/address), so we credit that.
+ * Only `deposit.completed` (status COMPLETED) is confirmed.
+ */
+export function parseDextopusDeposit(body: unknown): NormalizedDeposit {
+  const b = (body ?? {}) as { event?: string; data?: Record<string, unknown> };
+  const d = b.data ?? {};
+  const externalId = String(d.requestId ?? d.depositId ?? "");
+  const asset = String(d.settlementAsset ?? d.originAsset ?? "").toUpperCase();
+  const amount = Number(d.settlementAmountFormatted ?? d.originAmountFormatted ?? 0);
+  const chain = String(d.settlementChainId ?? d.originChainId ?? "").toLowerCase();
+  const confirmed = String(d.status ?? "").toUpperCase() === "COMPLETED" || b.event === "deposit.completed";
+  if (!externalId || !asset || !(amount > 0)) {
+    throw new Error("Invalid Dextopus payload: requestId, settlementAsset and a positive amount are required.");
+  }
+  return {
+    externalId,
+    address: String(d.depositAddress ?? ""),
+    asset,
+    chain,
+    amount,
+    status: confirmed ? "confirmed" : "pending",
+    provider: "dextopus",
+    userId: d.userId ? String(d.userId) : undefined,
+    raw: body,
+  };
 }
 
 /** Paystack amounts are in the currency's smallest unit (kobo/pesewas). */

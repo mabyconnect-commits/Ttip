@@ -1,7 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import crypto from "crypto";
-import { parseDeposit, verifyDepositSignature } from "../src/lib/settlement/webhook";
+import {
+  parseDeposit,
+  verifyDepositSignature,
+  parseDextopusDeposit,
+  verifyDextopusSignature,
+} from "../src/lib/settlement/webhook";
 
 process.env.DEPOSIT_WEBHOOK_SECRET = "test-secret";
 
@@ -31,4 +36,41 @@ test("verifyDepositSignature accepts a correct HMAC and rejects tampering", () =
   assert.equal(verifyDepositSignature(body + " ", sig), false); // body changed
   assert.equal(verifyDepositSignature(body, sig.slice(0, -2) + "00"), false); // sig changed
   assert.equal(verifyDepositSignature(body, null), false); // missing sig
+});
+
+test("parseDextopusDeposit credits the settlement asset and echoes userId", () => {
+  const body = {
+    event: "deposit.completed",
+    data: {
+      userId: "user_123",
+      requestId: "req_abc",
+      depositAddress: "0xdeadbeef",
+      settlementAsset: "usdt",
+      settlementAmountFormatted: "49.88",
+      settlementChainId: 728126428,
+      status: "COMPLETED",
+    },
+  };
+  const d = parseDextopusDeposit(body);
+  assert.equal(d.externalId, "req_abc");
+  assert.equal(d.asset, "USDT");
+  assert.equal(d.amount, 49.88);
+  assert.equal(d.userId, "user_123");
+  assert.equal(d.status, "confirmed");
+});
+
+test("parseDextopusDeposit marks a non-completed event pending", () => {
+  const d = parseDextopusDeposit({ event: "deposit.created", data: { requestId: "r", settlementAsset: "USDT", settlementAmountFormatted: "1", status: "PENDING" } });
+  assert.equal(d.status, "pending");
+});
+
+test("verifyDextopusSignature enforces the timestamp.body HMAC scheme", () => {
+  process.env.DEXTOPUS_WEBHOOK_SECRET = "whsec_1";
+  const body = JSON.stringify({ event: "deposit.completed", data: { requestId: "r" } });
+  const ts = String(Date.now());
+  const sig = crypto.createHmac("sha256", "whsec_1").update(`${ts}.${body}`).digest("hex");
+  assert.equal(verifyDextopusSignature(ts, body, sig), true);
+  assert.equal(verifyDextopusSignature(ts, body + "x", sig), false); // body changed
+  assert.equal(verifyDextopusSignature(String(Date.now() - 10 * 60_000), body, sig), false); // stale
+  assert.equal(verifyDextopusSignature(null, body, sig), false); // missing timestamp
 });
