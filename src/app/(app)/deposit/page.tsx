@@ -118,30 +118,41 @@ export default function DepositPage() {
             </div>
           )}
 
-          {/* QR + address */}
-          <div className="bg-surface border border-white/[.08] rounded-[22px] p-5 mt-3 flex flex-col items-center">
-            {net && <QR value={net.address} size={172} />}
-            <div className="text-[11px] tracking-wide text-white/40 uppercase mt-4">{net?.network} Address</div>
-            <div className="font-grotesk text-[14px] break-all text-center mt-1.5 px-2">{net?.address}</div>
-            <div className="flex gap-2.5 mt-4">
-              <button onClick={() => net && copy(net.address)} className="grad-bg rounded-full px-5 py-2.5 font-grotesk font-semibold text-[13px] text-[#04121A]">
-                Copy address
-              </button>
-              <button
-                onClick={() => { if (net && navigator.share) navigator.share({ text: net.address }).catch(() => {}); else net && copy(net.address); }}
-                className="rounded-full px-5 py-2.5 font-grotesk font-semibold text-[13px] border border-white/14"
-              >
-                Share
-              </button>
-            </div>
-          </div>
+          {/* QR + address — only when a real address exists */}
+          {net?.address ? (
+            <>
+              <div className="bg-surface border border-white/[.08] rounded-[22px] p-5 mt-3 flex flex-col items-center">
+                <QR value={net.address} size={172} />
+                <div className="text-[11px] tracking-wide text-white/40 uppercase mt-4">{net.network} Address</div>
+                <div className="font-grotesk text-[14px] break-all text-center mt-1.5 px-2">{net.address}</div>
+                <div className="flex gap-2.5 mt-4">
+                  <button onClick={() => copy(net.address)} className="rounded-full px-5 py-2.5 font-grotesk font-semibold text-[13px] bg-good text-ink">
+                    Copy address
+                  </button>
+                  <button
+                    onClick={() => { if (navigator.share) navigator.share({ text: net.address }).catch(() => {}); else copy(net.address); }}
+                    className="rounded-full px-5 py-2.5 font-grotesk font-semibold text-[13px] border border-white/14"
+                  >
+                    Share
+                  </button>
+                </div>
+              </div>
 
-          <div className="mt-3 rounded-xl px-3.5 py-3 text-[12.5px] flex gap-2" style={{ background: "rgba(255,200,91,.08)", border: "1px solid rgba(255,200,91,.3)", color: "rgba(255,255,255,.75)" }}>
-            <span>⚠️</span>
-            <span>
-              Only send <b className="text-warn">{asset?.name} ({sym})</b> on <b className="text-warn">{net?.network}</b>. Other assets or networks will be lost.
-            </span>
-          </div>
+              <div className="mt-3 rounded-xl px-3.5 py-3 text-[12.5px] flex gap-2" style={{ background: "rgba(255,200,91,.08)", border: "1px solid rgba(255,200,91,.3)", color: "rgba(255,255,255,.75)" }}>
+                <span>⚠️</span>
+                <span>
+                  Only send <b className="text-warn">{asset?.name} ({sym})</b> on <b className="text-warn">{net.network}</b>. Other assets or networks will be lost.
+                </span>
+              </div>
+            </>
+          ) : (
+            <div className="bg-surface border border-white/[.08] rounded-[22px] p-8 mt-3 flex flex-col items-center text-center">
+              <div className="font-grotesk font-semibold text-[15px]">Deposit address unavailable</div>
+              <div className="text-[13px] text-white/45 mt-1.5 leading-[1.5]">
+                We&apos;re setting up your {sym} address. Pull to refresh in a moment, or pick another asset.
+              </div>
+            </div>
+          )}
 
           {!live && (
             <button onClick={simulate} disabled={loading} className="w-full mt-3 mb-6 rounded-2xl border border-dashed border-good/40 text-good py-3.5 font-grotesk font-semibold text-[14px] active:scale-[.99] disabled:opacity-50">
