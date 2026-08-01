@@ -62,11 +62,12 @@ model Balance {
 }
 
 model WalletAddress {
-  id      String @id @default(cuid())
-  userId  String
-  symbol  String // BTC, ETH, USDT, etc.
-  network String // Bitcoin, ERC-20, TRC-20, Solana, ...
-  address String
+  id       String  @id @default(cuid())
+  userId   String
+  symbol   String // BTC, ETH, USDT, etc.
+  network  String // Bitcoin, ERC-20, TRC-20, Solana, ...
+  address  String
+  provider String? // null = demo generator; "dextopus" = real provider-issued
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

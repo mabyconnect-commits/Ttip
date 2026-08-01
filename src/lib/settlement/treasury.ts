@@ -4,6 +4,7 @@ import { prisma } from "../db";
 import { kindOf } from "../wallet";
 import { convert } from "../prices";
 import { liquidityProvider } from "./liquidity";
+import { nettedSellAmount, nettableBuyDemand } from "./netting";
 
 /**
  * Treasury — the platform's own money. Crypto swept from user deposits lands
@@ -54,11 +55,13 @@ export async function ensureFloat(
   const asset = opts.preferAsset ?? "USDT";
   const shortfallFiat = amountFiat - floatBefore;
 
-  // How much crypto covers the shortfall at the live rate — capped by holdings.
+  // How much crypto covers the shortfall at the live rate — capped by holdings,
+  // and netted against any internal buy demand so we only externalize the net.
   const rate = await convert(1, asset, fiat); // fiat per 1 unit of asset
   const held = await treasuryBalance(asset);
   const needAsset = rate > 0 ? shortfallFiat / rate : 0;
-  const sell = Math.min(needAsset, held);
+  const netNeed = nettedSellAmount(needAsset, await nettableBuyDemand(asset));
+  const sell = Math.min(netNeed, held);
 
   if (sell <= 0) {
     return { floatBefore, liquidated: false, shortfall: shortfallFiat };

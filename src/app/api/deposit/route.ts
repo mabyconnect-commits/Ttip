@@ -6,7 +6,7 @@ import { getUserId } from "@/lib/auth";
 import { handler, ok, unauthorized, ApiError } from "@/lib/api";
 import { getAppState } from "@/lib/serialize";
 import { CRYPTO_ASSETS, FIAT_BY_CODE } from "@/lib/constants";
-import { creditDeposit } from "@/lib/settlement";
+import { creditDeposit, ensureDepositAddresses } from "@/lib/settlement";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +15,8 @@ export async function GET() {
   return handler(async () => {
     const userId = await getUserId();
     if (!userId) return unauthorized();
+    // Lazily provision real Dextopus addresses when configured (no-op otherwise).
+    await ensureDepositAddresses(userId).catch(() => {});
     const addresses = await prisma.walletAddress.findMany({ where: { userId } });
 
     const bySymbol: Record<string, { network: string; address: string }[]> = {};

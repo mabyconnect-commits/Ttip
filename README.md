@@ -159,9 +159,21 @@ a large withdrawal still goes out immediately even on a thin float — the core
 exchange liquidity trick. The liquidity venue is provider-agnostic (sandbox now;
 an exchange/OTC/P2P desk plugs in later).
 
-**Competitive pricing.** `src/lib/pricing.ts` quotes users the live market/P2P
-reference rate **minus a thin margin** (`PLATFORM_MARGIN_PCT`, default 1.5%), so
-Ttip tracks Bybit P2P automatically; the spread is captured as revenue.
+**Competitive pricing.** `src/lib/pricing.ts` quotes users the market **reference
+rate minus a thin margin** (`PLATFORM_MARGIN_PCT`, default 1.5%); the spread is
+revenue. The reference (`src/lib/rate.ts`) is official FX plus a configurable
+**P2P premium** (`P2P_PREMIUM_PCT` / `P2P_PREMIUM_<CODE>`) so quotes track the
+Bybit-P2P/parallel rate — swap that one function for a live P2P feed and the whole
+engine follows.
+
+**Netting.** `src/lib/settlement/netting.ts` matches internal off-ramp vs on-ramp
+demand so only the **net** imbalance is liquidated externally (matched volume pays
+zero external spread). The treasury liquidation already routes through it; it
+activates automatically once on-ramp/buy flow exists.
+
+**Real deposit addresses.** When Dextopus is configured, the deposit screen lazily
+provisions real static addresses per user (`ensureDepositAddresses`) instead of the
+demo generator, keyed to your treasury settlement target.
 
 **Currencies.** Naira plus 8 more African currencies (GHS, KES, ZAR, XOF, XAF,
 UGX, TZS, RWF, ZMW, EGP, MAD, ETB), all priced live off the USD pivot.

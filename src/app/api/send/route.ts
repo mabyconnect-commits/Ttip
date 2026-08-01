@@ -11,6 +11,7 @@ import { NETWORK_FEE_USDT } from "@/lib/constants";
 import { dayStr, isYesterday } from "@/lib/format";
 import { payoutFiat, finalizePayout, payoutProvider, ensureFloat, debitFloat } from "@/lib/settlement";
 import { quoteSell } from "@/lib/pricing";
+import { referenceFiat } from "@/lib/rate";
 
 const schema = z.object({
   mode: z.enum(["ttip", "wallet", "bank"]),
@@ -209,7 +210,7 @@ async function handleBankSend(
   // Competitive pricing: the user is paid the live market rate minus our margin
   // when converting crypto → fiat; that spread is platform revenue. A same-fiat
   // withdrawal carries no spread.
-  const marketFiat = await convert(amount, symbol, fiat);
+  const marketFiat = await referenceFiat(amount, symbol, fiat);
   let fiatAmount = marketFiat;
   let spreadFiat = 0;
   if (symbol !== fiat && isCrypto(symbol)) {
