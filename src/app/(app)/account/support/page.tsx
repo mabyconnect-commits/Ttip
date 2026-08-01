@@ -25,7 +25,7 @@ export default function SupportPage() {
         <div className="flex flex-col items-center text-center py-4">
           <div className="w-16 h-16 rounded-full bg-surface2 flex items-center justify-center text-white/80"><Icon name="headset" size={30} /></div>
           <div className="font-grotesk font-bold text-[19px] mt-3">How can we help?</div>
-          <p className="text-white/50 text-[13px] mt-1">We're here 24/7. Pick a channel below.</p>
+          <p className="text-white/50 text-[13px] mt-1">We&apos;re here 24/7. Pick a channel below.</p>
         </div>
         <div className="grid grid-cols-2 gap-2.5">
           {channels.map((c) =>

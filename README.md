@@ -62,6 +62,17 @@ npm run dev
 
 Open http://localhost:3000.
 
+### Checks
+
+```bash
+npm run typecheck   # tsc --noEmit
+npm run lint        # next lint
+npm test            # unit tests for the money engine (node:test)
+```
+
+These same checks plus a production build run automatically in CI
+(`.github/workflows/ci.yml`) on every push and pull request.
+
 **Demo account:** `kola@ttip.money` / `password123`
 (other seeded users: `amara`, `tobi`, `zuri` — all `password123`)
 
@@ -103,10 +114,29 @@ static shell) and submit. No rewrite needed; the UI is already mobile-first.
 
 ---
 
+## Security hardening
+
+Baked in and applied on every deploy:
+
+- **Security headers** on all routes (`next.config.mjs`) — a locked-down
+  Content-Security-Policy, HSTS (2y, preload), `X-Frame-Options: DENY`,
+  `X-Content-Type-Options: nosniff`, a strict `Referrer-Policy` and
+  `Permissions-Policy`. `X-Powered-By` is disabled.
+- **Rate limiting** on the sensitive endpoints (`src/lib/rate-limit.ts`):
+  sign-in (10 / 5 min per IP), sign-up (5 / hr per IP) and PIN unlock
+  (5 / min per user) to blunt credential stuffing and PIN brute-force. It is an
+  in-process limiter — on serverless it applies per warm instance; swap the map
+  for Upstash/Redis for a cluster-wide guarantee (the `rateLimit()` signature
+  stays the same).
+- **Required `AUTH_SECRET`** — sessions refuse to sign/verify without a
+  ≥16-char secret; there is no insecure fallback.
+- **Dependencies** kept on a patched Next.js 14.2.x line.
+
 ## Honest note on "production-ready"
 
 The **software** here is production-grade: real auth, a real database, a real transaction
-ledger, live pricing, input validation, and a Vercel-ready build.
+ledger, live pricing, input validation, security headers, rate limiting, a unit-tested
+money engine, CI, and a Vercel-ready build.
 
 What a real-money launch additionally requires — and what no code alone can provide — is
 the **regulated financial plumbing**:

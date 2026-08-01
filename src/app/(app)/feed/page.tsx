@@ -78,7 +78,7 @@ export default function FeedPage() {
           Weekly Ttip League:{" "}
           {you ? (
             <>
-              you're <b className="text-brand-cyan">#{you.rank} of your circle</b>
+              you&apos;re <b className="text-brand-cyan">#{you.rank} of your circle</b>
               {ahead ? <> — {formatFiat(Math.max(0, ahead.total - you.total), state.user.defaultFiat, { decimals: 0 })} more to pass {ahead.username}</> : " — you're on top 🔥"}
             </>
           ) : (

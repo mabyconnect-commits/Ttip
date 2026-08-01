@@ -4,6 +4,7 @@ import { hashPassword, createSession } from "@/lib/auth";
 import { handler, ok, ApiError } from "@/lib/api";
 import { getAppState } from "@/lib/serialize";
 import { provisionAccount, pickGradient, makeReferralCode } from "@/lib/provision";
+import { rateLimit, clientIp } from "@/lib/rate-limit";
 
 const schema = z.object({
   name: z.string().min(1, "Name is required").max(60),
@@ -20,6 +21,8 @@ const schema = z.object({
 
 export async function POST(req: Request) {
   return handler(async () => {
+    // Limit automated account creation: 5 signups / hour per client IP.
+    rateLimit(`signup:${clientIp(req)}`, { limit: 5, windowMs: 60 * 60_000 });
     const body = await req.json();
     const input = schema.parse(body);
     const username = input.username.toLowerCase();

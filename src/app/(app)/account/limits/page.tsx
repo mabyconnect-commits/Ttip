@@ -21,7 +21,7 @@ export default function LimitsPage() {
       <BackHeader title="Spending limits" />
       <div className="flex-1 overflow-y-auto no-scrollbar pb-6">
         <p className="text-white/50 text-[13.5px] mt-1 mb-4">
-          You're on <b className="text-white">Tier {current}</b>. Verify your identity to raise your limits.
+          You&apos;re on <b className="text-white">Tier {current}</b>. Verify your identity to raise your limits.
         </p>
         <div className="flex flex-col gap-3">
           {TIERS.map((t) => {

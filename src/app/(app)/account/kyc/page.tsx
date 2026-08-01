@@ -45,7 +45,7 @@ export default function KycPage() {
           <div className="w-20 h-20 rounded-full grad-bg-135 flex items-center justify-center text-[#04121A]">
             <Icon name="check" size={38} strokeWidth={3} />
           </div>
-          <div className="font-grotesk font-bold text-[22px]">You're verified</div>
+          <div className="font-grotesk font-bold text-[22px]">You&apos;re verified</div>
           <p className="text-white/50 text-[14px] max-w-[280px]">
             Tier {state.user.kycTier} unlocked. Higher swap and payout limits are active on your account.
           </p>

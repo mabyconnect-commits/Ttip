@@ -6,10 +6,8 @@ import { handler, ok, unauthorized, ApiError } from "@/lib/api";
 import { getAppState } from "@/lib/serialize";
 import { convert, isCrypto } from "@/lib/prices";
 import { adjust, balanceOf } from "@/lib/wallet";
-import { SWAP_FEE_PCT } from "@/lib/constants";
 import { dayStr } from "@/lib/format";
-
-const FREE_SWAPS_PER_DAY = 3;
+import { freeSwapsLeft, quoteSwap } from "@/lib/swap-math";
 
 const schema = z.object({
   fromSymbol: z.string(),
@@ -35,15 +33,11 @@ export async function POST(req: Request) {
     // Free-swap allowance resets each day. If today is a new day, the user has
     // their full daily allowance again regardless of the stored counter.
     const today = dayStr();
-    const isNewDay = user.freeSwapDay !== today;
-    const freeLeft = isNewDay ? FREE_SWAPS_PER_DAY : user.freeSwapsLeft;
+    const freeLeft = freeSwapsLeft(user.freeSwapDay, user.freeSwapsLeft, today);
 
-    // gross output before fee
+    // gross output before fee, then apply swap economics
     const gross = await convert(amount, fromSymbol, toSymbol);
-    const free = freeLeft > 0;
-    const feePct = free ? 0 : SWAP_FEE_PCT;
-    const net = gross * (1 - feePct);
-    const rate = amount > 0 ? net / amount : 0;
+    const { feePct, free, net, rate } = quoteSwap(amount, gross, freeLeft);
 
     const result = await prisma.$transaction(async (tx) => {
       await adjust(tx, userId, fromSymbol, -amount);

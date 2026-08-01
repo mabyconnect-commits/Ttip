@@ -44,7 +44,7 @@ export default function NotificationsPage() {
         {!loading && txns.length === 0 && (
           <div className="flex flex-col items-center justify-center text-center py-16 gap-2">
             <div className="text-4xl">🔔</div>
-            <div className="font-grotesk font-semibold text-[16px]">You're all caught up</div>
+            <div className="font-grotesk font-semibold text-[16px]">You&apos;re all caught up</div>
             <div className="text-white/45 text-[13px]">Tips, deposits and payouts will show up here.</div>
           </div>
         )}

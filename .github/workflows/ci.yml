@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # Installs deps and runs `prisma generate` via the postinstall hook.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      # Build with no DATABASE_URL: setup-db skips gracefully and Next builds
+      # the app shell. AUTH_SECRET is a throwaway value just to satisfy config.
+      - name: Build
+        run: npm run build
+        env:
+          AUTH_SECRET: ci-build-placeholder-secret-not-used-at-runtime
