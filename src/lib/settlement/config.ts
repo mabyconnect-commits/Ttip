@@ -79,6 +79,47 @@ export function depositProvider(): string {
   return process.env.DEPOSIT_PROVIDER?.toLowerCase() || (process.env.DEXTOPUS_API_KEY ? "dextopus" : "sandbox");
 }
 
+export type BillProvider = "sandbox" | "flutterwave";
+
+/**
+ * Which provider pays bills (airtime, data, power, cable). Sandbox in demo; in
+ * live it's Flutterwave, which exposes a Bill Payments API on the same account
+ * and wallet used for payouts. BILL_PROVIDER can force it explicitly.
+ */
+export function billProvider(): BillProvider {
+  if (!isLive()) return "sandbox";
+  const explicit = process.env.BILL_PROVIDER?.toLowerCase();
+  if (explicit === "flutterwave" || explicit === "sandbox") return explicit;
+  return "flutterwave";
+}
+
+/**
+ * Map an internal bill category to the `type` string Flutterwave expects on
+ * `POST /v3/bills`. Flutterwave identifies billers by a type that must match its
+ * biller list **for your account/country**, so these are overridable via the
+ * BILL_TYPE_MAP env var (JSON, e.g. {"data":"MOBILEDATANG"}). Confirm the exact
+ * strings for your account with GET /v3/bill-categories — the admin diagnostic
+ * at /api/admin/flutterwave?bills=1 lists them.
+ */
+const DEFAULT_BILL_TYPES: Record<string, string> = {
+  airtime: "AIRTIME",
+  data: "DATA_BUNDLE",
+  electricity: "ELECTRICITY_BILL",
+  tv: "CABLE_BILL",
+  internet: "INTERNET",
+  betting: "BETTING",
+};
+
+export function billType(category: string): string | null {
+  let override: Record<string, string> = {};
+  try {
+    override = JSON.parse(process.env.BILL_TYPE_MAP || "{}");
+  } catch {
+    override = {};
+  }
+  return override[category] ?? DEFAULT_BILL_TYPES[category] ?? null;
+}
+
 export interface MonnifyConfig {
   apiKey: string;
   secretKey: string;

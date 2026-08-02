@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
+import { apiPost } from "@/lib/client";
 import { usePrices } from "@/lib/usePrices";
 import { BackHeader, GradientButton } from "@/components/ui";
 import { Icon } from "@/components/Icon";
@@ -23,6 +24,29 @@ export default function BillsPage() {
   const [amount, setAmount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [receipt, setReceipt] = useState<any>(null);
+  const [resolvedName, setResolvedName] = useState<string | null>(null);
+  const [validating, setValidating] = useState(false);
+
+  // For meter/smartcard bills, resolve the customer name so the user can confirm
+  // who they're paying before it goes out. Debounced; airtime/data don't validate.
+  const canValidate = cat?.id === "electricity" || cat?.id === "tv";
+  useEffect(() => {
+    setResolvedName(null);
+    if (!cat || !canValidate || account.length < 5) return;
+    let cancelled = false;
+    setValidating(true);
+    const t = setTimeout(async () => {
+      try {
+        const r = await apiPost<{ valid: boolean; name?: string }>("/api/validate-bill", { category: cat.id, customer: account });
+        if (!cancelled) setResolvedName(r.valid && r.name ? r.name : null);
+      } catch {
+        if (!cancelled) setResolvedName(null);
+      } finally {
+        if (!cancelled) setValidating(false);
+      }
+    }, 500);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [cat, account, canValidate]);
 
   const funding = pickFunding(state.portfolio.assets);
   const cost = convert(amount, fiat, funding);
@@ -96,6 +120,18 @@ export default function BillsPage() {
             className="bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] outline-none text-[14px] focus:border-brand-cyan/50 mt-4"
           />
 
+          {canValidate && validating && (
+            <div className="mt-2 flex items-center gap-2 text-[13px] text-white/45 px-1">
+              <span className="w-3.5 h-3.5 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" /> Checking…
+            </div>
+          )}
+          {canValidate && !validating && resolvedName && (
+            <div className="mt-2 bg-good/[.08] border border-good/25 rounded-2xl px-4 h-[46px] flex items-center gap-2.5">
+              <Icon name="check" size={15} strokeWidth={2.6} className="text-good shrink-0" />
+              <span className="text-[13.5px] font-medium text-white truncate">{resolvedName}</span>
+            </div>
+          )}
+
           <div className="text-[12px] text-white/50 mt-4 mb-2">Amount</div>
           <div className="grid grid-cols-4 gap-2">
             {cat.amounts.map((a) => (
@@ -130,8 +166,12 @@ export default function BillsPage() {
         <Receipt
           onDone={() => { setReceipt(null); router.push("/home"); }}
           emoji={BILL_CATEGORIES.find((c) => c.title === receipt.category)?.icon ?? "📱"}
-          title={`${receipt.category} paid`}
-          lines={[`${receipt.provider} · ${receipt.account}`, `Paid ${formatCrypto(receipt.cost, receipt.funding)} ${receipt.funding}`]}
+          title={receipt.status === "pending" ? `${receipt.category} processing` : `${receipt.category} paid`}
+          lines={[
+            `${receipt.provider} · ${receipt.account}`,
+            `Paid ${formatCrypto(receipt.cost, receipt.funding)} ${receipt.funding}`,
+            ...(receipt.status === "pending" ? ["Delivery in progress — you'll be notified when it lands."] : []),
+          ]}
         />
       )}
     </div>

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { finalizePayout, finalizeBuy, creditNairaDeposit } from "@/lib/settlement";
+import { finalizePayout, finalizeBill, finalizeBuy, creditNairaDeposit } from "@/lib/settlement";
 import { verifyFlutterwaveWebhook } from "@/lib/settlement/flutterwave";
 import { verifyPaystackWebhook } from "@/lib/settlement/webhook";
 
@@ -119,8 +119,12 @@ export async function POST(req: Request) {
         }
         return NextResponse.json({ ok: true, ignored: true });
       }
-      const result = await finalizePayout({ reference: ref }, status);
-      return NextResponse.json({ ok: true, kind: "payout", ...result });
+      // Non-charge events carry our reference: match a payout first, then a bill
+      // (both idempotent and scoped to their own settlement kind).
+      const payout = await finalizePayout({ reference: ref }, status);
+      if (payout.updated) return NextResponse.json({ ok: true, kind: "payout", ...payout });
+      const bill = await finalizeBill({ reference: ref }, status);
+      return NextResponse.json({ ok: true, kind: "bill", ...bill });
     }
 
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });

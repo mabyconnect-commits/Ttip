@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { flutterwaveConfig } from "@/lib/settlement/config";
-import { fwFetch } from "@/lib/settlement/flutterwave";
+import { fwFetch, flutterwaveBillCategories } from "@/lib/settlement/flutterwave";
 
 export const dynamic = "force-dynamic";
 
@@ -108,6 +108,16 @@ export async function GET(req: Request) {
     out.egressIp = { ip: body?.ip, note: process.env.FLUTTERWAVE_PROXY_URL ? "static (via proxy) — whitelist this" : "dynamic (rotates per call) — whitelisting won't stick without a proxy" };
   } catch (e) {
     out.egressIp = { error: String(e) };
+  }
+
+  // Optional: list bill categories so the operator can read the exact `type`
+  // codes to put in BILL_TYPE_MAP for airtime/data/power/cable.
+  if (url.searchParams.get("bills") === "1") {
+    try {
+      out.billCategories = await flutterwaveBillCategories();
+    } catch (e) {
+      out.billCategories = { error: String(e) };
+    }
   }
 
   // 1. Available payout balance.

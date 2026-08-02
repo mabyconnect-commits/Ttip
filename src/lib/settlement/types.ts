@@ -48,3 +48,36 @@ export interface PayoutResult {
   message?: string;
   raw?: unknown;
 }
+
+/** A request to pay a bill (airtime, data, electricity, cable, …) to a biller. */
+export interface BillRequest {
+  userId: string;
+  /** Our category id — airtime | data | electricity | tv | betting | internet. */
+  category: string;
+  /** Human biller/provider name, e.g. MTN, DStv, EKEDC. */
+  provider: string;
+  /** The thing being topped up: phone number, meter no., smartcard no., customer id. */
+  customer: string;
+  /** Bill face value in `currency`. */
+  amountFiat: number;
+  currency: string; // NGN, …
+  /** Our idempotency reference. */
+  reference: string;
+}
+
+export interface BillResult {
+  provider: string; // "flutterwave" | "sandbox"
+  /** Provider bill id / our reference. */
+  externalId: string;
+  status: "pending" | "completed" | "failed";
+  message?: string;
+  raw?: unknown;
+}
+
+/** Validation of a bill customer (e.g. resolve the name on a meter / smartcard). */
+export interface BillValidation {
+  valid: boolean;
+  /** Customer/account name when the biller returns one. */
+  name?: string;
+  message?: string;
+}

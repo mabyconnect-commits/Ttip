@@ -13,7 +13,9 @@ import { chainName } from "../chains";
 import type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
 
 export type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
-export { settlementMode, isLive, payoutProvider, demoEnabled, settlementEnabled, settlementStatus } from "./config";
+export { settlementMode, isLive, payoutProvider, billProvider, demoEnabled, settlementEnabled, settlementStatus } from "./config";
+export { payBill, finalizeBill, billStatus, validateBillCustomer } from "./billing";
+export type { PayBillArgs, PayBillOutcome } from "./billing";
 export { parseDeposit, verifyDepositSignature, parseDextopusDeposit, verifyDextopusSignature } from "./webhook";
 export { ensureFloat, debitFloat, treasuryBalance, adjustTreasury } from "./treasury";
 export { cryptoWithdraw, finalizeWithdrawal } from "./withdrawal";
