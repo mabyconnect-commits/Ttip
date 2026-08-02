@@ -44,10 +44,13 @@ async function binanceBuyUsdt(fiat: string): Promise<number[]> {
   return (json?.data ?? []).map((d) => Number(d.adv?.price)).filter((p) => p > 0);
 }
 
-/** A robust reference from a list of ads: median of the best (lowest) 8 buy prices. */
+/**
+ * A robust reference from a list of buy-USDT ads: the median of the whole set,
+ * which sits right in the live cluster (~₦1,386) and ignores the odd low/high
+ * outlier ad.
+ */
 function referenceFrom(prices: number[]): number | null {
-  const sorted = prices.slice().sort((a, b) => a - b);
-  return median(sorted.slice(0, 8));
+  return median(prices);
 }
 
 /** Live USDT price in `currency` from P2P (Bybit → Binance), or null. Cached 2m. */
