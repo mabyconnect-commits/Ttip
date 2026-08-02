@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import { apiGet } from "@/lib/client";
+import { COMPANY } from "@/lib/company";
 import { BackHeader, Avatar, Sheet } from "@/components/ui";
 import { Icon } from "@/components/Icon";
 import { QR } from "@/components/QR";
@@ -46,7 +47,7 @@ export default function ProfilePage() {
             {user.name}
             {user.verified && <Icon name="check" size={15} className="text-brand-cyan" strokeWidth={2.6} />}
           </div>
-          <div className="font-sans font-medium text-[13px] text-white/45">{data?.link ?? `ttip.money/u/${user.username}`}</div>
+          <div className="font-sans font-medium text-[13px] text-white/45">{data?.link ?? `${COMPANY.domain}/u/${user.username}`}</div>
           <div className="flex gap-[18px] font-sans text-[12px] text-white/50 mt-0.5">
             <span><b className="text-white">{data?.friends ?? 0}</b> friends</span>
             <span><b className="text-white">{user.streakDays}</b> streak</span>

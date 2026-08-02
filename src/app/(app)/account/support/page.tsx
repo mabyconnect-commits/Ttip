@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import { BackHeader } from "@/components/ui";
 import { Icon, type IconName } from "@/components/Icon";
+import { COMPANY } from "@/lib/company";
 
 export default function SupportPage() {
   return (
@@ -19,7 +20,7 @@ function SupportInner() {
   const ref = useSearchParams().get("ref");
   const channels: { icon: IconName; label: string; sub: string; href?: string; action?: () => void }[] = [
     { icon: "message", label: "Live chat", sub: "Typical reply in a few minutes", action: () => toast("Live chat coming soon — email us for now", "info") },
-    { icon: "mail", label: "Email us", sub: "support@ttip.money", href: "mailto:support@ttip.money" },
+    { icon: "mail", label: "Email us", sub: COMPANY.supportEmail, href: `mailto:${COMPANY.supportEmail}` },
     { icon: "phone", label: "WhatsApp", sub: "Chat on WhatsApp", href: "https://wa.me/2348000000000?text=Hi%20Ttip%20support" },
     { icon: "x", label: "X / Twitter", sub: "@ttipmoney", href: "https://x.com/ttipmoney" },
   ];
@@ -46,7 +47,7 @@ function SupportInner() {
               Tell us what went wrong and we&apos;ll trace this transaction for you. Quote the reference above so we can find it fast.
             </p>
             <a
-              href={`mailto:support@ttip.money?subject=${encodeURIComponent("Transaction report · " + ref)}&body=${encodeURIComponent("Reference: " + ref + "\n\nWhat happened:\n")}`}
+              href={`mailto:${COMPANY.supportEmail}?subject=${encodeURIComponent("Transaction report · " + ref)}&body=${encodeURIComponent("Reference: " + ref + "\n\nWhat happened:\n")}`}
               className="mt-3 w-full bg-good text-ink h-[46px] rounded-xl flex items-center justify-center font-grotesk font-semibold text-[13.5px]"
             >
               Email support about this

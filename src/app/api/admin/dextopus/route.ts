@@ -1,8 +1,24 @@
 import { NextResponse } from "next/server";
 import { getUserId } from "@/lib/auth";
+import { prisma } from "@/lib/db";
 import { dextopusConfig } from "@/lib/settlement/config";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Only an operator may reach the diagnostic. Set ADMIN_EMAILS (comma-separated)
+ * to your own account email(s) in production; otherwise it's available only on a
+ * demo deployment. Anyone else gets a 404 (route existence is not revealed).
+ */
+async function isAdmin(userId: string): Promise<boolean> {
+  const admins = (process.env.ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  if (!admins.length) return process.env.DEMO_MODE === "true";
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+  return !!user && admins.includes(user.email.toLowerCase());
+}
 
 /**
  * TEMPORARY diagnostic: shows what Dextopus supports (chains, tokens) and the
@@ -17,6 +33,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const userId = await getUserId();
   if (!userId) return NextResponse.json({ error: "sign in first" }, { status: 401 });
+  if (!(await isAdmin(userId))) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const cfg = dextopusConfig();
   if (!cfg) return NextResponse.json({ error: "Dextopus not configured (DEXTOPUS_API_KEY missing)" }, { status: 400 });

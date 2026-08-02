@@ -6,6 +6,7 @@ import { handler, ok, unauthorized, ApiError } from "@/lib/api";
 import { getAppState } from "@/lib/serialize";
 import { convert } from "@/lib/prices";
 import { adjust, balanceOf } from "@/lib/wallet";
+import { demoEnabled } from "@/lib/settlement";
 
 const schema = z.object({
   action: z.enum(["fund", "freeze", "unfreeze"]),
@@ -28,7 +29,10 @@ export async function POST(req: Request) {
       return ok({ ...state, receipt: { kind: "card", action } });
     }
 
-    // fund from crypto
+    // fund from crypto — real card issuing isn't wired yet, so this only runs in
+    // demo. Fail closed in live so it can never take crypto for a card that
+    // can't be spent.
+    if (!demoEnabled()) throw new ApiError("Card funding is coming soon.", 503);
     const src = symbol ?? "USDT";
     if (!amountUsd) throw new ApiError("Enter an amount", 400);
     const cost = await convert(amountUsd, "USD", src);

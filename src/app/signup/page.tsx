@@ -72,7 +72,7 @@ function SignupInner() {
 
         <form onSubmit={submit} className="flex flex-col gap-3">
           <Field label="Full name" value={name} onChange={setName} placeholder="Kola Adeyemi" autoFocus />
-          <Field label="Username" value={username} onChange={(v) => setUsername(v.replace(/[^a-zA-Z0-9_]/g, ""))} placeholder="kola" hint="Your tip link will be ttip.money/u/username" />
+          <Field label="Username" value={username} onChange={(v) => setUsername(v.replace(/[^a-zA-Z0-9_]/g, ""))} placeholder="kola" hint="Your tip link will be ttip.site/u/username" />
           <Field label="Email" value={email} onChange={setEmail} placeholder="you@email.com" type="email" />
           <Field label="Password" value={password} onChange={setPassword} placeholder="At least 8 characters" type="password" />
 
