@@ -320,10 +320,10 @@ async function handleBankSend(
   }
 
   if (payoutStatus === "failed") {
-    // finalizePayout has refunded the debited crypto. Surface the provider's
-    // reason (e.g. insufficient float) so it's clear why, not just "failed".
-    const reason = providerMessage ? ` (${providerMessage})` : "";
-    throw new ApiError(`Payout could not be sent — your balance was not charged.${reason}`, 502);
+    // finalizePayout has refunded the debited crypto. Lead with the provider's
+    // reason so it's visible even in a short toast (balance was not charged).
+    const base = providerMessage?.trim() || "Payout could not be sent";
+    throw new ApiError(`${base} — balance not charged.`, 502);
   }
 
   // The fiat has left the float — draw it down, and reward cashback on the sale.
