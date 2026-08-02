@@ -29,17 +29,34 @@ async function isAdmin(userId: string): Promise<boolean> {
 
 /** Turn the raw provider responses into a one-line plain-English diagnosis. */
 function interpret(out: Record<string, any>): string {
+  const proxied = !!process.env.FLUTTERWAVE_PROXY_URL;
+  const egressIp: string | undefined = out.egressIp?.ip;
+  // Suffix that tells the operator the exact IP to whitelist and whether it's stable.
+  const ipHint = egressIp
+    ? proxied
+      ? ` Whitelist this static proxy IP on Flutterwave: ${egressIp}.`
+      : ` This request left from ${egressIp}, but with no proxy that IP rotates per call — whitelisting it won't hold.`
+    : "";
+
   const transfer = out.testTransfer?.body;
   const msg: string = (transfer?.message ?? "").toString();
   if (transfer) {
-    if (/ip whitelist/i.test(msg)) {
-      return "Flutterwave is blocking transfers until IP Whitelisting is set up. Vercel uses dynamic IPs, so route Flutterwave through a static-IP proxy (set FLUTTERWAVE_PROXY_URL) and whitelist that IP, or enable IP whitelisting on your Flutterwave dashboard.";
+    // Flutterwave says "ip whitelist" explicitly on some accounts, and returns a
+    // generic "This request cannot be processed. Please contact support" /
+    // "not permitted" on others — both are the same IP-allowlist block for a
+    // live Transfers account calling from an un-whitelisted address.
+    if (/ip whitelist|whitelist|cannot be processed|not permitted|contact support/i.test(msg)) {
+      const base = proxied
+        ? "Flutterwave is still rejecting the transfer. A static-IP proxy is configured — make sure its IP is the one whitelisted on your Flutterwave dashboard (Settings → API → IP Whitelist)."
+        : "Flutterwave is blocking transfers until IP Whitelisting is set up. Vercel uses dynamic IPs, so route Flutterwave through a static-IP proxy (set FLUTTERWAVE_PROXY_URL) and whitelist that IP — whitelisting a single observed Vercel IP won't hold because the next call egresses from a different address.";
+      return base + ipHint;
     }
     if (/insufficient/i.test(msg)) return "Payout balance is too low — top up your Flutterwave PAYOUT wallet (separate from collections).";
-    if (transfer?.status === "success" || out.testTransfer?.status === 200) return "Transfer accepted ✅ — payouts are working.";
+    if (transfer?.status === "success" || out.testTransfer?.status === 200) return "Transfer accepted ✅ — payouts are working." + (egressIp ? ` (egress IP ${egressIp})` : "");
+    if (msg) return `Flutterwave rejected the transfer: "${msg}".` + ipHint;
   }
   const bal = out.ngnBalance?.body?.data?.available_balance;
-  if (typeof bal === "number") return `Balance/API reachable (₦${bal} available). Add &send=1&account=&bank=&amount= to test a real transfer and see any block.`;
+  if (typeof bal === "number") return `Balance/API reachable (₦${bal} available).${ipHint} Add &send=1&account=&bank=&amount= to test a real transfer and see any block.`;
   return "Could not read Flutterwave — check FLUTTERWAVE_SECRET_KEY.";
 }
 
@@ -65,6 +82,17 @@ export async function GET(req: Request) {
   }
 
   out.proxy = process.env.FLUTTERWAVE_PROXY_URL ? "configured (static-IP egress)" : "none (direct Vercel egress — dynamic IP)";
+
+  // 0. Egress IP as seen by an outside echo — routed through fwFetch, so it uses
+  //    the SAME path (static proxy or direct Vercel) that Flutterwave calls take.
+  //    This is the exact address to put on Flutterwave's IP whitelist.
+  try {
+    const r = await fwFetch("https://api.ipify.org?format=json", {});
+    const body = (await r.json().catch(() => null)) as { ip?: string } | null;
+    out.egressIp = { ip: body?.ip, note: process.env.FLUTTERWAVE_PROXY_URL ? "static (via proxy) — whitelist this" : "dynamic (rotates per call) — whitelisting won't stick without a proxy" };
+  } catch (e) {
+    out.egressIp = { error: String(e) };
+  }
 
   // 1. Available payout balance.
   await call("ngnBalance", "/balances/NGN", { headers: auth });
