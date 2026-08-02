@@ -28,7 +28,7 @@ export default function KycPage() {
     setLoading(true);
     try {
       await action("/api/kyc", { fullName, idType, idNumber });
-      toast("Identity verified ✓", "good");
+      toast("Identity verified", "good");
       router.push("/account");
     } catch (e: any) {
       toast(e.message, "bad");
@@ -42,8 +42,8 @@ export default function KycPage() {
       <div className="flex flex-col flex-1 px-[22px] min-h-0">
         <BackHeader title="KYC" />
         <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center pb-16">
-          <div className="w-20 h-20 rounded-full grad-bg-135 flex items-center justify-center text-[#04121A]">
-            <Icon name="check" size={38} strokeWidth={3} />
+          <div className="w-20 h-20 rounded-full flex items-center justify-center text-good" style={{ background: "rgba(61,245,176,.10)", border: "1px solid rgba(61,245,176,.3)" }}>
+            <Icon name="check" size={36} strokeWidth={2.6} />
           </div>
           <div className="font-grotesk font-bold text-[22px]">You&apos;re verified</div>
           <p className="text-white/50 text-[14px] max-w-[280px]">

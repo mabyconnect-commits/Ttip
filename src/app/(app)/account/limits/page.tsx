@@ -50,7 +50,7 @@ export default function LimitsPage() {
           })}
         </div>
         {current < 2 && (
-          <button onClick={() => router.push("/account/kyc")} className="w-full mt-4 grad-bg h-[52px] rounded-[26px] flex items-center justify-center font-grotesk font-semibold text-[15px] text-[#04121A]">
+          <button onClick={() => router.push("/account/kyc")} className="w-full mt-4 bg-good text-ink h-[52px] rounded-2xl flex items-center justify-center font-grotesk font-semibold text-[15px]">
             Verify to unlock Tier 2
           </button>
         )}

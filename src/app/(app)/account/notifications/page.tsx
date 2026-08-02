@@ -72,7 +72,7 @@ export default function NotificationsPage() {
                   <button
                     onClick={() => toggle(it.key)}
                     className="w-[46px] h-[26px] rounded-full p-0.5 transition-colors shrink-0"
-                    style={{ background: state[it.key] ? "linear-gradient(90deg,#6D5BFF,#2AC8FF)" : "rgba(255,255,255,.14)" }}
+                    style={{ background: state[it.key] ? "#3DF5B0" : "rgba(255,255,255,.14)" }}
                     aria-label={it.label}
                   >
                     <span className="block w-[22px] h-[22px] rounded-full bg-white transition-transform" style={{ transform: state[it.key] ? "translateX(20px)" : "translateX(0)" }} />

@@ -93,8 +93,9 @@ export default function SecurityPage() {
           )}
         </div>
 
-        <div className="mt-4 rounded-2xl px-4 py-3 text-[12px] text-white/55" style={{ background: "rgba(42,200,255,.06)", border: "1px solid rgba(42,200,255,.2)" }}>
-          🔒 Your PIN is stored securely (hashed) and never leaves our servers in plain text.
+        <div className="mt-4 rounded-2xl px-4 py-3 flex items-start gap-2.5 text-[12px] text-white/50 bg-surface border border-white/[.06]">
+          <Icon name="lock" size={14} className="text-white/40 mt-0.5 shrink-0" />
+          <span>Your PIN is stored securely (hashed) and never leaves our servers in plain text.</span>
         </div>
       </div>
 

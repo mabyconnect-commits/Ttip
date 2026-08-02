@@ -8,7 +8,8 @@ export type IconName =
   | "bell" | "gift" | "arrowDown" | "arrowUp" | "back" | "settings"
   | "plus" | "check" | "snowflake" | "scan" | "copy" | "share"
   | "chevronRight" | "chevronDown" | "grid" | "swapVertical" | "sun" | "search"
-  | "user" | "shield" | "list" | "bank" | "headset" | "gauge" | "logout" | "lock" | "edit" | "trash";
+  | "user" | "shield" | "list" | "bank" | "headset" | "gauge" | "logout" | "lock" | "edit" | "trash"
+  | "message" | "mail" | "phone" | "x" | "flag";
 
 const P: Record<IconName, React.ReactNode> = {
   home: <path d="M3 10.5 12 3l9 7.5M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5" />,
@@ -128,6 +129,16 @@ const P: Record<IconName, React.ReactNode> = {
   ),
   edit: <path d="M14 4.5 17.5 8 8 17.5 4 19l1.5-4L14 4.5ZM13 6l4 4" />,
   trash: <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" />,
+  message: <path d="M4 5.5h16a1 1 0 0 1 1 1V16a1 1 0 0 1-1 1H9l-4 4v-4H4a1 1 0 0 1-1-1V6.5a1 1 0 0 1 1-1Z" />,
+  mail: (
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="2.5" />
+      <path d="m4 7 8 6 8-6" />
+    </>
+  ),
+  phone: <path d="M6.5 3h3l1.5 5-2 1.5a12 12 0 0 0 5.5 5.5l1.5-2 5 1.5v3a2 2 0 0 1-2 2A16.5 16.5 0 0 1 4.5 5a2 2 0 0 1 2-2Z" />,
+  x: <path d="M4 4l7.5 9.5M20 4l-16 16M20 20l-7.5-9.5" />,
+  flag: <path d="M5 21V4M5 4h11l-2 4 2 4H5" />,
 };
 
 export function Icon({

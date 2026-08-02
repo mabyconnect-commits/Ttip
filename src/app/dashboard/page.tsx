@@ -57,9 +57,9 @@ export default function Dashboard() {
           </button>
         ))}
         <div className="flex-1" />
-        <div className="rounded-2xl p-3.5" style={{ background: "linear-gradient(135deg,rgba(109,91,255,.2),rgba(61,245,176,.12))", border: "1px solid rgba(109,91,255,.3)" }}>
-          <div className="font-grotesk font-semibold text-[13px]">🔥 {user.streakDays}-day streak</div>
-          <div className="font-sans text-[11.5px] text-white/55 mt-1">Ttip someone today to keep it alive</div>
+        <div className="rounded-2xl p-3.5 bg-surface border border-white/[.06]">
+          <div className="font-grotesk font-semibold text-[13px]">{user.streakDays}-day streak</div>
+          <div className="font-sans text-[11.5px] text-white/55 mt-1">Ttip someone today to keep it going</div>
         </div>
       </aside>
 
@@ -70,7 +70,7 @@ export default function Dashboard() {
           <div className="flex-1 min-w-0">
             <Ticker />
           </div>
-          <button onClick={() => router.push("/ttip")} className="font-grotesk font-semibold text-[12px] rounded-[14px] px-3.5 py-2 text-[#04121A]" style={{ background: "linear-gradient(90deg,#6D5BFF,#2AC8FF)" }}>
+          <button onClick={() => router.push("/ttip")} className="font-grotesk font-semibold text-[12px] rounded-[14px] px-3.5 py-2 bg-good text-ink">
             + New Ttip
           </button>
           <button onClick={() => router.push("/profile")}>
@@ -81,7 +81,7 @@ export default function Dashboard() {
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-4 p-6 overflow-auto">
           {/* left column */}
           <div className="flex flex-col gap-4 min-w-0">
-            <div className="rounded-[22px] p-[22px] border border-white/[.08]" style={{ background: "linear-gradient(135deg,#12182D 0%,#0B1B2A 55%,#0B2420 100%)" }}>
+            <div className="rounded-[22px] p-[22px] bg-surface border border-white/[.08]">
               <div className="flex justify-between items-start">
                 <div>
                   <div className="font-sans text-[12px] text-white/50">Total balance</div>
