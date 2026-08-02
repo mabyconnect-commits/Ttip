@@ -9,7 +9,7 @@ import { convert, isCrypto } from "@/lib/prices";
 import { adjust, balanceOf } from "@/lib/wallet";
 import { NETWORK_FEE_USDT } from "@/lib/constants";
 import { dayStr, isYesterday } from "@/lib/format";
-import { payoutFiat, finalizePayout, payoutProvider, ensureFloat, debitFloat, cryptoWithdraw } from "@/lib/settlement";
+import { payoutFiat, finalizePayout, payoutProvider, ensureFloat, debitFloat, cryptoWithdraw, settlementEnabled } from "@/lib/settlement";
 import { quoteSell } from "@/lib/pricing";
 import { referenceFiat } from "@/lib/rate";
 
@@ -44,6 +44,10 @@ export async function POST(req: Request) {
 
     if (input.mode === "ttip") {
       return handleTtip(userId, user, input);
+    }
+    // Fail closed: withdrawals move real money — refuse unless live or demo.
+    if (!settlementEnabled()) {
+      throw new ApiError("Withdrawals aren't available yet. Please check back soon.", 503);
     }
     // Moving money off the platform requires a verified identity (BVN/NIN).
     // Email-only accounts can hold and receive, but cannot withdraw.

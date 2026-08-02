@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { getUserId } from "@/lib/auth";
 import { handler, ok, unauthorized, ApiError } from "@/lib/api";
 import { getAppState } from "@/lib/serialize";
-import { verifyIdentity } from "@/lib/kyc";
+import { verifyIdentity, kycEnabled } from "@/lib/kyc";
 
 const schema = z.object({
   fullName: z.string().min(2, "Enter your full legal name"),
@@ -21,6 +21,14 @@ export async function POST(req: Request) {
   return handler(async () => {
     const userId = await getUserId();
     if (!userId) return unauthorized();
+
+    // Fail closed: if identity verification isn't wired (not live, not demo),
+    // refuse rather than instantly approving — a fake ID must never verify a
+    // real account in production.
+    if (!kycEnabled()) {
+      throw new ApiError("Identity verification isn't available yet. Please check back soon.", 503);
+    }
+
     const input = schema.parse(await req.json());
 
     const result = await verifyIdentity({

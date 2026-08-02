@@ -22,6 +22,27 @@ export function isKycLive(): boolean {
   return kycMode() === "live";
 }
 
+/** Explicit opt-in for simulated (instant-approve) KYC on a test deployment. */
+export function demoKycEnabled(): boolean {
+  return process.env.DEMO_MODE === "true";
+}
+
+/**
+ * Whether identity can be verified at all. Live (Dojah) or demo (simulated).
+ * Anything else → disabled: the KYC endpoint refuses so fake IDs can never
+ * verify a real account in production.
+ */
+export function kycEnabled(): boolean {
+  return isKycLive() || demoKycEnabled();
+}
+
+/** "live" | "demo" | "disabled" — surfaced to the client. */
+export function kycStatus(): "live" | "demo" | "disabled" {
+  if (isKycLive()) return "live";
+  if (demoKycEnabled()) return "demo";
+  return "disabled";
+}
+
 export interface DojahConfig {
   appId: string;
   secretKey: string;

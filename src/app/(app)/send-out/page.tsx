@@ -11,6 +11,7 @@ import { formatFiat, formatCrypto } from "@/lib/format";
 import { Receipt } from "@/components/Receipt";
 import { BankPicker } from "@/components/BankPicker";
 import { QrScanner } from "@/components/QrScanner";
+import { TestModeBanner } from "@/components/TestModeBanner";
 import type { Bank } from "@/lib/banks";
 
 const SEND_ASSETS = ["USDT", "USDC", "BTC", "ETH", "SOL", "BNB", "XRP", "TRX"];
@@ -80,6 +81,7 @@ export default function SendOutPage() {
       )}
 
       <div className="flex-1 overflow-y-auto no-scrollbar pt-4">
+        <TestModeBanner />
         {/* asset chips */}
         <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
           {SEND_ASSETS.map((s) => (

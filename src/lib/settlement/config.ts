@@ -24,6 +24,31 @@ export function isLive(): boolean {
   return settlementMode() === "live";
 }
 
+/**
+ * Explicit opt-in for simulated money movement (sandbox credits/payouts without
+ * a real provider). This exists so the app **fails closed**: if it's neither
+ * live nor explicitly in demo, money-moving flows refuse rather than silently
+ * faking success. Set DEMO_MODE=true only on a test deployment.
+ */
+export function demoEnabled(): boolean {
+  return process.env.DEMO_MODE === "true";
+}
+
+/**
+ * Whether money may move at all. Live (real providers) or demo (explicit
+ * simulation). Anything else → disabled, and the money endpoints reject.
+ */
+export function settlementEnabled(): boolean {
+  return isLive() || demoEnabled();
+}
+
+/** "live" | "demo" | "disabled" — surfaced to the client for the mode banner. */
+export function settlementStatus(): "live" | "demo" | "disabled" {
+  if (isLive()) return "live";
+  if (demoEnabled()) return "demo";
+  return "disabled";
+}
+
 /** Shared secret used to authenticate inbound crypto-deposit webhooks (HMAC-SHA256). */
 export function depositWebhookSecret(): string | null {
   return process.env.DEPOSIT_WEBHOOK_SECRET || null;

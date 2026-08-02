@@ -5,7 +5,7 @@ import { sandboxVerify } from "./sandbox";
 import type { KycRequest, KycResult } from "./types";
 
 export type { KycRequest, KycResult, IdType, KycStatus } from "./types";
-export { kycMode, isKycLive } from "./config";
+export { kycMode, isKycLive, kycEnabled, kycStatus } from "./config";
 
 /**
  * Verify a user's identity through the active provider. Sandbox settles

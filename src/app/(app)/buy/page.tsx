@@ -8,6 +8,7 @@ import { BackHeader, GradientButton } from "@/components/ui";
 import { Icon } from "@/components/Icon";
 import { formatFiat, formatCrypto } from "@/lib/format";
 import { Receipt } from "@/components/Receipt";
+import { TestModeBanner } from "@/components/TestModeBanner";
 
 const BUY_ASSETS = ["USDT", "USDC", "BTC", "ETH", "SOL", "BNB", "TRX"];
 const QUICK = [5000, 10000, 20000, 50000];
@@ -63,6 +64,7 @@ export default function BuyPage() {
       )}
 
       <div className="flex-1 overflow-y-auto no-scrollbar pt-4">
+        <TestModeBanner />
         <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
           {BUY_ASSETS.map((s) => (
             <button key={s} onClick={() => setSym(s)} className={`h-10 px-4 rounded-[20px] shrink-0 border font-grotesk font-bold text-[13px] transition ${sym === s ? "bg-white text-[#07080D] border-white" : "border-white/14 text-white/70"}`}>

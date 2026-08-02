@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import { BackHeader, GradientButton } from "@/components/ui";
 import { Icon } from "@/components/Icon";
+import { TestModeBanner } from "@/components/TestModeBanner";
 
 const ID_TYPES = [
   { id: "bvn", label: "BVN" },
@@ -58,6 +59,7 @@ export default function KycPage() {
     <div className="flex flex-col flex-1 px-[22px] min-h-0">
       <BackHeader title="Verify your account" />
       <div className="flex-1 overflow-y-auto no-scrollbar pb-6">
+        <div className="mt-3"><TestModeBanner /></div>
         <p className="text-white/50 text-[13.5px] mt-1 mb-4">
           Verify your BVN to activate your account. It&apos;s required before you can withdraw to a bank or send crypto out. Takes about a minute.
         </p>

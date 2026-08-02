@@ -4,7 +4,7 @@ import { getUserId } from "@/lib/auth";
 import { handler, ok, unauthorized, ApiError } from "@/lib/api";
 import { getAppState } from "@/lib/serialize";
 import { isCrypto } from "@/lib/prices";
-import { createBuyOrder } from "@/lib/settlement";
+import { createBuyOrder, settlementEnabled } from "@/lib/settlement";
 
 const schema = z.object({
   symbol: z.string(),
@@ -23,6 +23,11 @@ export async function POST(req: Request) {
     if (!userId) return unauthorized();
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) return unauthorized();
+
+    // Fail closed: no simulated crypto credit unless live or explicitly in demo.
+    if (!settlementEnabled()) {
+      throw new ApiError("Buying crypto isn't available yet. Please check back soon.", 503);
+    }
 
     const input = schema.parse(await req.json());
     if (!isCrypto(input.symbol)) throw new ApiError("Pick a crypto asset to buy", 400);

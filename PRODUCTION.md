@@ -7,15 +7,29 @@ and flows are the same. Live mode simply routes real money.
 
 ---
 
-## 1. The two master switches
+## 1. Money modes — the app fails *closed*
 
-| Variable | Sandbox (default) | Live |
-|----------|-------------------|------|
-| `SETTLEMENT_MODE` | `sandbox` — no real crypto/fiat moves | `live` — deposits, payouts, buys, withdrawals move real money |
-| `KYC_MODE` | `sandbox` — any well-formed ID verifies | `live` — BVN/NIN checked against the government record via Dojah |
+There are three states, and the default is **disabled** so a misconfigured
+production deploy can never fake success (give away crypto, verify fake IDs):
 
-You can flip these independently. Recommended go-live order: turn on `KYC_MODE=live`
-first (so real identities are enforced), confirm it, then `SETTLEMENT_MODE=live`.
+| State | When | Behaviour |
+|-------|------|-----------|
+| **disabled** (default) | neither live nor demo | Buy, withdraw, and KYC endpoints **refuse** with a "not available yet" message. Nothing is faked. |
+| **demo** | `DEMO_MODE=true` | Simulated money + instant KYC for testing. A visible **"Test mode — no real money moves"** banner appears on Buy / Send-out / KYC. |
+| **live** | `SETTLEMENT_MODE=live` / `KYC_MODE=live` + provider keys | Real providers. Buys redirect to Paystack checkout; BVN/NIN checked via Dojah; payouts hit the bank. No banner. |
+
+The switches:
+
+| Variable | Values |
+|----------|--------|
+| `DEMO_MODE` | `true` to allow **simulated** money + KYC (test deployments only). Leave unset in production. |
+| `SETTLEMENT_MODE` | `live` for real crypto/fiat movement (deposits, payouts, buys, withdrawals). |
+| `KYC_MODE` | `live` for real BVN/NIN verification via Dojah. |
+
+`DEMO_MODE` and the `*_MODE=live` switches are independent, but **live wins** — if
+`SETTLEMENT_MODE=live`, real money moves regardless of `DEMO_MODE`. Recommended
+go-live order: `KYC_MODE=live` first (enforce real identities), confirm, then
+`SETTLEMENT_MODE=live`. Never ship to production with `DEMO_MODE=true`.
 
 ---
 
@@ -125,6 +139,7 @@ process the pending queue manually. Naira withdrawals and buys need **no** signe
       test a small real naira withdrawal.
 - [ ] Paystack collection tested; buy a small amount of crypto end-to-end.
 - [ ] Treasury signer decided for crypto-out (or "To wallet" disabled in live).
-- [ ] `NEXT_PUBLIC_SHOW_DEMO` unset (hide the simulator).
+- [ ] `DEMO_MODE` unset (no simulated money/KYC) — confirm the Test-mode banner is gone.
+- [ ] `NEXT_PUBLIC_SHOW_DEMO` unset (hide the deposit simulator).
 - [ ] `PLATFORM_MARGIN_PCT` / `P2P_PREMIUM_*` tuned to your desired spread.
 - [ ] Rotate any keys that were ever pasted outside your deployment env.
