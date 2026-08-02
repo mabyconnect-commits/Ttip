@@ -7,6 +7,28 @@ export function collectionFeePct(): number {
 }
 
 /**
+ * What the payout provider (Flutterwave) charges to transfer to a bank — tiered
+ * for NGN. This is the raw cost to us.
+ */
+export function providerTransferFee(amountFiat: number, currency: string): number {
+  if (currency !== "NGN") return 0; // extend per-currency as needed
+  if (amountFiat <= 5000) return 10;
+  if (amountFiat <= 50000) return 25;
+  return 50;
+}
+
+/**
+ * The transfer fee we charge the user on a bank withdrawal — the provider's fee
+ * plus a markup (default 20%), like a bank's transfer charge. e.g. ₦10 → ₦12.
+ * Override the markup with TRANSFER_FEE_MARKUP.
+ */
+export function transferFee(amountFiat: number, currency: string): number {
+  const raw = Number(process.env.TRANSFER_FEE_MARKUP);
+  const markup = Number.isFinite(raw) && raw >= 0 ? raw : 0.2;
+  return Math.ceil(providerTransferFee(amountFiat, currency) * (1 + markup));
+}
+
+/**
  * Competitive pricing engine.
  *
  * Users are quoted the live market/P2P *reference* rate minus a thin margin —

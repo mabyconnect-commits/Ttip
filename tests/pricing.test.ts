@@ -38,3 +38,14 @@ test("a tighter margin makes the user rate more competitive", () => {
   const wide = quoteSell({ asset: "USDT", fiat: "NGN", amountAsset: 1, marketRate: 1600, marginPct: 0.03 });
   assert.ok(tight.userRate > wide.userRate); // tighter margin ⇒ user gets more
 });
+
+test("transferFee adds the markup on the provider's NGN tier fee", async () => {
+  const { transferFee, providerTransferFee } = await import("../src/lib/pricing");
+  // ₦10 base + 20% = ₦12 for small transfers
+  assert.equal(providerTransferFee(3000, "NGN"), 10);
+  assert.equal(transferFee(3000, "NGN"), 12);
+  // ₦25 base + 20% = ₦30 for mid transfers
+  assert.equal(transferFee(20000, "NGN"), 30);
+  // ₦50 base + 20% = ₦60 for large transfers
+  assert.equal(transferFee(100000, "NGN"), 60);
+});
