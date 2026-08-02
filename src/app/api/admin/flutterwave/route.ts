@@ -38,22 +38,38 @@ function interpret(out: Record<string, any>): string {
       : ` This request left from ${egressIp}, but with no proxy that IP rotates per call — whitelisting it won't hold.`
     : "";
 
+  // Did the read endpoints work? If balance/fee return 200 (esp. through the
+  // proxy), the egress IP is reaching Flutterwave fine — so a transfer rejection
+  // is an account/permission issue, not the IP allowlist.
+  const readsOk = out.ngnBalance?.status === 200 || out.transferFeeCheck?.status === 200;
+
   const transfer = out.testTransfer?.body;
   const msg: string = (transfer?.message ?? "").toString();
   if (transfer) {
-    // Flutterwave says "ip whitelist" explicitly on some accounts, and returns a
-    // generic "This request cannot be processed. Please contact support" /
-    // "not permitted" on others — both are the same IP-allowlist block for a
-    // live Transfers account calling from an un-whitelisted address.
-    if (/ip whitelist|whitelist|cannot be processed|not permitted|contact support/i.test(msg)) {
+    if (transfer?.status === "success" || out.testTransfer?.status === 200) return "Transfer accepted ✅ — payouts are working." + (egressIp ? ` (egress IP ${egressIp})` : "");
+    // Account not approved/enabled for Transfers. Flutterwave gates payouts
+    // behind compliance/go-live and returns "contact your account administrator
+    // / support" or "not permitted" even when the key, balance and fee reads all
+    // succeed — so this is NOT the IP allowlist. Only Flutterwave can lift it.
+    if (/account administrator|not permitted|not enabled|do(es)? not have (the )?permission|transfers? (are|is)? ?(not enabled|disabled)|kyc|compliance|go[- ]?live/i.test(msg)) {
+      return `Flutterwave rejected the transfer at the account level ("${msg}"). Your key, balance and fee reads all work${proxied ? " through the static-IP proxy" : ""}, so this is NOT the IP whitelist — the account isn't enabled for Transfers/Payouts. Contact Flutterwave support to enable Transfers (complete payout compliance / go-live).`;
+    }
+    // Explicit IP-allowlist rejection.
+    if (/ip.?whitelist/i.test(msg)) {
       const base = proxied
-        ? "Flutterwave is still rejecting the transfer. A static-IP proxy is configured — make sure its IP is the one whitelisted on your Flutterwave dashboard (Settings → API → IP Whitelist)."
+        ? "Flutterwave is rejecting the transfer on IP whitelisting. A static-IP proxy is configured — make sure ITS IP is the one whitelisted on your Flutterwave dashboard (Settings → API → IP Whitelist)."
         : "Flutterwave is blocking transfers until IP Whitelisting is set up. Vercel uses dynamic IPs, so route Flutterwave through a static-IP proxy (set FLUTTERWAVE_PROXY_URL) and whitelist that IP — whitelisting a single observed Vercel IP won't hold because the next call egresses from a different address.";
       return base + ipHint;
     }
     if (/insufficient/i.test(msg)) return "Payout balance is too low — top up your Flutterwave PAYOUT wallet (separate from collections).";
-    if (transfer?.status === "success" || out.testTransfer?.status === 200) return "Transfer accepted ✅ — payouts are working." + (egressIp ? ` (egress IP ${egressIp})` : "");
-    if (msg) return `Flutterwave rejected the transfer: "${msg}".` + ipHint;
+    // Generic "cannot be processed / contact support" with reads working is
+    // almost always an account-level block, not IP.
+    if (/cannot be processed|contact support/i.test(msg)) {
+      return readsOk
+        ? `Flutterwave rejected the transfer ("${msg}"). Balance and fee reads work${proxied ? " through the static-IP proxy" : ""}, so it's an account-level block, not the IP whitelist — confirm Transfers/Payouts is enabled and your compliance is approved with Flutterwave.`
+        : `Flutterwave rejected the transfer ("${msg}"), and reads are failing too — likely IP whitelisting or a bad key.${ipHint}`;
+    }
+    if (msg) return `Flutterwave rejected the transfer: "${msg}".` + (readsOk ? "" : ipHint);
   }
   const bal = out.ngnBalance?.body?.data?.available_balance;
   if (typeof bal === "number") return `Balance/API reachable (₦${bal} available).${ipHint} Add &send=1&account=&bank=&amount= to test a real transfer and see any block.`;
