@@ -334,7 +334,7 @@ async function handleBankSend(
   if (payoutStatus === "completed") {
     await prisma.$transaction(async (tx) => {
       await debitFloat(tx, fiat, fiatAmount);
-      await accrueCashback(tx, userId, grossFiat);
+      await accrueCashback(tx, userId, grossFiat, { fiat, source: "cash out" });
     });
   }
 

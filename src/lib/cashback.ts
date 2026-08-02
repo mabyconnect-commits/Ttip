@@ -21,10 +21,28 @@ export function cashbackMinClaim(): number {
 /**
  * Accrue cashback on a completed trade, inside an existing transaction. Pass the
  * fiat volume of the trade (naira bought or sold); the user earns `cashbackPct()`
- * of it. No-op for zero/negative volume.
+ * of it, and a `cashback_earn` record is written for the history. No-op for
+ * zero/negative volume.
  */
-export async function accrueCashback(tx: Prisma.TransactionClient, userId: string, fiatVolume: number): Promise<void> {
+export async function accrueCashback(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  fiatVolume: number,
+  ctx: { fiat: string; source: string },
+): Promise<void> {
   const amount = fiatVolume * cashbackPct();
   if (!(amount > 0)) return;
   await tx.user.update({ where: { id: userId }, data: { cashback: { increment: amount } } });
+  await tx.transaction.create({
+    data: {
+      userId,
+      type: "cashback_earn",
+      status: "completed",
+      assetOut: ctx.fiat,
+      amountOut: new Prisma.Decimal(amount),
+      counterparty: "Ttip rewards",
+      note: `Cashback from ${ctx.source}`,
+      emoji: "🎁",
+    },
+  });
 }

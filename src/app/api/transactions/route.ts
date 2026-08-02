@@ -12,10 +12,18 @@ export async function GET(req: Request) {
   return handler(async () => {
     const userId = await getUserId();
     if (!userId) return unauthorized();
-    const limit = Number(new URL(req.url).searchParams.get("limit") ?? 30);
+    const params = new URL(req.url).searchParams;
+    const limit = Number(params.get("limit") ?? 30);
+
+    // The cashback view asks for its own records; every other view hides the
+    // per-trade cashback-earn rows so the main history stays clean.
+    const where =
+      params.get("type") === "cashback"
+        ? { userId, type: { in: ["cashback_earn", "cashback"] } }
+        : { userId, type: { not: "cashback_earn" } };
 
     const txns = await prisma.transaction.findMany({
-      where: { userId },
+      where,
       orderBy: { createdAt: "desc" },
       take: Math.min(limit, 100),
     });
