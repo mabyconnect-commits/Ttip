@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { flutterwaveConfig } from "@/lib/settlement/config";
+import { fwFetch } from "@/lib/settlement/flutterwave";
 
 export const dynamic = "force-dynamic";
 
@@ -17,10 +18,29 @@ export const dynamic = "force-dynamic";
  *                                                            → attempt a real ₦100 transfer, show the exact error
  */
 async function isAdmin(userId: string): Promise<boolean> {
-  const admins = (process.env.ADMIN_EMAILS ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  // Tolerate a common env-var misspelling (ADMIN_MAILS) so a typo doesn't lock
+  // the operator out of their own diagnostic.
+  const raw = process.env.ADMIN_EMAILS ?? process.env.ADMIN_MAILS ?? "";
+  const admins = raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   if (!admins.length) return process.env.DEMO_MODE === "true";
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
   return !!user && admins.includes(user.email.toLowerCase());
+}
+
+/** Turn the raw provider responses into a one-line plain-English diagnosis. */
+function interpret(out: Record<string, any>): string {
+  const transfer = out.testTransfer?.body;
+  const msg: string = (transfer?.message ?? "").toString();
+  if (transfer) {
+    if (/ip whitelist/i.test(msg)) {
+      return "Flutterwave is blocking transfers until IP Whitelisting is set up. Vercel uses dynamic IPs, so route Flutterwave through a static-IP proxy (set FLUTTERWAVE_PROXY_URL) and whitelist that IP, or enable IP whitelisting on your Flutterwave dashboard.";
+    }
+    if (/insufficient/i.test(msg)) return "Payout balance is too low — top up your Flutterwave PAYOUT wallet (separate from collections).";
+    if (transfer?.status === "success" || out.testTransfer?.status === 200) return "Transfer accepted ✅ — payouts are working.";
+  }
+  const bal = out.ngnBalance?.body?.data?.available_balance;
+  if (typeof bal === "number") return `Balance/API reachable (₦${bal} available). Add &send=1&account=&bank=&amount= to test a real transfer and see any block.`;
+  return "Could not read Flutterwave — check FLUTTERWAVE_SECRET_KEY.";
 }
 
 export async function GET(req: Request) {
@@ -37,12 +57,14 @@ export async function GET(req: Request) {
 
   async function call(label: string, path: string, init?: RequestInit) {
     try {
-      const r = await fetch(`${cfg!.baseUrl}${path}`, init);
+      const r = await fwFetch(`${cfg!.baseUrl}${path}`, init ?? {});
       out[label] = { status: r.status, body: await r.json().catch(() => null) };
     } catch (e) {
       out[label] = { error: String(e) };
     }
   }
+
+  out.proxy = process.env.FLUTTERWAVE_PROXY_URL ? "configured (static-IP egress)" : "none (direct Vercel egress — dynamic IP)";
 
   // 1. Available payout balance.
   await call("ngnBalance", "/balances/NGN", { headers: auth });
@@ -65,5 +87,6 @@ export async function GET(req: Request) {
     }
   }
 
+  out.diagnosis = interpret(out);
   return NextResponse.json(out);
 }

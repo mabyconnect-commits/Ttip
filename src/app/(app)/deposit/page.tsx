@@ -33,6 +33,11 @@ export default function DepositPage() {
   const [live, setLive] = useState(false);
   const [receipt, setReceipt] = useState<any>(null);
 
+  // Dedicated naira account activation (verified users without an account yet).
+  const [nairaBvn, setNairaBvn] = useState("");
+  const [nairaBusy, setNairaBusy] = useState(false);
+  const [nairaErr, setNairaErr] = useState("");
+
   // On-demand (live) deposit flow: pick any chain → any token → get address.
   const [chains, setChains] = useState<DxChain[]>([]);
   const [tokens, setTokens] = useState<DxToken[]>([]);
@@ -100,6 +105,20 @@ export default function DepositPage() {
     }
   }
 
+  async function activateNaira() {
+    if (nairaBvn.length !== 11) return;
+    setNairaBusy(true);
+    setNairaErr("");
+    try {
+      await action("/api/naira-account", { bvn: nairaBvn });
+      toast("Your naira account is ready 🎉", "good");
+    } catch (e: any) {
+      setNairaErr(e.message ?? "Couldn't open your account. Please try again.");
+    } finally {
+      setNairaBusy(false);
+    }
+  }
+
   async function simulateNaira() {
     setLoading(true);
     try {
@@ -148,14 +167,34 @@ export default function DepositPage() {
               </div>
             </div>
           ) : state.user.kycStatus === "verified" ? (
-            <div className="bg-surface border border-white/[.08] rounded-[22px] p-6 flex flex-col items-center text-center mt-1">
-              <span className="w-12 h-12 rounded-full bg-surface2 flex items-center justify-center text-white/70"><Icon name="bank" size={22} /></span>
-              <div className="font-grotesk font-semibold text-[16px] mt-3">Setting up your account</div>
-              <p className="text-white/50 text-[13px] mt-1.5 leading-[1.6] max-w-[300px]">
-                Your dedicated {fiat} account is being created. Check back shortly, or add money with crypto in the meantime.
+            <div className="bg-surface border border-white/[.08] rounded-[22px] p-5">
+              <span className="w-12 h-12 rounded-full bg-good/12 flex items-center justify-center text-good mx-auto flex"><Icon name="bank" size={22} /></span>
+              <div className="font-grotesk font-semibold text-[16px] mt-3 text-center">Activate your {fiat} account</div>
+              <p className="text-white/50 text-[13px] mt-1.5 leading-[1.6] text-center">
+                Confirm your BVN and we&apos;ll open a dedicated account you can fund by bank transfer.
               </p>
-              <button onClick={() => setTab("crypto")} className="mt-4 bg-good text-ink h-11 px-6 rounded-xl font-grotesk font-semibold text-[14px]">
-                Add with crypto
+              <input
+                value={nairaBvn}
+                onChange={(e) => setNairaBvn(e.target.value.replace(/\D/g, "").slice(0, 11))}
+                inputMode="numeric"
+                placeholder="11-digit BVN"
+                className="w-full bg-surface2 border border-white/10 rounded-2xl px-4 h-[52px] outline-none text-[15px] tracking-[1px] text-center mt-4 focus:border-good/50"
+              />
+              <button
+                onClick={activateNaira}
+                disabled={nairaBusy || nairaBvn.length !== 11}
+                className="w-full mt-3 bg-good text-ink h-12 rounded-xl font-grotesk font-semibold text-[14px] disabled:opacity-40 active:scale-[.99]"
+              >
+                {nairaBusy ? "Opening your account…" : "Get my account number"}
+              </button>
+              {nairaErr && (
+                <div className="mt-3 rounded-xl px-3.5 py-3 text-[12.5px] leading-[1.5] flex gap-2" style={{ background: "rgba(255,122,138,.08)", border: "1px solid rgba(255,122,138,.3)", color: "rgba(255,255,255,.8)" }}>
+                  <span className="shrink-0">⚠️</span>
+                  <span>{nairaErr}</span>
+                </div>
+              )}
+              <button onClick={() => setTab("crypto")} className="w-full mt-3 text-white/45 text-[13px] active:text-white/70">
+                Or add money with crypto instead
               </button>
             </div>
           ) : (

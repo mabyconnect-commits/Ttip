@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import { usePrices } from "@/lib/usePrices";
+import { apiGet } from "@/lib/client";
 import { BackHeader, GradientButton } from "@/components/ui";
 import { Icon } from "@/components/Icon";
 import { AssetIcon } from "@/components/AssetIcon";
@@ -39,12 +40,50 @@ export default function SwapPage() {
   }, []);
 
   const amt = parseFloat(amount) || 0;
-  const gross = ready ? convert(amt, from, to) : 0;
-  const free = state.user.freeSwapsLeft > 0;
-  const net = gross * (1 - (free ? 0 : SWAP_FEE_PCT));
-  const bal = state.portfolio.assets.find((a) => a.symbol === from)?.amount ?? 0;
   const toIsFiat = isFiatSym(to);
   const fromIsFiat = isFiatSym(from);
+  const bal = state.portfolio.assets.find((a) => a.symbol === from)?.amount ?? 0;
+
+  // A crypto↔fiat swap is an off-ramp/on-ramp, so it must use Ttip's official
+  // buy/sell rate (margin baked in, no swap fee) — never the raw market price.
+  const isOfficial = fromIsFiat !== toIsFiat; // exactly one side is fiat
+  const fiatSide = fromIsFiat ? from : to;
+  const cryptoSide = fromIsFiat ? to : from;
+
+  // Live official rates for the fiat in play, keyed by crypto symbol.
+  const [officialRates, setOfficialRates] = useState<Record<string, { buy: number; sell: number }>>({});
+  useEffect(() => {
+    if (!isOfficial) return;
+    let alive = true;
+    apiGet<{ rates: { symbol: string; buy: number; sell: number }[] }>(`/api/rates?fiat=${fiatSide}`)
+      .then((d) => {
+        if (!alive) return;
+        const map: Record<string, { buy: number; sell: number }> = {};
+        for (const r of d.rates) map[r.symbol] = { buy: r.buy, sell: r.sell };
+        setOfficialRates(map);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [isOfficial, fiatSide]);
+
+  const official = officialRates[cryptoSide];
+  const free = !isOfficial && state.user.freeSwapsLeft > 0;
+
+  // Effective "to per 1 from" and the net output for the entered amount.
+  let unitToPerFrom: number;
+  if (isOfficial) {
+    if (fromIsFiat) {
+      // fiat → crypto: divide by our buy rate (fiat per 1 crypto).
+      unitToPerFrom = official && official.buy > 0 ? 1 / official.buy : 0;
+    } else {
+      // crypto → fiat: multiply by our sell rate.
+      unitToPerFrom = official ? official.sell : 0;
+    }
+  } else {
+    unitToPerFrom = ready ? convert(1, from, to) : 0;
+  }
+  const gross = amt * unitToPerFrom;
+  const net = gross * (1 - (free ? 0 : isOfficial ? 0 : SWAP_FEE_PCT));
 
   const fromAsset = CRYPTO_ASSETS.find((a) => a.symbol === from);
 
@@ -145,14 +184,14 @@ export default function SwapPage() {
 
         {/* details */}
         <div className="flex flex-col gap-2.5 px-1.5 py-[18px] font-sans text-[13px] text-white/55">
-          <Row label="Rate">
+          <Row label={isOfficial ? "Ttip rate" : "Rate"}>
             <b className="text-white font-grotesk">
-              1 {from} = {toIsFiat ? formatFiat(convert(1, from, to), to) : `${formatCrypto(convert(1, from, to), to)} ${to}`}
+              1 {from} = {toIsFiat ? formatFiat(unitToPerFrom, to) : `${formatCrypto(unitToPerFrom, to)} ${to}`}
             </b>
           </Row>
           <Row label="Fee">
-            <b className="font-grotesk" style={{ color: free ? "#3DF5B0" : "#fff" }}>
-              {free ? `Free — ${state.user.freeSwapsLeft} left today` : `${(SWAP_FEE_PCT * 100).toFixed(1)}%`}
+            <b className="font-grotesk" style={{ color: free || isOfficial ? "#3DF5B0" : "#fff" }}>
+              {isOfficial ? "Included in rate" : free ? `Free — ${state.user.freeSwapsLeft} left today` : `${(SWAP_FEE_PCT * 100).toFixed(1)}%`}
             </b>
           </Row>
           {toIsFiat && (

@@ -16,6 +16,35 @@ interface FwTransferResponse {
   data?: { id: number; status: string; reference?: string };
 }
 
+/**
+ * Optional static-IP egress for Flutterwave.
+ *
+ * Flutterwave's live Transfers API requires **IP Whitelisting**, but Vercel's
+ * serverless functions egress from dynamic, shared IPs that can't be whitelisted.
+ * Set `FLUTTERWAVE_PROXY_URL` to a fixed-IP forward proxy (e.g. Fixie/QuotaGuard
+ * Static) and whitelist that single IP on Flutterwave — every Flutterwave call
+ * then leaves from the same address. With no proxy configured, behaviour is
+ * unchanged (direct fetch).
+ */
+let dispatcherPromise: Promise<unknown> | undefined;
+async function fwDispatcher(): Promise<unknown> {
+  const url = process.env.FLUTTERWAVE_PROXY_URL;
+  if (!url) return undefined;
+  if (!dispatcherPromise) {
+    const mod = "undici"; // non-literal specifier: loaded only when a proxy is set
+    dispatcherPromise = import(mod)
+      .then((u: any) => new u.ProxyAgent(url))
+      .catch(() => null);
+  }
+  return (await dispatcherPromise) ?? undefined;
+}
+
+/** fetch that routes through the static-IP proxy when one is configured. */
+export async function fwFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const dispatcher = await fwDispatcher();
+  return fetch(url, (dispatcher ? { ...init, dispatcher } : init) as RequestInit);
+}
+
 function mapStatus(fw: string | undefined): PayoutResult["status"] {
   switch ((fw ?? "").toUpperCase()) {
     case "SUCCESSFUL":
@@ -35,7 +64,7 @@ async function resolveBankCode(cfg: FlutterwaveConfig, currency: string, bankNam
   const country = currency === "NGN" ? "NG" : currency === "GHS" ? "GH" : currency === "KES" ? "KE" : currency === "ZAR" ? "ZA" : "NG";
   const fresh = bankCodeCache && Date.now() - bankCodeCache.at < 24 * 60 * 60 * 1000;
   if (!fresh) {
-    const res = await fetch(`${cfg.baseUrl}/banks/${country}`, {
+    const res = await fwFetch(`${cfg.baseUrl}/banks/${country}`, {
       headers: { Authorization: `Bearer ${cfg.secretKey}` },
     });
     const json = (await res.json()) as { data?: { code: string; name: string }[] };
@@ -57,7 +86,7 @@ export async function flutterwavePayout(req: PayoutRequest): Promise<PayoutResul
     return { provider: "flutterwave", externalId: req.reference, status: "failed", message: `Could not resolve a bank code for "${req.bankName ?? ""}"` };
   }
 
-  const res = await fetch(`${cfg.baseUrl}/transfers`, {
+  const res = await fwFetch(`${cfg.baseUrl}/transfers`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${cfg.secretKey}`,
@@ -98,7 +127,7 @@ export async function flutterwaveResolveAccount(currency: string, bankName: stri
   if (!cfg) return null;
   const account_bank = await resolveBankCode(cfg, currency, bankName);
   if (!account_bank) return null;
-  const res = await fetch(`${cfg.baseUrl}/accounts/resolve`, {
+  const res = await fwFetch(`${cfg.baseUrl}/accounts/resolve`, {
     method: "POST",
     headers: { Authorization: `Bearer ${cfg.secretKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({ account_number: accountNumber, account_bank }),
@@ -119,22 +148,29 @@ export async function flutterwaveCreateVirtualAccount(
   bvn: string,
   name: string,
   reference: string,
-): Promise<{ accountNumber: string; bankName: string } | null> {
+): Promise<{ accountNumber: string; bankName: string } | { error: string }> {
   const cfg = flutterwaveConfig();
-  if (!cfg) return null;
-  const res = await fetch(`${cfg.baseUrl}/virtual-account-numbers`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${cfg.secretKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      email,
-      bvn,
-      is_permanent: true,
-      tx_ref: reference,
-      narration: name,
-    }),
-  });
-  const json = (await res.json().catch(() => ({}))) as { status?: string; data?: { account_number?: string; bank_name?: string } };
-  if (!res.ok || json.status !== "success" || !json.data?.account_number) return null;
+  if (!cfg) return { error: "Flutterwave is not configured (FLUTTERWAVE_SECRET_KEY missing)." };
+  let res: Response;
+  try {
+    res = await fwFetch(`${cfg.baseUrl}/virtual-account-numbers`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${cfg.secretKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email,
+        bvn,
+        is_permanent: true,
+        tx_ref: reference,
+        narration: name,
+      }),
+    });
+  } catch (e) {
+    return { error: `Couldn't reach Flutterwave: ${String(e)}` };
+  }
+  const json = (await res.json().catch(() => ({}))) as { status?: string; message?: string; data?: { account_number?: string; bank_name?: string } };
+  if (!res.ok || json.status !== "success" || !json.data?.account_number) {
+    return { error: json.message ?? `Virtual account creation failed (${res.status})` };
+  }
   return { accountNumber: json.data.account_number, bankName: json.data.bank_name || "Wema Bank" };
 }
 
