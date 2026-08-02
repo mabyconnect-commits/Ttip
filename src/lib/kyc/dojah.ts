@@ -70,7 +70,11 @@ export async function dojahVerify(req: KycRequest): Promise<KycResult> {
     }
 
     const record = normalizeEntity(entity);
-    const matched = nameMatches(req.fullName, record);
+    // Sandbox returns fixed dummy identities whose names won't match a real
+    // person's — so a successful lookup is enough to verify in sandbox. Live
+    // keeps strict name-matching.
+    const isSandbox = cfg.baseUrl.includes("sandbox");
+    const matched = isSandbox ? true : nameMatches(req.fullName, record);
     if (!matched) {
       return {
         status: "failed",
