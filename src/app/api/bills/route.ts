@@ -7,6 +7,7 @@ import { getAppState } from "@/lib/serialize";
 import { convert } from "@/lib/prices";
 import { adjust, balanceOf } from "@/lib/wallet";
 import { BILL_CATEGORIES } from "@/lib/constants";
+import { demoEnabled } from "@/lib/settlement";
 
 const schema = z.object({
   category: z.string(),
@@ -21,6 +22,10 @@ export async function POST(req: Request) {
   return handler(async () => {
     const userId = await getUserId();
     if (!userId) return unauthorized();
+
+    // No bill-payment (VTU) provider is wired yet, so this only runs in demo.
+    // Fail closed in live so crypto is never taken for a bill we can't deliver.
+    if (!demoEnabled()) throw new ApiError("Bill payments are coming soon.", 503);
 
     const input = schema.parse(await req.json());
     const cat = BILL_CATEGORIES.find((c) => c.id === input.category);

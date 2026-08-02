@@ -72,7 +72,7 @@ function SignupInner() {
 
         <form onSubmit={submit} className="flex flex-col gap-3">
           <Field label="Full name" value={name} onChange={setName} placeholder="Kola Adeyemi" autoFocus />
-          <Field label="Username" value={username} onChange={(v) => setUsername(v.replace(/[^a-zA-Z0-9_]/g, ""))} placeholder="kola" hint="Your tip link will be ttip.money/u/username" />
+          <Field label="Username" value={username} onChange={(v) => setUsername(v.replace(/[^a-zA-Z0-9_]/g, ""))} placeholder="kola" hint="Your tip link will be ttip.site/u/username" />
           <Field label="Email" value={email} onChange={setEmail} placeholder="you@email.com" type="email" />
           <Field label="Password" value={password} onChange={setPassword} placeholder="At least 8 characters" type="password" />
 
@@ -99,6 +99,11 @@ function SignupInner() {
           <GradientButton type="submit" loading={loading} className="mt-2">
             Create account
           </GradientButton>
+          <p className="text-center text-white/40 text-[11.5px] leading-[1.5] mt-1 px-2">
+            By creating an account you agree to our{" "}
+            <Link href="/terms" className="text-white/60 underline">Terms</Link> and{" "}
+            <Link href="/privacy" className="text-white/60 underline">Privacy Policy</Link>.
+          </p>
         </form>
       </div>
 

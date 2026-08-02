@@ -31,6 +31,9 @@ model User {
   pinHash        String?
   kycStatus      String   @default("unverified") // unverified | pending | verified
   kycTier        Int      @default(1)
+  kycProvider    String? // which provider verified (dojah | sandbox | manual)
+  kycRef         String? // provider reference / audit id for the identity check
+  kycVerifiedAt  DateTime?
   lastDropAt     DateTime?
   freeSwapDay    String? // YYYY-MM-DD the free-swap allowance was last counted
   lastTipDay     String? // YYYY-MM-DD of the last tip sent (for streaks)
@@ -40,6 +43,7 @@ model User {
   transactions Transaction[]
   addresses    WalletAddress[]
   beneficiaries Beneficiary[]
+  settlements  Settlement[]
   card         Card?
   feedItems    FeedItem[]      @relation("actor")
   referrals    Referral[]      @relation("referrer")
@@ -61,11 +65,12 @@ model Balance {
 }
 
 model WalletAddress {
-  id      String @id @default(cuid())
-  userId  String
-  symbol  String // BTC, ETH, USDT, etc.
-  network String // Bitcoin, ERC-20, TRC-20, Solana, ...
-  address String
+  id       String  @id @default(cuid())
+  userId   String
+  symbol   String // BTC, ETH, USDT, etc.
+  network  String // Bitcoin, ERC-20, TRC-20, Solana, ...
+  address  String
+  provider String? // null = demo generator; "dextopus" = real provider-issued
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -91,6 +96,44 @@ model Transaction {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+}
+
+// Real-money movements handled by an external provider (crypto deposits swept
+// into treasury, fiat payouts sent from the float). `externalId` is the
+// provider's own id / on-chain tx hash and is unique, giving idempotency:
+// a webhook that fires twice can never credit or pay out twice.
+model Settlement {
+  id         String   @id @default(cuid())
+  userId     String? // null for system-level movements (e.g. treasury liquidation)
+  kind       String // "deposit" | "payout" | "liquidation"
+  provider   String // "sandbox" | "flutterwave" | "paystack" | "dextopus" | ...
+  externalId String   @unique
+  reference  String? // our own idempotency reference (payouts)
+  status     String   @default("pending") // pending | completed | failed
+  asset      String // USDT, USDC, NGN, ...
+  amount     Decimal  @db.Decimal(38, 18)
+  chain      String? // tron, bsc, ethereum, solana, ...
+  address    String? // deposit address, or destination bank account
+  raw        Json? // provider payload, kept for audit
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([reference])
+}
+
+// Platform-owned balances: the naira (and other fiat) float payouts draw from,
+// and the crypto treasury swept from user deposits. The liquidity engine sells
+// treasury crypto into the float to keep payouts instant even when the float
+// alone can't cover a large withdrawal.
+model TreasuryBalance {
+  id        String   @id @default(cuid())
+  symbol    String   @unique // USDT, NGN, GHS, ...
+  kind      String // "crypto" | "fiat"
+  amount    Decimal  @default(0) @db.Decimal(38, 18)
+  updatedAt DateTime @updatedAt
 }
 
 model Beneficiary {

@@ -4,9 +4,8 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useApp } from "@/context/AppContext";
 import { TabBar } from "@/components/TabBar";
-import { Ticker } from "@/components/Ticker";
 import { AssetIcon } from "@/components/AssetIcon";
-import { Avatar, Sheet, grad } from "@/components/ui";
+import { Avatar, Sheet } from "@/components/ui";
 import { Icon, type IconName } from "@/components/Icon";
 import { formatFiat, formatUsd, formatCrypto } from "@/lib/format";
 import { FIATS } from "@/lib/constants";
@@ -36,94 +35,92 @@ export default function HomePage() {
     <>
       {/* header */}
       <div className="flex items-center justify-between px-[22px] pt-3 pb-2">
-        <button className="flex items-center gap-2.5" onClick={() => router.push("/profile")}>
-          <Avatar gradient={user.avatarGradient} initial={user.initial} size={38} />
+        <button className="flex items-center gap-3" onClick={() => router.push("/profile")}>
+          <Avatar gradient={user.avatarGradient} initial={user.initial} size={40} />
           <div className="text-left">
-            <div className="font-grotesk font-semibold text-[14px]">Hey {user.name.split(" ")[0]} 👋</div>
-            <div className="font-sans text-[11px] text-good">
-              @{user.username} · 🔥 {user.streakDays}-day streak
-            </div>
+            <div className="font-grotesk font-semibold text-[15px] tracking-[-0.2px]">{user.name.split(" ")[0]}</div>
+            <div className="font-sans text-[12px] text-white/45">@{user.username}</div>
           </div>
         </button>
         <div className="flex gap-2">
-          <button onClick={() => router.push("/notifications")} className="w-9 h-9 rounded-[18px] border border-white/12 flex items-center justify-center text-white/80">
+          <button onClick={() => router.push("/rates")} className="w-9 h-9 rounded-full border border-white/10 flex items-center justify-center text-white/70 active:scale-95">
+            <Icon name="activity" size={17} />
+          </button>
+          <button onClick={() => router.push("/notifications")} className="w-9 h-9 rounded-full border border-white/10 flex items-center justify-center text-white/70 active:scale-95">
             <Icon name="bell" size={17} />
           </button>
-          <button onClick={() => router.push("/referrals")} className="w-9 h-9 rounded-[18px] border border-white/12 flex items-center justify-center text-white/80">
+          <button onClick={() => router.push("/referrals")} className="w-9 h-9 rounded-full border border-white/10 flex items-center justify-center text-white/70 active:scale-95">
             <Icon name="gift" size={17} />
           </button>
         </div>
       </div>
 
-      <div className="px-[22px]">
-        <Ticker />
-      </div>
-
       <div className="flex-1 overflow-y-auto no-scrollbar pb-4">
-        {/* balance card */}
-        <div className="mx-5 mt-4 rounded-[24px] p-[22px] border border-white/[.08] relative overflow-hidden" style={{ background: "linear-gradient(135deg,#151B33 0%,#0B1B2A 55%,#0B2420 100%)" }}>
-          <div className="absolute w-[180px] h-[180px] rounded-full" style={{ right: -40, bottom: -60, background: "radial-gradient(circle,rgba(61,245,176,.18),transparent 70%)" }} />
-          <div className="flex justify-between items-center relative">
-            <div className="font-sans text-[12px] text-white/50">Total balance</div>
-            <button onClick={() => setFiatOpen(true)} className="font-grotesk font-semibold text-[11px] text-brand-cyan border border-brand-cyan/35 rounded-xl px-[9px] py-[3px]">
-              {portfolio.fiat} ▾
+        {/* balance */}
+        <div className="mx-5 mt-4 rounded-3xl p-6 bg-surface border border-white/[.06]">
+          <div className="flex justify-between items-center">
+            <div className="font-sans text-[12px] text-white/40 tracking-[0.3px] uppercase">Total balance</div>
+            <button onClick={() => setFiatOpen(true)} className="flex items-center gap-1 font-grotesk font-semibold text-[12px] text-white/70 border border-white/10 rounded-full px-2.5 py-1 active:scale-95">
+              {portfolio.fiat}
+              <Icon name="chevronDown" size={13} />
             </button>
           </div>
-          <div className="font-grotesk font-bold text-[38px] leading-[1.1] mt-2 tracking-[-1px] relative">
+          <div className="font-grotesk font-bold text-[42px] leading-none mt-4 tracking-[-1.5px] text-white">
             {whole}
-            <span className="text-[20px] text-white/40">.{cents ?? "00"}</span>
+            <span className="text-[22px] text-white/35">.{cents ?? "00"}</span>
           </div>
-          <div className="font-sans text-[12px] text-good mt-1.5 relative">≈ {formatUsd(portfolio.totalUsd)}</div>
+          <div className="font-sans text-[12.5px] text-white/40 mt-2">≈ {formatUsd(portfolio.totalUsd)}</div>
         </div>
 
         {/* add money / send */}
-        <div className="grid grid-cols-2 gap-2.5 px-5 mt-4">
-          <button onClick={() => router.push("/deposit")} className="grad-bg h-[46px] rounded-[23px] flex items-center justify-center gap-1.5 font-grotesk font-semibold text-[14px] text-[#04121A] active:scale-[.98]">
+        <div className="grid grid-cols-2 gap-2.5 px-5 mt-3">
+          <button onClick={() => router.push("/deposit")} className="h-[50px] rounded-2xl bg-good text-ink flex items-center justify-center gap-2 font-grotesk font-semibold text-[14px] active:scale-[.98]">
             <Icon name="arrowDown" size={17} strokeWidth={2.4} /> Add money
           </button>
-          <button onClick={() => router.push("/send-out")} className="h-[46px] rounded-[23px] border border-white/14 flex items-center justify-center gap-1.5 font-grotesk font-semibold text-[14px] active:scale-[.98]">
+          <button onClick={() => router.push("/send-out")} className="h-[50px] rounded-2xl border border-white/12 flex items-center justify-center gap-2 font-grotesk font-semibold text-[14px] active:scale-[.98]">
             <Icon name="arrowUp" size={17} strokeWidth={2.4} /> Send out
           </button>
         </div>
 
         {/* quick actions */}
-        <div className="grid grid-cols-4 gap-2.5 px-5 pt-4">
-          <QuickAction icon="swap" label="Swap" gradient onClick={() => router.push("/swap")} />
-          <QuickAction icon="zap" label="Ttip" onClick={() => router.push("/ttip")} />
+        <div className="grid grid-cols-5 gap-2 px-5 pt-5">
+          <QuickAction icon="plus" label="Buy" onClick={() => router.push("/buy")} />
+          <QuickAction icon="swap" label="Swap" onClick={() => router.push("/swap")} />
+          <QuickAction icon="zap" label="Ttip" accent onClick={() => router.push("/ttip")} />
           <QuickAction icon="card" label="Card" onClick={() => router.push("/card")} />
           <QuickAction icon="bills" label="Bills" onClick={() => router.push("/bills")} />
         </div>
 
         {/* assets */}
-        <div className="px-5 pt-6">
-          <div className="flex justify-between items-baseline mb-2.5">
-            <span className="font-grotesk font-semibold text-[14px]">Your assets</span>
-            <button onClick={() => router.push("/swap")} className="font-sans text-[12px] text-brand-cyan">
-              See all
+        <div className="px-5 pt-7">
+          <div className="flex justify-between items-baseline mb-3">
+            <span className="font-grotesk font-semibold text-[14px] tracking-[-0.2px]">Your assets</span>
+            <button onClick={() => router.push("/account/transactions")} className="font-sans text-[12px] text-white/45 active:text-white/70">
+              Activity
             </button>
           </div>
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-1.5">
             {shown.map((a) => (
-              <button key={a.symbol} onClick={() => router.push("/swap?from=" + a.symbol)} className="flex items-center gap-3 bg-surface border border-white/[.06] rounded-2xl px-3.5 py-3 active:scale-[.99] transition">
+              <button key={a.symbol} onClick={() => router.push("/swap?from=" + a.symbol)} className="flex items-center gap-3 bg-surface border border-white/[.05] rounded-2xl px-4 py-3.5 active:scale-[.99] transition">
                 <AssetIcon color={a.color} glyph={a.glyph} />
                 <div className="flex-1 text-left">
-                  <div className="font-sans font-semibold text-[13.5px]">{a.name}</div>
-                  <div className="font-sans text-[11px] text-white/40">
+                  <div className="font-sans font-semibold text-[14px]">{a.name}</div>
+                  <div className="font-sans text-[11.5px] text-white/40">
                     {formatCrypto(a.amount, a.symbol)} {a.symbol}
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="font-grotesk font-semibold text-[13.5px]">{formatFiat(a.fiatValue, portfolio.fiat, { decimals: 0 })}</div>
-                  <div className="font-sans font-medium text-[11px]" style={{ color: a.change24h >= 0 ? "#3DF5B0" : "#FF7A8A" }}>
-                    {a.change24h >= 0 ? "▲" : "▼"} {Math.abs(a.change24h).toFixed(1)}%
+                  <div className="font-grotesk font-semibold text-[14px]">{formatFiat(a.fiatValue, portfolio.fiat, { decimals: 0 })}</div>
+                  <div className="font-sans font-medium text-[11px] tabular-nums" style={{ color: a.change24h >= 0 ? "#3DF5B0" : "#FF7A8A" }}>
+                    {a.change24h >= 0 ? "+" : "−"}{Math.abs(a.change24h).toFixed(1)}%
                   </div>
                 </div>
               </button>
             ))}
             {shown.every((a) => a.amount === 0) && (
-              <div className="text-center text-white/40 text-[13px] py-4">
+              <div className="text-center text-white/40 text-[13px] py-5">
                 No crypto yet.{" "}
-                <button onClick={() => router.push("/deposit")} className="text-brand-cyan">
+                <button onClick={() => router.push("/deposit")} className="text-good">
                   Add money
                 </button>{" "}
                 to get started.
@@ -141,7 +138,7 @@ export default function HomePage() {
             <button key={f.code} onClick={() => setFiat(f.code)} className="flex items-center gap-3 bg-surface border border-white/[.06] rounded-2xl px-4 py-3.5 active:scale-[.99]">
               <span className="text-xl">{f.flag}</span>
               <span className="flex-1 text-left font-medium text-[14px]">{f.name}</span>
-              {portfolio.fiat === f.code && <span className="text-brand-cyan">✓</span>}
+              {portfolio.fiat === f.code && <Icon name="check" size={16} className="text-good" strokeWidth={2.6} />}
             </button>
           ))}
         </div>
@@ -150,16 +147,20 @@ export default function HomePage() {
   );
 }
 
-function QuickAction({ icon, label, onClick, gradient }: { icon: IconName; label: string; onClick: () => void; gradient?: boolean }) {
+function QuickAction({ icon, label, onClick, accent }: { icon: IconName; label: string; onClick: () => void; accent?: boolean }) {
   return (
-    <button onClick={onClick} className="flex flex-col items-center gap-[7px] active:scale-95 transition">
+    <button onClick={onClick} className="flex flex-col items-center gap-2 active:scale-95 transition">
       <div
-        className="w-[56px] h-[56px] rounded-[20px] flex items-center justify-center"
-        style={gradient ? { background: grad("135deg,#6D5BFF,#2AC8FF 60%,#3DF5B0"), color: "#04121A" } : { background: "#12141D", border: "1px solid rgba(255,255,255,.1)", color: "#fff" }}
+        className="w-[56px] h-[56px] rounded-2xl flex items-center justify-center border"
+        style={
+          accent
+            ? { background: "rgba(61,245,176,.10)", borderColor: "rgba(61,245,176,.30)", color: "#3DF5B0" }
+            : { background: "#101219", borderColor: "rgba(255,255,255,.07)", color: "#fff" }
+        }
       >
-        <Icon name={icon} size={24} fill={gradient && icon === "zap" ? "#04121A" : undefined} />
+        <Icon name={icon} size={22} strokeWidth={1.9} />
       </div>
-      <span className="font-sans font-medium text-[11.5px] text-white/75">{label}</span>
+      <span className="font-sans font-medium text-[11.5px] text-white/60">{label}</span>
     </button>
   );
 }

@@ -62,6 +62,17 @@ npm run dev
 
 Open http://localhost:3000.
 
+### Checks
+
+```bash
+npm run typecheck   # tsc --noEmit
+npm run lint        # next lint
+npm test            # unit tests for the money engine (node:test)
+```
+
+These same checks plus a production build run automatically in CI
+(`.github/workflows/ci.yml`) on every push and pull request.
+
 **Demo account:** `kola@ttip.money` / `password123`
 (other seeded users: `amara`, `tobi`, `zuri` — all `password123`)
 
@@ -103,10 +114,99 @@ static shell) and submit. No rewrite needed; the UI is already mobile-first.
 
 ---
 
+## Settlement — crypto in, naira out
+
+The real-money rails live behind one provider-agnostic layer (`src/lib/settlement/`)
+so the app runs identically whether money is simulated or live:
+
+- **`SETTLEMENT_MODE=sandbox`** (default) — no external money moves. Crypto
+  deposits are credited by the in-app simulator or a signed webhook; naira
+  payouts settle instantly. The ledger, balances and receipts behave exactly as
+  in production, so the whole **deposit → withdraw** loop is demoable today.
+- **`SETTLEMENT_MODE=live`** — real crypto deposits arrive via the provider
+  webhook and real naira payouts go out through Flutterwave.
+
+**How the loop works**
+
+1. **Crypto in.** A deposit provider watches each user's addresses and, when
+   funds land and are swept into treasury, POSTs `/api/webhooks/deposit`
+   (HMAC-signed with `DEPOSIT_WEBHOOK_SECRET`). `creditDeposit()` credits the
+   user's balance — **idempotently**, keyed on the provider's `externalId`, so a
+   replayed webhook can never double-credit.
+2. **Naira out.** On a bank withdrawal the crypto is debited and a `pending`
+   payout is recorded atomically, then `payoutFiat()` calls the provider. A
+   terminal result settles immediately; a `pending` one is finalised later by
+   `/api/webhooks/payout`. **Failed payouts auto-refund** the debited crypto.
+
+Every movement is recorded in the `Settlement` table (unique `externalId`) for a
+clean audit trail.
+
+**Payout providers.** Four are built in — **Paystack, Flutterwave, Monnify,
+CoralPay** — behind one interface; `PAYOUT_PROVIDER` (or whichever keys are
+present) picks which sends fiat, so you can run the cheapest per function. Payout
+webhooks land on `/api/webhooks/payout`, distinguished and verified by their own
+signature header.
+
+**Crypto deposits.** **Dextopus** (cross-chain, 70+ networks, non-custodial,
+~0.25%/tx) is wired as the deposit provider — it issues static addresses and posts
+to `/api/webhooks/deposit`, verified with its own secret. Any other provider
+(Blockradar, NOWPayments…) is one new file behind the same interface.
+
+**Treasury, float & liquidity.** Swept deposits accrue in a `TreasuryBalance`
+crypto pot; payouts draw from the fiat float. When a payout exceeds the float,
+`ensureFloat()` **auto-sells treasury crypto into the float at the live rate**, so
+a large withdrawal still goes out immediately even on a thin float — the core
+exchange liquidity trick. The liquidity venue is provider-agnostic (sandbox now;
+an exchange/OTC/P2P desk plugs in later).
+
+**Competitive pricing.** `src/lib/pricing.ts` quotes users the market **reference
+rate minus a thin margin** (`PLATFORM_MARGIN_PCT`, default 1.5%); the spread is
+revenue. The reference (`src/lib/rate.ts`) is official FX plus a configurable
+**P2P premium** (`P2P_PREMIUM_PCT` / `P2P_PREMIUM_<CODE>`) so quotes track the
+Bybit-P2P/parallel rate — swap that one function for a live P2P feed and the whole
+engine follows.
+
+**Netting.** `src/lib/settlement/netting.ts` matches internal off-ramp vs on-ramp
+demand so only the **net** imbalance is liquidated externally (matched volume pays
+zero external spread). The treasury liquidation already routes through it; it
+activates automatically once on-ramp/buy flow exists.
+
+**Real deposit addresses.** When Dextopus is configured, the deposit screen lazily
+provisions real static addresses per user (`ensureDepositAddresses`) instead of the
+demo generator, keyed to your treasury settlement target.
+
+**Currencies.** Naira plus 8 more African currencies (GHS, KES, ZAR, XOF, XAF,
+UGX, TZS, RWF, ZMW, EGP, MAD, ETB), all priced live off the USD pivot.
+
+> **On cost:** naira *payouts* are a small flat/capped fee per transfer on both
+> Paystack and Flutterwave — not a percentage. (The ~1.4% percentage fee is on
+> card/bank *collections*, which this flow doesn't use.)
+
+See `.env.example` for the keys each provider needs.
+
+## Security hardening
+
+Baked in and applied on every deploy:
+
+- **Security headers** on all routes (`next.config.mjs`) — a locked-down
+  Content-Security-Policy, HSTS (2y, preload), `X-Frame-Options: DENY`,
+  `X-Content-Type-Options: nosniff`, a strict `Referrer-Policy` and
+  `Permissions-Policy`. `X-Powered-By` is disabled.
+- **Rate limiting** on the sensitive endpoints (`src/lib/rate-limit.ts`):
+  sign-in (10 / 5 min per IP), sign-up (5 / hr per IP) and PIN unlock
+  (5 / min per user) to blunt credential stuffing and PIN brute-force. It is an
+  in-process limiter — on serverless it applies per warm instance; swap the map
+  for Upstash/Redis for a cluster-wide guarantee (the `rateLimit()` signature
+  stays the same).
+- **Required `AUTH_SECRET`** — sessions refuse to sign/verify without a
+  ≥16-char secret; there is no insecure fallback.
+- **Dependencies** kept on a patched Next.js 14.2.x line.
+
 ## Honest note on "production-ready"
 
 The **software** here is production-grade: real auth, a real database, a real transaction
-ledger, live pricing, input validation, and a Vercel-ready build.
+ledger, live pricing, input validation, security headers, rate limiting, a unit-tested
+money engine, CI, and a Vercel-ready build.
 
 What a real-money launch additionally requires — and what no code alone can provide — is
 the **regulated financial plumbing**:

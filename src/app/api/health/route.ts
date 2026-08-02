@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { settlementMode, payoutProvider, depositProvider } from "@/lib/settlement/config";
 
 export const dynamic = "force-dynamic";
 
-// Quick diagnostics: is the DB reachable, are tables created, is auth configured?
+// Quick diagnostics: is the DB reachable, are tables created, is auth configured,
+// and are the settlement providers wired? Only booleans/names are reported —
+// never a secret value.
 export async function GET() {
   const out: Record<string, unknown> = {
     app: "ok",
@@ -13,6 +16,26 @@ export async function GET() {
       DATABASE_URL: !!process.env.DATABASE_URL,
       AUTH_SECRET: !!process.env.AUTH_SECRET && process.env.AUTH_SECRET.length >= 16,
       NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL ?? null,
+    },
+    settlement: {
+      mode: settlementMode(), // "sandbox" | "live"
+      depositProvider: depositProvider(), // "dextopus" | "sandbox"
+      payoutProvider: payoutProvider(), // "sandbox" | "paystack" | ...
+      dextopus: {
+        apiKey: !!process.env.DEXTOPUS_API_KEY,
+        webhookSecret: !!process.env.DEXTOPUS_WEBHOOK_SECRET,
+        settlementTarget: !!(
+          process.env.DEXTOPUS_SETTLEMENT_CHAIN_ID &&
+          process.env.DEXTOPUS_SETTLEMENT_ASSET &&
+          process.env.DEXTOPUS_SETTLEMENT_ADDRESS
+        ),
+      },
+      payoutKeys: {
+        paystack: !!process.env.PAYSTACK_SECRET_KEY,
+        flutterwave: !!process.env.FLUTTERWAVE_SECRET_KEY,
+        monnify: !!process.env.MONNIFY_SECRET_KEY,
+        coralpay: !!process.env.CORALPAY_SECRET_KEY,
+      },
     },
     database: "unknown",
     tables: "unknown",

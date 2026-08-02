@@ -50,6 +50,7 @@ export interface AppState {
   user: UserSummary;
   portfolio: Portfolio;
   card: CardInfo | null;
+  config?: { payments: "live" | "demo" | "disabled" };
   receipt?: any;
 }
 

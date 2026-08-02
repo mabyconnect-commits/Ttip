@@ -2,39 +2,71 @@
 
 export function Receipt({
   title,
-  emoji,
   lines,
   onDone,
   cta = "Tap anywhere to continue",
 }: {
   title: string;
-  emoji: string;
-  lines: string[];
+  /** Optional — legacy callers may still pass an emoji; it is intentionally ignored. */
+  emoji?: string;
+  lines: (string | null | undefined | false)[];
   onDone: () => void;
   cta?: string;
 }) {
+  const detail = lines.filter(Boolean) as string[];
+  const [primary, ...meta] = detail;
+
   return (
     <div
-      className="fixed inset-0 z-[70] flex flex-col items-center justify-center gap-6 px-8 text-center"
-      style={{ background: "radial-gradient(120% 60% at 50% 30%,#10233A 0%,#07080D 60%)" }}
+      className="fixed inset-0 z-[70] flex flex-col items-center bg-ink text-center"
+      style={{
+        background:
+          "radial-gradient(90% 55% at 50% 34%, rgba(61,245,176,0.06), transparent 70%), #07080D",
+      }}
       onClick={onDone}
     >
-      <div className="w-[120px] h-[120px] rounded-full flex items-center justify-center text-[52px] animate-pop grad-bg-135 shadow-[0_20px_60px_rgba(42,200,255,.35)]">
-        {emoji}
-      </div>
-      <div className="animate-rise">
-        <h2 className="font-grotesk font-bold text-[26px] tracking-[-0.5px]">{title}</h2>
-        <div className="mt-3 flex flex-col gap-1">
-          {lines.map((l, i) => (
-            <p key={i} className="font-sans text-[14px] text-white/60 leading-[1.5]">
-              {l}
-            </p>
-          ))}
+      <div className="flex-1 flex flex-col items-center justify-center px-10 w-full">
+        {/* Success mark — a sharp checkmark, not an emoji orb */}
+        <div className="animate-ringIn">
+          <svg width="76" height="76" viewBox="0 0 76 76" fill="none" aria-hidden>
+            <circle cx="38" cy="38" r="37" fill="rgba(61,245,176,0.05)" stroke="rgba(61,245,176,0.28)" strokeWidth="1.25" />
+            <path
+              d="M24 39.5 L34 49.5 L53 27.5"
+              stroke="#3DF5B0"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="animate-draw"
+              style={{ strokeDasharray: 48 }}
+            />
+          </svg>
         </div>
+
+        <h2 className="mt-8 font-grotesk font-bold text-[38px] leading-none tracking-[-1px] text-white animate-rise">
+          {title}
+        </h2>
+
+        {primary && (
+          <p className="mt-3.5 font-sans text-[15px] text-white/70 animate-rise">{primary}</p>
+        )}
+
+        {meta.length > 0 && (
+          <div className="mt-5 flex items-center gap-2.5 text-[12.5px] text-white/40 animate-rise">
+            {meta.map((l, i) => (
+              <span key={i} className="flex items-center gap-2.5">
+                {i > 0 && <span className="w-[3px] h-[3px] rounded-full bg-white/25" />}
+                {l}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
-      <button className="mt-2 border border-good/50 rounded-full px-6 py-3 font-grotesk font-semibold text-good animate-rise">
-        {cta}
-      </button>
+
+      <div className="pb-12 animate-rise">
+        <span className="font-grotesk text-[11px] font-semibold tracking-[2px] uppercase text-white/35">
+          {cta}
+        </span>
+      </div>
     </div>
   );
 }

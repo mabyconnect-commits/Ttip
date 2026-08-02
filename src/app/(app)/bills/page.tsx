@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import { usePrices } from "@/lib/usePrices";
 import { BackHeader, GradientButton } from "@/components/ui";
+import { Icon } from "@/components/Icon";
 import { BILL_CATEGORIES } from "@/lib/constants";
 import { pickFunding } from "@/lib/funding";
 import { formatFiat, formatCrypto } from "@/lib/format";
@@ -71,8 +72,9 @@ export default function BillsPage() {
               </button>
             ))}
           </div>
-          <div className="mt-4 rounded-2xl px-4 py-3.5 text-[12.5px] text-white/60" style={{ background: "rgba(42,200,255,.06)", border: "1px solid rgba(42,200,255,.2)" }}>
-            💡 Every bill is paid straight from your crypto — no bank app, no wahala.
+          <div className="mt-4 rounded-2xl px-4 py-3.5 text-[12.5px] text-white/60 flex gap-2.5" style={{ background: "rgba(42,200,255,.06)", border: "1px solid rgba(42,200,255,.2)" }}>
+            <span className="text-brand-cyan shrink-0"><Icon name="zap" size={15} /></span>
+            <span>Every bill is paid straight from your crypto — no bank app needed.</span>
           </div>
         </div>
       ) : (
@@ -129,7 +131,7 @@ export default function BillsPage() {
           onDone={() => { setReceipt(null); router.push("/home"); }}
           emoji={BILL_CATEGORIES.find((c) => c.title === receipt.category)?.icon ?? "📱"}
           title={`${receipt.category} paid`}
-          lines={[`${receipt.provider} · ${receipt.account}`, `${formatFiat(receipt.fiatAmount, receipt.fiat, { decimals: 0 })} · paid ${formatCrypto(receipt.cost, receipt.funding)} ${receipt.funding}`, "Delivered instantly"]}
+          lines={[`${receipt.provider} · ${receipt.account}`, `Paid ${formatCrypto(receipt.cost, receipt.funding)} ${receipt.funding}`]}
         />
       )}
     </div>

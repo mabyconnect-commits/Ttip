@@ -9,7 +9,7 @@ const tabs: { href: string; label: string; icon: IconName; center?: boolean }[] 
   { href: "/swap", label: "Swap", icon: "swap" },
   { href: "/ttip", label: "", icon: "zap", center: true },
   { href: "/feed", label: "Feed", icon: "activity" },
-  { href: "/card", label: "Card", icon: "card" },
+  { href: "/account", label: "Account", icon: "user" },
 ];
 
 export function TabBar() {

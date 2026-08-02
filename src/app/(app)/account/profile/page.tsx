@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import { BackHeader, GradientButton, Avatar } from "@/components/ui";
+import { Icon } from "@/components/Icon";
 import { BankPicker } from "@/components/BankPicker";
 import type { Bank } from "@/lib/banks";
 import { FIATS } from "@/lib/constants";
@@ -76,7 +77,7 @@ export default function EditProfilePage() {
             <div className="text-white/40 text-[11.5px] ml-1 mb-1.5">Current: {user.bankAccount ?? "not set"}</div>
             <button onClick={() => setBankOpen(true)} className="w-full bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] flex items-center justify-between text-[14px]">
               <span className={bank ? "text-white font-medium" : "text-white/35"}>{bank ? bank.name : "Change bank"}</span>
-              <span className="text-white/40">▾</span>
+              <Icon name="chevronDown" size={15} className="text-white/40" />
             </button>
             {bank && (
               <input value={account} onChange={(e) => setAccount(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" maxLength={10} placeholder="Account number" className="w-full bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] outline-none text-[14px] focus:border-brand-cyan/50 mt-2" />

@@ -1,6 +1,7 @@
 import { prisma } from "./db";
 import { buildPortfolio } from "./wallet";
 import { dayStr } from "./format";
+import { settlementStatus } from "./settlement/config";
 
 const FREE_SWAPS_PER_DAY = 3;
 
@@ -39,6 +40,9 @@ export async function getAppState(userId: string) {
       initial: user.name.trim().charAt(0).toUpperCase(),
     },
     portfolio,
+    // Runtime money mode, so the UI can flag test mode and never imply real
+    // money is moving when it isn't. "live" | "demo" | "disabled".
+    config: { payments: settlementStatus() },
     card: user.card
       ? {
           last4: user.card.last4,

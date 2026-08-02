@@ -2,8 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
-import { BackHeader, Avatar } from "@/components/ui";
+import { Avatar } from "@/components/ui";
+import { TabBar } from "@/components/TabBar";
 import { Icon, type IconName } from "@/components/Icon";
+import { COMPANY, PRODUCT_OF } from "@/lib/company";
 
 export default function AccountPage() {
   const { state, logout } = useApp();
@@ -26,29 +28,32 @@ export default function AccountPage() {
   ];
 
   return (
-    <div className="flex flex-col flex-1 px-[22px] min-h-0">
-      <BackHeader title="Account" />
-      <div className="flex-1 overflow-y-auto no-scrollbar pb-6">
+    <>
+      <div className="flex items-center px-[22px] pt-3.5 pb-3">
+        <div className="font-grotesk font-bold text-[22px]">Account</div>
+      </div>
+      <div className="flex-1 overflow-y-auto no-scrollbar px-[22px] pb-4">
         {/* profile header */}
         <div className="flex flex-col items-center gap-2 py-3">
           <Avatar gradient={user.avatarGradient} initial={user.initial} size={80} />
-          <div className="font-grotesk font-bold text-[20px]">{user.name}</div>
+          <div className="font-grotesk font-bold text-[20px] tracking-[-0.3px]">{user.name}</div>
           <div className="text-white/45 text-[13px]">@{user.username}</div>
           <span
             className="text-[12px] font-semibold rounded-full px-3 py-1 mt-0.5"
             style={{ color: kycColor, background: `${kycColor}1f` }}
           >
-            {user.kycStatus === "verified" ? "Verified ✓" : user.kycStatus === "pending" ? "In review" : "Unverified"}
+            {user.kycStatus === "verified" ? "Verified" : user.kycStatus === "pending" ? "In review" : "Unverified"}
           </span>
         </div>
 
         {/* refer & earn */}
         <button
           onClick={() => router.push("/referrals")}
-          className="w-full flex items-center gap-3 rounded-[18px] p-4 mt-1"
-          style={{ background: "linear-gradient(135deg,rgba(109,91,255,.2),rgba(61,245,176,.12))", border: "1px solid rgba(109,91,255,.3)" }}
+          className="w-full flex items-center gap-3 rounded-2xl p-4 mt-1 bg-surface border border-white/[.06]"
         >
-          <span className="text-2xl">🎁</span>
+          <span className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(61,245,176,.10)", border: "1px solid rgba(61,245,176,.28)" }}>
+            <Icon name="gift" size={19} className="text-good" />
+          </span>
           <div className="flex-1 text-left">
             <div className="font-grotesk font-semibold text-[15px]">Refer &amp; Earn</div>
             <div className="text-white/55 text-[12px]">Invite friends and earn ₦2,000 each</div>
@@ -87,8 +92,15 @@ export default function AccountPage() {
         >
           <Icon name="logout" size={17} /> Log out
         </button>
-        <div className="text-center text-white/25 text-[11px] mt-4">Ttip · v1.0.0</div>
+        <div className="flex items-center justify-center gap-4 mt-5 text-[12px] text-white/40">
+          <a href="/terms" className="hover:text-white/70">Terms</a>
+          <a href="/privacy" className="hover:text-white/70">Privacy</a>
+          <a href={`mailto:${COMPANY.supportEmail}`} className="hover:text-white/70">Support</a>
+        </div>
+        <div className="text-center text-white/25 text-[11px] mt-2.5">Ttip · v1.0.0</div>
+        <div className="text-center text-white/25 text-[11px] mt-0.5">{PRODUCT_OF}</div>
       </div>
-    </div>
+      <TabBar />
+    </>
   );
 }

@@ -36,6 +36,8 @@ const config: Config = {
         rise: { "0%": { transform: "translateY(14px)", opacity: "0" }, "100%": { transform: "translateY(0)", opacity: "1" } },
         toast: { "0%": { transform: "translate(-50%,20px)", opacity: "0" }, "100%": { transform: "translate(-50%,0)", opacity: "1" } },
         sheet: { "0%": { transform: "translateY(100%)" }, "100%": { transform: "translateY(0)" } },
+        draw: { "0%": { strokeDashoffset: "48" }, "100%": { strokeDashoffset: "0" } },
+        ringIn: { "0%": { transform: "scale(.8)", opacity: "0" }, "100%": { transform: "scale(1)", opacity: "1" } },
       },
       animation: {
         ticker: "ticker 18s linear infinite",
@@ -43,6 +45,8 @@ const config: Config = {
         rise: "rise .35s ease",
         toast: "toast .3s ease",
         sheet: "sheet .3s cubic-bezier(.2,.8,.2,1)",
+        draw: "draw .45s cubic-bezier(.65,0,.35,1) .18s both",
+        ringIn: "ringIn .4s cubic-bezier(.2,.8,.2,1) both",
       },
     },
   },

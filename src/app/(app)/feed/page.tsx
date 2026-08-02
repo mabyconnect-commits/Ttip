@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import { apiGet, apiPost } from "@/lib/client";
 import { TabBar } from "@/components/TabBar";
+import { Ticker } from "@/components/Ticker";
 import { Avatar } from "@/components/ui";
 import { formatFiat } from "@/lib/format";
 
@@ -71,6 +72,8 @@ export default function FeedPage() {
         </div>
       </div>
 
+      <div className="px-[22px]"><Ticker /></div>
+
       {/* leaderboard strip */}
       <div className="mx-[22px] rounded-2xl px-3.5 py-3 flex items-center gap-2.5" style={{ background: "linear-gradient(90deg,rgba(109,91,255,.15),rgba(61,245,176,.12))", border: "1px solid rgba(109,91,255,.3)" }}>
         <span className="text-lg">👑</span>
@@ -78,7 +81,7 @@ export default function FeedPage() {
           Weekly Ttip League:{" "}
           {you ? (
             <>
-              you're <b className="text-brand-cyan">#{you.rank} of your circle</b>
+              you&apos;re <b className="text-brand-cyan">#{you.rank} of your circle</b>
               {ahead ? <> — {formatFiat(Math.max(0, ahead.total - you.total), state.user.defaultFiat, { decimals: 0 })} more to pass {ahead.username}</> : " — you're on top 🔥"}
             </>
           ) : (

@@ -47,7 +47,7 @@ export function GradientButton({
       type={type}
       onClick={onClick}
       disabled={disabled || loading}
-      className={`grad-bg w-full h-[56px] rounded-[28px] flex items-center justify-center gap-2 font-grotesk font-semibold text-[17px] text-[#04121A] shadow-glow transition active:scale-[.98] disabled:opacity-50 disabled:active:scale-100 px-4 text-center ${className}`}
+      className={`w-full h-[54px] rounded-2xl flex items-center justify-center gap-2 font-grotesk font-semibold text-[16px] bg-good text-ink transition active:scale-[.98] disabled:opacity-40 disabled:active:scale-100 px-4 text-center ${className}`}
     >
       {loading ? <Spinner /> : children}
     </button>
@@ -58,7 +58,7 @@ export function OutlineButton({ children, onClick, className = "" }: { children:
   return (
     <button
       onClick={onClick}
-      className={`w-full h-[56px] rounded-[28px] border border-white/15 flex items-center justify-center gap-2 font-medium text-[16px] text-white transition active:scale-[.98] px-4 ${className}`}
+      className={`w-full h-[54px] rounded-2xl border border-white/12 flex items-center justify-center gap-2 font-grotesk font-medium text-[15px] text-white transition active:scale-[.98] px-4 ${className}`}
     >
       {children}
     </button>
@@ -128,9 +128,9 @@ export function Sheet({ open, onClose, children, title }: { open: boolean; onClo
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-md" />
       <div
-        className="relative w-full max-w-[480px] bg-[#0B0D14] border-t border-white/10 rounded-t-[26px] p-5 pb-8 animate-sheet max-h-[85dvh] overflow-y-auto no-scrollbar"
+        className="relative w-full max-w-[480px] bg-[#0B0D14] border-t border-white/10 rounded-t-[26px] p-5 pb-10 animate-sheet max-h-[85dvh] overflow-y-auto no-scrollbar"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-4" />

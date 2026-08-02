@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import { usePrices } from "@/lib/usePrices";
-import { BackHeader, Sheet, GradientButton, grad } from "@/components/ui";
+import { BackHeader, GradientButton } from "@/components/ui";
 import { Icon } from "@/components/Icon";
 import { AssetIcon } from "@/components/AssetIcon";
 import { formatFiat, formatCrypto } from "@/lib/format";
@@ -25,7 +25,7 @@ export default function SwapPage() {
 
   const [from, setFrom] = useState(params.get("from") || "USDT");
   const [to, setTo] = useState(state.user.defaultFiat);
-  const [amount, setAmount] = useState("250");
+  const [amount, setAmount] = useState("");
   const [payoutToBank, setPayoutToBank] = useState(false);
   const [pickFrom, setPickFrom] = useState(false);
   const [pickTo, setPickTo] = useState(false);
@@ -76,8 +76,8 @@ export default function SwapPage() {
       <BackHeader
         title="Swap"
         right={
-          <span className="font-grotesk font-semibold text-[11px] text-good border border-good/35 rounded-xl px-2.5 py-1 whitespace-nowrap">
-            ⏱ {min}:{sec}
+          <span className="font-grotesk font-semibold text-[11px] text-white/50 border border-white/12 rounded-full px-2.5 py-1 whitespace-nowrap tabular-nums">
+            {min}:{sec}
           </span>
         }
       />
@@ -99,16 +99,17 @@ export default function SwapPage() {
               value={amount}
               onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
               inputMode="decimal"
-              className="font-grotesk font-bold text-[36px] tracking-[-1px] bg-transparent outline-none w-full min-w-0"
+              placeholder="0"
+              className="font-grotesk font-bold text-[36px] tracking-[-1px] bg-transparent outline-none w-full min-w-0 placeholder:text-white/25"
             />
-            <button onClick={() => setPickFrom(true)} className="flex items-center gap-2 bg-[#151827] rounded-[20px] px-3 py-[7px] shrink-0">
+            <button onClick={() => setPickFrom(true)} className="flex items-center gap-2 bg-[#151827] rounded-full px-3 py-[7px] shrink-0">
               {fromIsFiat ? (
                 <span className="w-[26px] h-[26px] rounded-full bg-[#0D0F17] flex items-center justify-center text-[15px]">{symLabel(from)}</span>
               ) : (
                 <AssetIcon color={fromAsset?.color ?? "#26A17B"} glyph={fromAsset?.glyph ?? "₮"} size={26} />
               )}
               <span className="font-grotesk font-semibold text-[14px]">{from}</span>
-              <span className="text-white/40">▾</span>
+              <Icon name="chevronDown" size={14} className="text-white/40" />
             </button>
           </div>
         </div>
@@ -118,35 +119,27 @@ export default function SwapPage() {
           <button
             onClick={flip}
             aria-label="Flip direction"
-            className="w-11 h-11 rounded-[22px] flex items-center justify-center text-[#04121A] border-4 border-[#07080D] active:rotate-180 transition-transform"
-            style={{ background: grad("135deg,#6D5BFF,#2AC8FF 60%,#3DF5B0") }}
+            className="w-11 h-11 rounded-full flex items-center justify-center text-white bg-surface2 border-4 border-[#07080D] active:rotate-180 transition-transform"
           >
-            <Icon name="swapVertical" size={18} strokeWidth={2.4} />
+            <Icon name="swapVertical" size={18} strokeWidth={2} />
           </button>
         </div>
 
         {/* you get */}
-        <div className="bg-surface rounded-[22px] p-[18px] border border-good/25">
+        <div className="bg-surface rounded-[22px] p-[18px] border border-white/[.08]">
           <div className="flex justify-between font-sans text-[12px] text-white/45">
             <span>You get</span>
-            <span className="text-good">Best rate on the street 🏆</span>
+            <span className="text-good/90">Best rate</span>
           </div>
           <div className="flex items-center justify-between mt-2.5">
             <div className="font-grotesk font-bold text-[32px] tracking-[-1px] text-good truncate">
               {toIsFiat ? formatFiat(net, to, { decimals: 0 }) : `${formatCrypto(net, to)}`}
             </div>
-            <button onClick={() => setPickTo(true)} className="flex items-center gap-2 bg-[#151827] rounded-[20px] px-3 py-[7px] shrink-0">
+            <button onClick={() => setPickTo(true)} className="flex items-center gap-2 bg-[#151827] rounded-full px-3 py-[7px] shrink-0">
               <span className="text-base">{symLabel(to)}</span>
               <span className="font-grotesk font-semibold text-[14px]">{to}</span>
-              <span className="text-white/40">▾</span>
+              <Icon name="chevronDown" size={14} className="text-white/40" />
             </button>
-          </div>
-          <div className="flex gap-1.5 mt-3 flex-wrap">
-            {(fromIsFiat ? CRYPTO_SYMS.slice(0, 5) : FIATS.map((f) => f.code)).filter((s) => s !== to && s !== from).map((s) => (
-              <button key={s} onClick={() => setTo(s)} className="font-grotesk font-medium text-[10.5px] text-white/50 border border-white/12 rounded-[10px] px-2 py-[3px]">
-                {symLabel(s)} {s}
-              </button>
-            ))}
           </div>
         </div>
 
@@ -165,7 +158,7 @@ export default function SwapPage() {
           {toIsFiat && (
             <Row label="Payout to">
               <button onClick={() => setPayoutToBank((v) => !v)} className="font-grotesk font-semibold text-[13px]" style={{ color: payoutToBank ? "#3DF5B0" : "#2AC8FF" }}>
-                {payoutToBank ? `${state.user.bankAccount} · instant ⚡` : "Ttip wallet ▾"}
+                {payoutToBank ? `${state.user.bankAccount} · instant` : "Ttip wallet"}
               </button>
             </Row>
           )}

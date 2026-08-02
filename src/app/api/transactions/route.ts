@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { getUserId } from "@/lib/auth";
 import { handler, ok, unauthorized } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
+import { explorerTxUrl } from "@/lib/chains";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,7 @@ export async function GET(req: Request) {
     return ok({
       transactions: txns.map((t) => {
         const inflow = INFLOW.has(t.type);
+        const meta = (t.meta ?? {}) as { chainId?: number | string; txHash?: string };
         return {
           id: t.id,
           type: t.type,
@@ -34,6 +36,7 @@ export async function GET(req: Request) {
           counterparty: t.counterparty,
           note: t.note,
           emoji: t.emoji,
+          explorerUrl: explorerTxUrl(meta.chainId, meta.txHash),
           time: timeAgo(t.createdAt),
           createdAt: t.createdAt,
         };

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { verifyPassword, createSession } from "@/lib/auth";
 import { handler, ok, ApiError } from "@/lib/api";
 import { getAppState } from "@/lib/serialize";
+import { rateLimit, clientIp } from "@/lib/rate-limit";
 
 const schema = z.object({
   identifier: z.string().min(1, "Enter your email or username"),
@@ -11,6 +12,8 @@ const schema = z.object({
 
 export async function POST(req: Request) {
   return handler(async () => {
+    // Throttle credential stuffing: 10 attempts / 5 min per client IP.
+    rateLimit(`login:${clientIp(req)}`, { limit: 10, windowMs: 5 * 60_000 });
     const { identifier, password } = schema.parse(await req.json());
     const id = identifier.toLowerCase().replace(/^@/, "");
     const user = await prisma.user.findFirst({

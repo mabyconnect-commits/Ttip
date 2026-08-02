@@ -1,0 +1,102 @@
+import "server-only";
+import { prisma } from "../db";
+import { CRYPTO_ASSETS } from "../constants";
+import { depositProvider, dextopusConfig } from "./config";
+import { createDepositAddress } from "./dextopus";
+
+/**
+ * On-demand: return the user's static deposit address for one (chain, asset),
+ * generating + persisting it the first time. This is what powers the "pick any
+ * chain / any token" deposit flow — an address is minted only when a user
+ * actually selects that combination. `network` is the human chain name and part
+ * of the unique key (so USDC-on-Ethereum ≠ USDC-on-Polygon).
+ */
+export async function getOrCreateDepositAddress(
+  userId: string,
+  chainId: number,
+  symbol: string,
+  network: string,
+): Promise<{ address: string; network: string; symbol: string } | null> {
+  const existing = await prisma.walletAddress.findFirst({ where: { userId, symbol, network, provider: "dextopus" } });
+  if (existing) return { address: existing.address, network, symbol };
+
+  const res = await createDepositAddress(userId, chainId, symbol).catch(() => null);
+  if (!res) return null;
+
+  await prisma.walletAddress.upsert({
+    where: { userId_symbol_network: { userId, symbol, network } },
+    create: { userId, symbol, network, address: res.address, provider: "dextopus" },
+    update: { address: res.address, provider: "dextopus" },
+  });
+  return { address: res.address, network, symbol };
+}
+
+/**
+ * Provision real Dextopus static deposit addresses for a user, lazily and
+ * idempotently. Called when the deposit screen loads; if Dextopus isn't
+ * configured it's a no-op and the built-in demo addresses stay in place.
+ *
+ * The app's network id → Dextopus numeric chainId. The EVM ids are the standard
+ * EIP-155 values; Tron/others are provider-specific — verify against
+ * `GET /deposit/chains` and override with the DEXTOPUS_CHAIN_IDS env (JSON).
+ * Networks with no mapping keep their demo address.
+ */
+// Verified against Dextopus GET /api/deposit/chains.
+const DEFAULT_CHAIN_IDS: Record<string, number> = {
+  erc20: 1, // Ethereum
+  bep20: 56, // BNB Smart Chain
+  poly: 137, // Polygon
+  avax: 43114, // Avalanche C-Chain
+  trc20: 728126428, // Tron
+  sol: 792703809, // Solana
+  btc: 8253038, // Bitcoin
+};
+
+function chainIds(): Record<string, number> {
+  try {
+    const override = process.env.DEXTOPUS_CHAIN_IDS ? JSON.parse(process.env.DEXTOPUS_CHAIN_IDS) : {};
+    return { ...DEFAULT_CHAIN_IDS, ...override };
+  } catch {
+    return DEFAULT_CHAIN_IDS;
+  }
+}
+
+// Assets we auto-provision addresses for, across each of their supported
+// networks. Every one settles to your treasury (Solana USDC) via Dextopus.
+const RECEIVE_ASSETS = ["USDT", "USDC", "BTC", "ETH", "SOL", "BNB"];
+
+export async function ensureDepositAddresses(userId: string): Promise<number> {
+  if (depositProvider() !== "dextopus") return 0;
+  const cfg = dextopusConfig();
+  if (!cfg || cfg.settlementChainId == null || !cfg.settlementAsset || !cfg.settlementAddress) return 0;
+
+  const map = chainIds();
+  const existing = await prisma.walletAddress.findMany({ where: { userId, provider: "dextopus" } });
+  const have = new Set(existing.map((a) => `${a.symbol}:${a.network}`));
+
+  // Collect the (asset, chain) pairs still needing an address.
+  const tasks: { symbol: string; network: string; chainId: number }[] = [];
+  for (const asset of CRYPTO_ASSETS.filter((a) => RECEIVE_ASSETS.includes(a.symbol))) {
+    for (const net of asset.networks) {
+      const chainId = map[net.id];
+      if (!chainId) continue; // unmapped chain → keep demo address
+      if (have.has(`${asset.symbol}:${net.label}`)) continue; // already provisioned
+      tasks.push({ symbol: asset.symbol, network: net.label, chainId });
+    }
+  }
+
+  // Generate them in parallel so the first deposit-screen load stays fast.
+  const results = await Promise.all(
+    tasks.map(async (t) => {
+      const res = await createDepositAddress(userId, t.chainId, t.symbol).catch(() => null);
+      if (!res) return 0;
+      await prisma.walletAddress.upsert({
+        where: { userId_symbol_network: { userId, symbol: t.symbol, network: t.network } },
+        create: { userId, symbol: t.symbol, network: t.network, address: res.address, provider: "dextopus" },
+        update: { address: res.address, provider: "dextopus" },
+      });
+      return 1;
+    }),
+  );
+  return results.reduce((a: number, b: number) => a + b, 0);
+}
