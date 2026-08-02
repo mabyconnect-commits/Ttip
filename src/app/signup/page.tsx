@@ -99,6 +99,11 @@ function SignupInner() {
           <GradientButton type="submit" loading={loading} className="mt-2">
             Create account
           </GradientButton>
+          <p className="text-center text-white/40 text-[11.5px] leading-[1.5] mt-1 px-2">
+            By creating an account you agree to our{" "}
+            <Link href="/terms" className="text-white/60 underline">Terms</Link> and{" "}
+            <Link href="/privacy" className="text-white/60 underline">Privacy Policy</Link>.
+          </p>
         </form>
       </div>
 

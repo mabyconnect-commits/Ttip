@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { getUserId } from "@/lib/auth";
+import { COMPANY, PRODUCT_OF } from "@/lib/company";
 
 export default async function Landing() {
   const uid = await getUserId();
@@ -36,6 +37,14 @@ export default async function Landing() {
         <Link href="/login" className="h-[56px] rounded-[28px] border border-white/15 flex items-center justify-center font-medium text-[16px] text-white active:scale-[.98]">
           I already have an account
         </Link>
+        <footer className="mt-3 flex flex-col items-center gap-2 text-center">
+          <div className="flex items-center gap-4 text-[12.5px] text-white/45">
+            <Link href="/terms" className="hover:text-white/70">Terms</Link>
+            <Link href="/privacy" className="hover:text-white/70">Privacy</Link>
+            <a href={`mailto:${COMPANY.supportEmail}`} className="hover:text-white/70">Support</a>
+          </div>
+          <p className="text-[11.5px] text-white/30">{PRODUCT_OF}</p>
+        </footer>
       </div>
     </div>
   );

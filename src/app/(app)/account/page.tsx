@@ -5,6 +5,7 @@ import { useApp } from "@/context/AppContext";
 import { Avatar } from "@/components/ui";
 import { TabBar } from "@/components/TabBar";
 import { Icon, type IconName } from "@/components/Icon";
+import { COMPANY, PRODUCT_OF } from "@/lib/company";
 
 export default function AccountPage() {
   const { state, logout } = useApp();
@@ -91,7 +92,13 @@ export default function AccountPage() {
         >
           <Icon name="logout" size={17} /> Log out
         </button>
-        <div className="text-center text-white/25 text-[11px] mt-4">Ttip · v1.0.0</div>
+        <div className="flex items-center justify-center gap-4 mt-5 text-[12px] text-white/40">
+          <a href="/terms" className="hover:text-white/70">Terms</a>
+          <a href="/privacy" className="hover:text-white/70">Privacy</a>
+          <a href={`mailto:${COMPANY.supportEmail}`} className="hover:text-white/70">Support</a>
+        </div>
+        <div className="text-center text-white/25 text-[11px] mt-2.5">Ttip · v1.0.0</div>
+        <div className="text-center text-white/25 text-[11px] mt-0.5">{PRODUCT_OF}</div>
       </div>
       <TabBar />
     </>
