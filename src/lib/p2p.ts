@@ -2,10 +2,10 @@
  * Live USDT↔fiat reference rate from P2P markets — the real "street"/parallel
  * rate (e.g. ~₦1,392/USDT) that sits well above the official FX rate.
  *
- * Primary source: Binance P2P (dominant in Nigeria, robust public endpoint).
- * Backup: Bybit P2P. We take a robust median of the best ads on each side and
- * return the mid; our margin is applied on top (buy = +margin, sell = −margin).
- * Returns null if every source fails, so the caller falls back to official FX.
+ * Primary source: Bybit P2P (the board Ttip tracks). Backup: Binance P2P. We take
+ * a robust median of the best ads on each side and return the mid; our margin is
+ * applied on top (buy = +margin, sell = −margin). Returns null if every source
+ * fails, so the caller falls back to official FX.
  */
 
 const cache = new Map<string, { at: number; rate: number }>();
@@ -58,22 +58,22 @@ export async function p2pUsdtRate(currency: string): Promise<number | null> {
   const hit = cache.get(cur);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.rate;
 
-  // Binance first.
+  // Bybit first. side "1" = sell ads (buy USDT price); "0" = buy ads (sell USDT price).
   try {
-    const [buy, sell] = await Promise.all([binanceSide(cur, "BUY"), binanceSide(cur, "SELL")]);
-    const rate = midOf(buy, sell);
+    const [sellAds, buyAds] = await Promise.all([bybitSide(cur, "1"), bybitSide(cur, "0")]);
+    const rate = midOf(sellAds, buyAds);
     if (rate && rate > 0) {
       cache.set(cur, { at: Date.now(), rate });
       return rate;
     }
   } catch {
-    /* try Bybit */
+    /* try Binance */
   }
 
-  // Bybit backup. side "1" = sell ads (buy USDT price); "0" = buy ads (sell USDT price).
+  // Binance backup.
   try {
-    const [sellAds, buyAds] = await Promise.all([bybitSide(cur, "1"), bybitSide(cur, "0")]);
-    const rate = midOf(sellAds, buyAds);
+    const [buy, sell] = await Promise.all([binanceSide(cur, "BUY"), binanceSide(cur, "SELL")]);
+    const rate = midOf(buy, sell);
     if (rate && rate > 0) {
       cache.set(cur, { at: Date.now(), rate });
       return rate;
