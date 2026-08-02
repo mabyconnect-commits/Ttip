@@ -4,6 +4,7 @@ import { getUserId } from "@/lib/auth";
 import { handler, ok, unauthorized, ApiError } from "@/lib/api";
 import { getAppState } from "@/lib/serialize";
 import { verifyIdentity, kycEnabled } from "@/lib/kyc";
+import { ensureNairaAccount } from "@/lib/settlement";
 
 const schema = z.object({
   fullName: z.string().min(2, "Enter your full legal name"),
@@ -31,6 +32,22 @@ export async function POST(req: Request) {
 
     const input = schema.parse(await req.json());
 
+    // Already verified? Don't re-charge the identity provider — just make sure the
+    // dedicated naira account exists (activates it for users who verified before
+    // this feature), using the BVN they re-entered.
+    const existing = await prisma.user.findUnique({ where: { id: userId } });
+    if (existing?.kycStatus === "verified") {
+      if (!existing.nairaAccount && (input.idType === "bvn" || input.idType === "nin")) {
+        try {
+          await ensureNairaAccount(userId, { bvn: input.idNumber.replace(/\D/g, ""), name: existing.name, email: existing.email });
+        } catch {
+          /* best-effort */
+        }
+      }
+      const state = await getAppState(userId);
+      return ok({ ...state, kyc: { status: "verified" } });
+    }
+
     const result = await verifyIdentity({
       userId,
       fullName: input.fullName,
@@ -57,7 +74,7 @@ export async function POST(req: Request) {
     }
 
     // Verified.
-    await prisma.user.update({
+    const verifiedUser = await prisma.user.update({
       where: { id: userId },
       data: {
         kycStatus: "verified",
@@ -68,6 +85,21 @@ export async function POST(req: Request) {
         kycVerifiedAt: new Date(),
       },
     });
+
+    // Provision a dedicated naira account now that we have a verified BVN.
+    // Best-effort — never let account creation fail the verification.
+    if (input.idType === "bvn" || input.idType === "nin") {
+      try {
+        await ensureNairaAccount(userId, {
+          bvn: input.idNumber.replace(/\D/g, ""),
+          name: verifiedUser.name,
+          email: verifiedUser.email,
+        });
+      } catch {
+        /* ignore — user can retry from the deposit screen */
+      }
+    }
+
     const state = await getAppState(userId);
     return ok({ ...state, kyc: { status: "verified" } });
   });

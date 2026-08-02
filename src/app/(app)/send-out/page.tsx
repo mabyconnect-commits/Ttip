@@ -8,6 +8,7 @@ import { usePrices } from "@/lib/usePrices";
 import { BackHeader, Segmented, GradientButton } from "@/components/ui";
 import { Icon } from "@/components/Icon";
 import { CRYPTO_ASSETS, FIATS, NETWORK_FEE_USDT } from "@/lib/constants";
+import { transferFee } from "@/lib/pricing";
 import { formatFiat, formatCrypto } from "@/lib/format";
 import { Receipt } from "@/components/Receipt";
 import { BankPicker } from "@/components/BankPicker";
@@ -163,9 +164,17 @@ export default function SendOutPage() {
               <div className="flex justify-between"><span>Network fee</span><b className="text-white font-grotesk">≈ {formatCrypto(feeInAsset, sym)} {sym}</b></div>
             </>
           )}
-          {mode === "bank" && amt > 0 && (
-            <div className="flex justify-between"><span>They receive</span><b className="text-good font-grotesk">{formatFiat(convert(amt, sym, fiat), fiat)}</b></div>
-          )}
+          {mode === "bank" && amt > 0 && (() => {
+            const gross = convert(amt, sym, fiat);
+            const fee = transferFee(gross, fiat);
+            const net = Math.max(0, gross - fee);
+            return (
+              <>
+                <div className="flex justify-between"><span>Transfer fee</span><b className="text-white font-grotesk">{formatFiat(fee, fiat)}</b></div>
+                <div className="flex justify-between"><span>They receive</span><b className="text-good font-grotesk">≈ {formatFiat(net, fiat)}</b></div>
+              </>
+            );
+          })()}
           <div className="flex justify-between"><span>Balance</span><b className="text-white font-grotesk">{formatCrypto(bal, sym)} {sym}</b></div>
         </div>
       </div>
@@ -192,7 +201,11 @@ export default function SendOutPage() {
                 `via ${receipt.network} · fee ${formatCrypto(receipt.fee, receipt.symbol)} ${receipt.symbol}`,
                 ...(receipt.status === "pending" ? ["On-chain confirmation in progress — you'll be notified when it lands."] : []),
               ]
-            : [`To ${receipt.bank}`, `Debited ${formatCrypto(receipt.amount, receipt.symbol)} ${receipt.symbol}`]}
+            : [
+                `To ${receipt.bank}`,
+                `Debited ${formatCrypto(receipt.amount, receipt.symbol)} ${receipt.symbol}`,
+                ...(receipt.fee ? [`Transfer fee ${formatFiat(receipt.fee, receipt.fiat)}`] : []),
+              ]}
         />
       )}
     </div>

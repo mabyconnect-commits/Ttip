@@ -10,8 +10,9 @@ import { adjust, balanceOf } from "@/lib/wallet";
 import { NETWORK_FEE_USDT } from "@/lib/constants";
 import { dayStr, isYesterday } from "@/lib/format";
 import { payoutFiat, finalizePayout, payoutProvider, ensureFloat, debitFloat, cryptoWithdraw, settlementEnabled } from "@/lib/settlement";
-import { quoteSell } from "@/lib/pricing";
+import { quoteSell, transferFee } from "@/lib/pricing";
 import { referenceFiat } from "@/lib/rate";
+import { accrueCashback } from "@/lib/cashback";
 
 const schema = z.object({
   mode: z.enum(["ttip", "wallet", "bank"]),
@@ -232,14 +233,20 @@ async function handleBankSend(
   // when converting crypto → fiat; that spread is platform revenue. A same-fiat
   // withdrawal carries no spread.
   const marketFiat = await referenceFiat(amount, symbol, fiat);
-  let fiatAmount = marketFiat;
+  let grossFiat = marketFiat;
   let spreadFiat = 0;
   if (symbol !== fiat && isCrypto(symbol)) {
     const marketRate = amount > 0 ? marketFiat / amount : 0;
     const q = quoteSell({ asset: symbol, fiat, amountAsset: amount, marketRate });
-    fiatAmount = q.userFiat;
+    grossFiat = q.userFiat;
     spreadFiat = q.spreadFiat;
   }
+
+  // Transfer fee (provider cost + markup), charged to the user like a bank fee.
+  // The net amount is what actually lands in their bank.
+  const fee = transferFee(grossFiat, fiat);
+  const fiatAmount = grossFiat - fee;
+  if (fiatAmount <= 0) throw new ApiError("Amount is too small to cover the transfer fee", 400);
 
   const bankLabel = `${input.bankName ?? user.bankName ?? "Bank"} ••${accountNumber.slice(-4)}`;
   const reference = "pyt_" + crypto.randomUUID();
@@ -265,7 +272,7 @@ async function handleBankSend(
         note: input.accountName ? `To ${input.accountName}` : "Bank payout",
         emoji: "🏦",
         status: "pending",
-        meta: { reference, provider, network: "bank", spreadFiat, marketFiat },
+        meta: { reference, provider, network: "bank", spreadFiat, marketFiat, fee, grossFiat },
       },
     });
     await tx.settlement.create({
@@ -287,6 +294,7 @@ async function handleBankSend(
   // 2. Ask the provider to move the fiat. Sandbox settles instantly; Flutterwave
   //    may return "pending" and confirm later via /api/webhooks/payout.
   let payoutStatus: "pending" | "completed" | "failed" = "pending";
+  let providerMessage: string | undefined;
   try {
     const result = await payoutFiat({
       userId,
@@ -299,8 +307,10 @@ async function handleBankSend(
       reference,
     });
     payoutStatus = result.status;
-  } catch {
+    providerMessage = result.message;
+  } catch (e: any) {
     payoutStatus = "failed";
+    providerMessage = e?.message;
   }
 
   // 3. Reconcile: a terminal result finalizes now (refunding on failure); a
@@ -310,13 +320,18 @@ async function handleBankSend(
   }
 
   if (payoutStatus === "failed") {
-    // finalizePayout has refunded the debited crypto.
-    throw new ApiError("Payout could not be sent — your balance was not charged.", 502);
+    // finalizePayout has refunded the debited crypto. Surface the provider's
+    // reason (e.g. insufficient float) so it's clear why, not just "failed".
+    const reason = providerMessage ? ` (${providerMessage})` : "";
+    throw new ApiError(`Payout could not be sent — your balance was not charged.${reason}`, 502);
   }
 
-  // The fiat has left the float — draw it down.
+  // The fiat has left the float — draw it down, and reward cashback on the sale.
   if (payoutStatus === "completed") {
-    await prisma.$transaction((tx) => debitFloat(tx, fiat, fiatAmount));
+    await prisma.$transaction(async (tx) => {
+      await debitFloat(tx, fiat, fiatAmount);
+      await accrueCashback(tx, userId, grossFiat);
+    });
   }
 
   const state = await getAppState(userId);
@@ -327,7 +342,9 @@ async function handleBankSend(
       symbol,
       amount,
       fiat,
-      fiatAmount,
+      fiatAmount, // net amount that lands in the bank
+      grossFiat,
+      fee,
       bank: bankLabel,
       status: payoutStatus, // "completed" (sandbox) or "pending" (live, awaiting webhook)
     },

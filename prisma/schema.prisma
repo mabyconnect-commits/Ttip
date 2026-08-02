@@ -28,12 +28,15 @@ model User {
   referralCode   String   @unique
   referredById   String?
   referralEarned Decimal  @default(0) @db.Decimal(18, 2)
+  cashback       Decimal  @default(0) @db.Decimal(18, 2) // earned cashback, claimable at the threshold
   pinHash        String?
   kycStatus      String   @default("unverified") // unverified | pending | verified
   kycTier        Int      @default(1)
   kycProvider    String? // which provider verified (dojah | sandbox | manual)
   kycRef         String? // provider reference / audit id for the identity check
   kycVerifiedAt  DateTime?
+  nairaAccount   String? // dedicated virtual account number for naira funding
+  nairaBank      String? // the bank that hosts the dedicated account
   lastDropAt     DateTime?
   freeSwapDay    String? // YYYY-MM-DD the free-swap allowance was last counted
   lastTipDay     String? // YYYY-MM-DD of the last tip sent (for streaks)

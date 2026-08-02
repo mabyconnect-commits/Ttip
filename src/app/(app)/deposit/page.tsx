@@ -136,17 +136,39 @@ export default function DepositPage() {
                 ▶ Simulate transfer +{fiat === "NGN" ? "₦50,000" : "50,000 " + fiat}
               </button>
             </>
-          ) : (
+          ) : state.user.nairaAccount ? (
+            <div className="bg-surface border border-white/[.08] rounded-[22px] p-5">
+              <div className="text-[12px] text-white/45 mb-3">Transfer {fiat} to this account — it lands in your balance in seconds</div>
+              <Detail label="Bank" value={state.user.nairaBank || "Bank"} onCopy={copy} />
+              <Detail label="Account number" value={state.user.nairaAccount} onCopy={copy} />
+              <Detail label="Account name" value={`Ttip / ${state.user.name}`} onCopy={copy} />
+              <div className="mt-4 rounded-xl px-3.5 py-3 text-[12.5px] flex items-start gap-2 text-white/60 bg-good/[.06] border border-good/20">
+                <Icon name="check" size={14} className="text-good mt-0.5 shrink-0" strokeWidth={2.6} />
+                <span>Your dedicated account. Money you send here becomes {fiat} you can swap to any crypto.</span>
+              </div>
+            </div>
+          ) : state.user.kycStatus === "verified" ? (
             <div className="bg-surface border border-white/[.08] rounded-[22px] p-6 flex flex-col items-center text-center mt-1">
               <span className="w-12 h-12 rounded-full bg-surface2 flex items-center justify-center text-white/70"><Icon name="bank" size={22} /></span>
-              <div className="font-grotesk font-semibold text-[16px] mt-3">Bank transfer coming soon</div>
+              <div className="font-grotesk font-semibold text-[16px] mt-3">Setting up your account</div>
               <p className="text-white/50 text-[13px] mt-1.5 leading-[1.6] max-w-[300px]">
-                Funding your {fiat} balance by bank transfer isn&apos;t live yet. For now, add money with crypto — deposit any coin and it converts to {fiat} instantly.
+                Your dedicated {fiat} account is being created. Check back shortly, or add money with crypto in the meantime.
               </p>
               <button onClick={() => setTab("crypto")} className="mt-4 bg-good text-ink h-11 px-6 rounded-xl font-grotesk font-semibold text-[14px]">
                 Add with crypto
               </button>
             </div>
+          ) : (
+            <button onClick={() => router.push("/account/kyc")} className="bg-surface border border-white/[.08] rounded-[22px] p-6 flex flex-col items-center text-center mt-1 w-full active:scale-[.99]">
+              <span className="w-12 h-12 rounded-full bg-good/12 flex items-center justify-center text-good"><Icon name="shield" size={22} /></span>
+              <div className="font-grotesk font-semibold text-[16px] mt-3">Verify to get your {fiat} account</div>
+              <p className="text-white/50 text-[13px] mt-1.5 leading-[1.6] max-w-[300px]">
+                Verify your BVN and we&apos;ll give you a dedicated account number for funding by bank transfer.
+              </p>
+              <span className="mt-4 bg-good text-ink h-11 px-6 rounded-xl flex items-center justify-center font-grotesk font-semibold text-[14px]">
+                Verify BVN
+              </span>
+            </button>
           )}
         </div>
       ) : live ? (

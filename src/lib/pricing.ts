@@ -1,4 +1,32 @@
-import { PLATFORM_MARGIN_PCT } from "./constants";
+import { PLATFORM_MARGIN_PCT, COLLECTION_FEE_PCT } from "./constants";
+
+/** The collection (buy) fee we net out so the provider's cut never eats margin. */
+export function collectionFeePct(): number {
+  const v = Number(process.env.COLLECTION_FEE_PCT);
+  return Number.isFinite(v) && v >= 0 && v < 0.2 ? v : COLLECTION_FEE_PCT;
+}
+
+/**
+ * What the payout provider (Flutterwave) charges to transfer to a bank — tiered
+ * for NGN. This is the raw cost to us.
+ */
+export function providerTransferFee(amountFiat: number, currency: string): number {
+  if (currency !== "NGN") return 0; // extend per-currency as needed
+  if (amountFiat <= 5000) return 10;
+  if (amountFiat <= 50000) return 25;
+  return 50;
+}
+
+/**
+ * The transfer fee we charge the user on a bank withdrawal — the provider's fee
+ * plus a markup (default 20%), like a bank's transfer charge. e.g. ₦10 → ₦12.
+ * Override the markup with TRANSFER_FEE_MARKUP.
+ */
+export function transferFee(amountFiat: number, currency: string): number {
+  const raw = Number(process.env.TRANSFER_FEE_MARKUP);
+  const markup = Number.isFinite(raw) && raw >= 0 ? raw : 0.2;
+  return Math.ceil(providerTransferFee(amountFiat, currency) * (1 + markup));
+}
 
 /**
  * Competitive pricing engine.
