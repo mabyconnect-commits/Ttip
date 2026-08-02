@@ -121,19 +121,32 @@ export default function DepositPage() {
 
       {tab === "naira" ? (
         <div className="flex-1 overflow-y-auto no-scrollbar pt-4 pb-10">
-          <div className="bg-surface border border-white/[.08] rounded-[22px] p-5">
-            <div className="text-[12px] text-white/45 mb-3">Fund your {fiat} balance via bank transfer</div>
-            <Detail label="Bank" value="Providus Bank" onCopy={copy} />
-            <Detail label="Account number" value="9901234567" onCopy={copy} />
-            <Detail label="Account name" value={`Ttip / ${state.user.name}`} onCopy={copy} />
-            <div className="mt-4 rounded-xl px-3.5 py-3 text-[12.5px]" style={{ background: "rgba(255,200,91,.08)", border: "1px solid rgba(255,200,91,.3)", color: "rgba(255,255,255,.75)" }}>
-              ⚠️ Transfers reflect in seconds. This is a dedicated account for your wallet.
+          {showDemo ? (
+            <>
+              <div className="bg-surface border border-white/[.08] rounded-[22px] p-5">
+                <div className="text-[12px] text-white/45 mb-3">Test funding account — demo only, not a real account</div>
+                <Detail label="Bank" value="Providus Bank" onCopy={copy} />
+                <Detail label="Account number" value="9901234567" onCopy={copy} />
+                <Detail label="Account name" value={`Ttip / ${state.user.name}`} onCopy={copy} />
+                <div className="mt-4 rounded-xl px-3.5 py-3 text-[12.5px]" style={{ background: "rgba(255,200,91,.08)", border: "1px solid rgba(255,200,91,.3)", color: "rgba(255,255,255,.75)" }}>
+                  ⚠️ Demo account for testing only — do not send real money here.
+                </div>
+              </div>
+              <button onClick={simulateNaira} disabled={loading} className="w-full mt-3 rounded-2xl border border-dashed border-good/40 text-good py-3.5 font-grotesk font-semibold text-[14px] active:scale-[.99] disabled:opacity-50">
+                ▶ Simulate transfer +{fiat === "NGN" ? "₦50,000" : "50,000 " + fiat}
+              </button>
+            </>
+          ) : (
+            <div className="bg-surface border border-white/[.08] rounded-[22px] p-6 flex flex-col items-center text-center mt-1">
+              <span className="w-12 h-12 rounded-full bg-surface2 flex items-center justify-center text-white/70"><Icon name="bank" size={22} /></span>
+              <div className="font-grotesk font-semibold text-[16px] mt-3">Bank transfer coming soon</div>
+              <p className="text-white/50 text-[13px] mt-1.5 leading-[1.6] max-w-[300px]">
+                Funding your {fiat} balance by bank transfer isn&apos;t live yet. For now, add money with crypto — deposit any coin and it converts to {fiat} instantly.
+              </p>
+              <button onClick={() => setTab("crypto")} className="mt-4 bg-good text-ink h-11 px-6 rounded-xl font-grotesk font-semibold text-[14px]">
+                Add with crypto
+              </button>
             </div>
-          </div>
-          {showDemo && (
-            <button onClick={simulateNaira} disabled={loading} className="w-full mt-3 rounded-2xl border border-dashed border-good/40 text-good py-3.5 font-grotesk font-semibold text-[14px] active:scale-[.99] disabled:opacity-50">
-              ▶ Simulate transfer +{fiat === "NGN" ? "₦50,000" : "50,000 " + fiat}
-            </button>
           )}
         </div>
       ) : live ? (
