@@ -47,19 +47,28 @@ export async function POST(req: Request) {
     // Atomic debit + pending settlement, then deliver the bill. Throws (balance
     // refunded) on failure; returns "completed" (instant biller / sandbox) or
     // "pending" (awaiting the provider webhook).
-    const outcome = await payBill({
-      userId,
-      category: cat.id,
-      categoryTitle: cat.title,
-      categoryEmoji: cat.icon,
-      provider: input.provider,
-      customer: input.account,
-      fundingSymbol: input.fundingSymbol,
-      cost,
-      amountFiat: input.fiatAmount,
-      currency: input.fiat,
-      reference,
-    });
+    let outcome;
+    try {
+      outcome = await payBill({
+        userId,
+        category: cat.id,
+        categoryTitle: cat.title,
+        categoryEmoji: cat.icon,
+        provider: input.provider,
+        customer: input.account,
+        fundingSymbol: input.fundingSymbol,
+        cost,
+        amountFiat: input.fiatAmount,
+        currency: input.fiat,
+        reference,
+      });
+    } catch (e: any) {
+      // payBill refunds the debited crypto on failure. Surface the provider's
+      // real reason (e.g. biller not enabled) instead of a generic 500 — the
+      // balance was not charged.
+      const base = (e?.message || "Bill payment could not be completed").trim();
+      throw new ApiError(`${base} — balance not charged.`, 502);
+    }
 
     // Draw the fiat down from the float once delivered, and reward points.
     if (outcome.status === "completed") {
