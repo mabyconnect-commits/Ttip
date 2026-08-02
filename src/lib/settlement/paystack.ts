@@ -52,6 +52,20 @@ async function psPost(cfg: PaystackConfig, path: string, body: unknown): Promise
   return { ok: res.ok, json: await res.json() };
 }
 
+/** Resolve the account holder's name for a bank + account number (null if not found). */
+export async function paystackResolveAccount(currency: string, bankName: string, accountNumber: string): Promise<string | null> {
+  const cfg = paystackConfig();
+  if (!cfg) return null;
+  const bankCode = await resolveBankCode(cfg, currency, bankName);
+  if (!bankCode) return null;
+  const res = await fetch(`${cfg.baseUrl}/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`, {
+    headers: { Authorization: `Bearer ${cfg.secretKey}` },
+  });
+  const json = (await res.json().catch(() => ({}))) as { status?: boolean; data?: { account_name?: string } };
+  if (!res.ok || !json.status) return null;
+  return json.data?.account_name ?? null;
+}
+
 export async function paystackPayout(req: PayoutRequest): Promise<PayoutResult> {
   const cfg = paystackConfig();
   if (!cfg) throw new Error("Paystack is not configured (PAYSTACK_SECRET_KEY missing).");

@@ -2,10 +2,10 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { kindOf } from "../wallet";
-import { payoutProvider } from "./config";
+import { payoutProvider, isLive } from "./config";
 import { sandboxPayout } from "./sandbox";
-import { flutterwavePayout } from "./flutterwave";
-import { paystackPayout } from "./paystack";
+import { flutterwavePayout, flutterwaveResolveAccount } from "./flutterwave";
+import { paystackPayout, paystackResolveAccount } from "./paystack";
 import { monnifyPayout } from "./monnify";
 import { coralpayPayout } from "./coralpay";
 import { adjustTreasury } from "./treasury";
@@ -19,6 +19,7 @@ export { ensureFloat, debitFloat, treasuryBalance, adjustTreasury } from "./trea
 export { cryptoWithdraw, finalizeWithdrawal } from "./withdrawal";
 export type { CryptoWithdrawRequest, CryptoWithdrawResult } from "./withdrawal";
 export { createBuyOrder, finalizeBuy } from "./buy";
+// resolveAccountName is defined below (dispatches to the active provider).
 export type { BuyRequest, BuyResult } from "./buy";
 export { collectionProvider } from "./collection";
 export { ensureDepositAddresses, getOrCreateDepositAddress } from "./provisioning";
@@ -106,6 +107,23 @@ export async function creditDeposit(
       return { credited: false, userId: resolvedUserId, reason: "duplicate" };
     }
     throw e;
+  }
+}
+
+/**
+ * Resolve a bank account holder's name via the active provider, so the user can
+ * confirm the recipient before sending. Needs a live provider — returns null in
+ * sandbox/demo (no provider to ask).
+ */
+export async function resolveAccountName(bankName: string, accountNumber: string, currency: string): Promise<string | null> {
+  if (!isLive()) return null;
+  switch (payoutProvider()) {
+    case "flutterwave":
+      return flutterwaveResolveAccount(currency, bankName, accountNumber);
+    case "paystack":
+      return paystackResolveAccount(currency, bankName, accountNumber);
+    default:
+      return null;
   }
 }
 

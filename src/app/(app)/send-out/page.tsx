@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
+import { apiPost } from "@/lib/client";
 import { usePrices } from "@/lib/usePrices";
 import { BackHeader, Segmented, GradientButton } from "@/components/ui";
 import { Icon } from "@/components/Icon";
@@ -28,9 +29,31 @@ export default function SendOutPage() {
   const [bankOpen, setBankOpen] = useState(false);
   const [account, setAccount] = useState("");
   const [accountName, setAccountName] = useState("");
+  const [resolvedName, setResolvedName] = useState<string | null>(null);
+  const [resolving, setResolving] = useState(false);
   const [loading, setLoading] = useState(false);
   const [receipt, setReceipt] = useState<any>(null);
   const [scanOpen, setScanOpen] = useState(false);
+
+  // Auto-resolve the account holder's name once a bank + 10-digit NUBAN is set,
+  // so the user confirms the recipient before sending. Debounced.
+  useEffect(() => {
+    setResolvedName(null);
+    if (mode !== "bank" || !bank || account.length !== 10) return;
+    let cancelled = false;
+    setResolving(true);
+    const t = setTimeout(async () => {
+      try {
+        const r = await apiPost<{ accountName: string | null }>("/api/resolve-account", { bankName: bank.name, accountNumber: account, currency: state.user.defaultFiat });
+        if (!cancelled) setResolvedName(r.accountName);
+      } catch {
+        if (!cancelled) setResolvedName(null);
+      } finally {
+        if (!cancelled) setResolving(false);
+      }
+    }, 500);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [mode, bank, account, state.user.defaultFiat]);
 
   const verified = state.user.kycStatus === "verified";
   const amt = parseFloat(amount) || 0;
@@ -51,7 +74,7 @@ export default function SendOutPage() {
       } else {
         if (!bank) { setLoading(false); return toast("Choose a bank", "bad"); }
         if (!account) { setLoading(false); return toast("Enter an account number", "bad"); }
-        body = { mode: "bank", symbol: sym, amount: amt, fiat, bankName: bank.name, accountNumber: account, accountName };
+        body = { mode: "bank", symbol: sym, amount: amt, fiat, bankName: bank.name, accountNumber: account, accountName: resolvedName ?? accountName };
       }
       const res: any = await action("/api/send", body);
       setReceipt(res.receipt);
@@ -109,7 +132,18 @@ export default function SendOutPage() {
               <Icon name="chevronDown" size={15} className="text-white/40" />
             </button>
             <input value={account} onChange={(e) => setAccount(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" maxLength={10} placeholder="Account number" className="bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] outline-none text-[14px] focus:border-brand-cyan/50" />
-            <input value={accountName} onChange={(e) => setAccountName(e.target.value)} placeholder="Account name (optional)" className="bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] outline-none text-[14px] focus:border-brand-cyan/50" />
+            {resolving ? (
+              <div className="bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] flex items-center gap-2 text-[13.5px] text-white/45">
+                <span className="w-3.5 h-3.5 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" /> Checking account…
+              </div>
+            ) : resolvedName ? (
+              <div className="bg-good/[.08] border border-good/25 rounded-2xl px-4 h-[52px] flex items-center gap-2.5">
+                <Icon name="check" size={16} strokeWidth={2.6} className="text-good shrink-0" />
+                <span className="text-[14px] font-medium text-white truncate">{resolvedName}</span>
+              </div>
+            ) : (
+              <input value={accountName} onChange={(e) => setAccountName(e.target.value)} placeholder="Account name (optional)" className="bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] outline-none text-[14px] focus:border-brand-cyan/50" />
+            )}
           </div>
         )}
 

@@ -88,6 +88,26 @@ export async function flutterwavePayout(req: PayoutRequest): Promise<PayoutResul
   };
 }
 
+/**
+ * Resolve the account holder's name for a bank + account number, so the user can
+ * confirm the recipient before sending. Returns null if it can't be resolved.
+ * Docs: https://developer.flutterwave.com/reference/verify-bank-account
+ */
+export async function flutterwaveResolveAccount(currency: string, bankName: string, accountNumber: string): Promise<string | null> {
+  const cfg = flutterwaveConfig();
+  if (!cfg) return null;
+  const account_bank = await resolveBankCode(cfg, currency, bankName);
+  if (!account_bank) return null;
+  const res = await fetch(`${cfg.baseUrl}/accounts/resolve`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${cfg.secretKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ account_number: accountNumber, account_bank }),
+  });
+  const json = (await res.json().catch(() => ({}))) as { status?: string; data?: { account_name?: string } };
+  if (!res.ok || json.status !== "success") return null;
+  return json.data?.account_name ?? null;
+}
+
 /** Verify a Flutterwave webhook using the shared verif-hash header. */
 export function verifyFlutterwaveWebhook(signature: string | null): boolean {
   const cfg = flutterwaveConfig();
