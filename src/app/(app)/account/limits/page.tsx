@@ -6,9 +6,9 @@ import { BackHeader } from "@/components/ui";
 import { Icon } from "@/components/Icon";
 
 const TIERS = [
-  { tier: 1, name: "Starter", daily: "₦500,000", single: "₦100,000", req: "Email verified" },
-  { tier: 2, name: "Verified", daily: "₦5,000,000", single: "₦2,000,000", req: "ID (BVN/NIN) verified" },
-  { tier: 3, name: "Pro", daily: "₦50,000,000", single: "₦10,000,000", req: "Address + ID verified" },
+  { tier: 1, name: "Starter", daily: "—", single: "—", req: "Email only — verify BVN to withdraw" },
+  { tier: 2, name: "Verified", daily: "₦5,000,000", single: "₦2,000,000", req: "BVN / NIN verified" },
+  { tier: 3, name: "Pro", daily: "₦50,000,000", single: "₦10,000,000", req: "BVN + government ID + address" },
 ];
 
 export default function LimitsPage() {
@@ -21,7 +21,8 @@ export default function LimitsPage() {
       <BackHeader title="Spending limits" />
       <div className="flex-1 overflow-y-auto no-scrollbar pb-6">
         <p className="text-white/50 text-[13.5px] mt-1 mb-4">
-          You&apos;re on <b className="text-white">Tier {current}</b>. Verify your identity to raise your limits.
+          You&apos;re on <b className="text-white">Tier {current}</b>.{" "}
+          {current < 2 ? "Verify your BVN to activate withdrawals and unlock your limits." : "Verify more to raise your limits."}
         </p>
         <div className="flex flex-col gap-3">
           {TIERS.map((t) => {
@@ -51,7 +52,7 @@ export default function LimitsPage() {
         </div>
         {current < 2 && (
           <button onClick={() => router.push("/account/kyc")} className="w-full mt-4 bg-good text-ink h-[52px] rounded-2xl flex items-center justify-center font-grotesk font-semibold text-[15px]">
-            Verify to unlock Tier 2
+            Verify your BVN
           </button>
         )}
       </div>

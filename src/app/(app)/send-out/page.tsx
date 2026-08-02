@@ -10,6 +10,7 @@ import { CRYPTO_ASSETS, FIATS, NETWORK_FEE_USDT } from "@/lib/constants";
 import { formatFiat, formatCrypto } from "@/lib/format";
 import { Receipt } from "@/components/Receipt";
 import { BankPicker } from "@/components/BankPicker";
+import { QrScanner } from "@/components/QrScanner";
 import type { Bank } from "@/lib/banks";
 
 const SEND_ASSETS = ["USDT", "USDC", "BTC", "ETH", "SOL", "BNB", "XRP", "TRX"];
@@ -28,7 +29,9 @@ export default function SendOutPage() {
   const [accountName, setAccountName] = useState("");
   const [loading, setLoading] = useState(false);
   const [receipt, setReceipt] = useState<any>(null);
+  const [scanOpen, setScanOpen] = useState(false);
 
+  const verified = state.user.kycStatus === "verified";
   const amt = parseFloat(amount) || 0;
   const asset = CRYPTO_ASSETS.find((a) => a.symbol === sym);
   const bal = state.portfolio.assets.find((a) => a.symbol === sym)?.amount ?? 0;
@@ -37,6 +40,7 @@ export default function SendOutPage() {
 
   async function submit() {
     if (amt <= 0) return toast("Enter an amount", "bad");
+    if (!verified) { router.push("/account/kyc"); return toast("Verify your BVN to withdraw", "info"); }
     setLoading(true);
     try {
       let body: any;
@@ -64,6 +68,17 @@ export default function SendOutPage() {
         <Segmented value={mode} onChange={setMode} options={[{ value: "bank", label: "To bank" }, { value: "wallet", label: "To wallet" }]} />
       </div>
 
+      {!verified && (
+        <button onClick={() => router.push("/account/kyc")} className="mt-3 w-full rounded-2xl bg-surface border border-white/[.08] px-4 py-3 flex items-center gap-3 text-left active:scale-[.99]">
+          <span className="w-8 h-8 rounded-full bg-good/12 flex items-center justify-center text-good shrink-0"><Icon name="shield" size={16} /></span>
+          <div className="flex-1 min-w-0">
+            <div className="font-medium text-[13px]">Verify your BVN to withdraw</div>
+            <div className="text-white/45 text-[11.5px]">Required before money can leave your account · takes a minute</div>
+          </div>
+          <Icon name="chevronRight" size={15} className="text-white/30" />
+        </button>
+      )}
+
       <div className="flex-1 overflow-y-auto no-scrollbar pt-4">
         {/* asset chips */}
         <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
@@ -78,7 +93,7 @@ export default function SendOutPage() {
           <div className="bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] flex items-center gap-2 mt-3">
             <span className="text-white/40"><Icon name="scan" size={17} /></span>
             <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Wallet address or scan QR" className="flex-1 bg-transparent outline-none text-[14px]" />
-            <button onClick={() => toast("QR scanner opens on device camera", "info")} className="text-brand-cyan text-[13px] font-semibold">Scan</button>
+            <button onClick={() => setScanOpen(true)} className="text-brand-cyan text-[13px] font-semibold">Scan</button>
           </div>
         )}
 
@@ -126,14 +141,21 @@ export default function SendOutPage() {
       </div>
 
       <BankPicker open={bankOpen} onClose={() => setBankOpen(false)} onPick={(b) => setBank(b)} />
+      <QrScanner open={scanOpen} onClose={() => setScanOpen(false)} onResult={(addr) => setAddress(addr)} />
 
       {receipt && (
         <Receipt
           onDone={() => { setReceipt(null); router.push("/home"); }}
           emoji={receipt.kind === "wallet" ? "🔗" : "🏦"}
-          title={receipt.kind === "wallet" ? `${formatCrypto(receipt.amount, receipt.symbol)} ${receipt.symbol} sent` : `${formatFiat(receipt.fiatAmount, receipt.fiat)} on the way`}
+          title={receipt.kind === "wallet"
+            ? `${formatCrypto(receipt.amount, receipt.symbol)} ${receipt.symbol} ${receipt.status === "pending" ? "processing" : "sent"}`
+            : `${formatFiat(receipt.fiatAmount, receipt.fiat)} on the way`}
           lines={receipt.kind === "wallet"
-            ? [`To ${receipt.address.slice(0, 10)}…${receipt.address.slice(-6)}`, `via ${receipt.network} · fee ${formatCrypto(receipt.fee, receipt.symbol)} ${receipt.symbol}`]
+            ? [
+                `To ${receipt.address.slice(0, 10)}…${receipt.address.slice(-6)}`,
+                `via ${receipt.network} · fee ${formatCrypto(receipt.fee, receipt.symbol)} ${receipt.symbol}`,
+                ...(receipt.status === "pending" ? ["On-chain confirmation in progress — you'll be notified when it lands."] : []),
+              ]
             : [`To ${receipt.bank}`, `Debited ${formatCrypto(receipt.amount, receipt.symbol)} ${receipt.symbol}`]}
         />
       )}

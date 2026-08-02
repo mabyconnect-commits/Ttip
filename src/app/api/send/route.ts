@@ -9,7 +9,7 @@ import { convert, isCrypto } from "@/lib/prices";
 import { adjust, balanceOf } from "@/lib/wallet";
 import { NETWORK_FEE_USDT } from "@/lib/constants";
 import { dayStr, isYesterday } from "@/lib/format";
-import { payoutFiat, finalizePayout, payoutProvider, ensureFloat, debitFloat } from "@/lib/settlement";
+import { payoutFiat, finalizePayout, payoutProvider, ensureFloat, debitFloat, cryptoWithdraw } from "@/lib/settlement";
 import { quoteSell } from "@/lib/pricing";
 import { referenceFiat } from "@/lib/rate";
 
@@ -44,6 +44,11 @@ export async function POST(req: Request) {
 
     if (input.mode === "ttip") {
       return handleTtip(userId, user, input);
+    }
+    // Moving money off the platform requires a verified identity (BVN/NIN).
+    // Email-only accounts can hold and receive, but cannot withdraw.
+    if (user.kycStatus !== "verified") {
+      throw new ApiError("Verify your identity (BVN) to withdraw. It takes about a minute under Account → Verify.", 403);
     }
     if (input.mode === "wallet") {
       return handleWalletSend(userId, input);
@@ -168,27 +173,39 @@ async function handleWalletSend(userId: string, input: z.infer<typeof schema>) {
   const bal = await balanceOf(userId, symbol);
   if (bal + 1e-12 < total) throw new ApiError(`Insufficient ${symbol} to cover amount + network fee`, 400);
 
-  await prisma.$transaction(async (tx) => {
-    await adjust(tx, userId, symbol, -total);
-    await tx.transaction.create({
-      data: {
-        userId,
-        type: "withdraw_wallet",
-        assetIn: symbol,
-        amountIn: new Prisma.Decimal(amount),
-        counterparty: input.address,
-        note: `Sent ${symbol} on ${input.network ?? "network"}`,
-        emoji: "🔗",
-        status: "completed",
-        meta: { network: input.network, fee: feeInAsset },
-      },
+  const reference = "cwd_" + crypto.randomUUID();
+
+  // Real withdrawal pipeline: atomic debit + pending settlement, then send.
+  // Sandbox settles instantly with a simulated tx hash; live queues the
+  // withdrawal as pending for the treasury signer (never a false "completed").
+  let result;
+  try {
+    result = await cryptoWithdraw({
+      userId,
+      asset: symbol,
+      amount,
+      fee: feeInAsset,
+      address: input.address,
+      network: input.network,
+      reference,
     });
-  });
+  } catch (e: any) {
+    throw new ApiError(e.message ?? "Withdrawal failed", 502);
+  }
 
   const state = await getAppState(userId);
   return ok({
     ...state,
-    receipt: { kind: "wallet", symbol, amount, address: input.address, network: input.network, fee: feeInAsset },
+    receipt: {
+      kind: "wallet",
+      symbol,
+      amount,
+      address: input.address,
+      network: input.network,
+      fee: feeInAsset,
+      status: result.status, // "completed" (sandbox) or "pending" (live, processing)
+      txHash: result.txHash,
+    },
   });
 }
 

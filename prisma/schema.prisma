@@ -31,6 +31,9 @@ model User {
   pinHash        String?
   kycStatus      String   @default("unverified") // unverified | pending | verified
   kycTier        Int      @default(1)
+  kycProvider    String? // which provider verified (dojah | sandbox | manual)
+  kycRef         String? // provider reference / audit id for the identity check
+  kycVerifiedAt  DateTime?
   lastDropAt     DateTime?
   freeSwapDay    String? // YYYY-MM-DD the free-swap allowance was last counted
   lastTipDay     String? // YYYY-MM-DD of the last tip sent (for streaks)

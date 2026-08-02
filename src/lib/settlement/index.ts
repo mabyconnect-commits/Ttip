@@ -16,6 +16,8 @@ export type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
 export { settlementMode, isLive, payoutProvider } from "./config";
 export { parseDeposit, verifyDepositSignature, parseDextopusDeposit, verifyDextopusSignature } from "./webhook";
 export { ensureFloat, debitFloat, treasuryBalance, adjustTreasury } from "./treasury";
+export { cryptoWithdraw, finalizeWithdrawal } from "./withdrawal";
+export type { CryptoWithdrawRequest, CryptoWithdrawResult } from "./withdrawal";
 export { ensureDepositAddresses, getOrCreateDepositAddress } from "./provisioning";
 export { listChains, listTokens } from "./dextopus";
 
