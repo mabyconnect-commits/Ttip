@@ -43,6 +43,9 @@ export default function HomePage() {
           </div>
         </button>
         <div className="flex gap-2">
+          <button onClick={() => router.push("/rates")} className="w-9 h-9 rounded-full border border-white/10 flex items-center justify-center text-white/70 active:scale-95">
+            <Icon name="activity" size={17} />
+          </button>
           <button onClick={() => router.push("/notifications")} className="w-9 h-9 rounded-full border border-white/10 flex items-center justify-center text-white/70 active:scale-95">
             <Icon name="bell" size={17} />
           </button>
