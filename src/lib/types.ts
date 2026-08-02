@@ -17,6 +17,8 @@ export interface UserSummary {
   hasPin: boolean;
   kycStatus: string;
   kycTier: number;
+  nairaAccount?: string | null;
+  nairaBank?: string | null;
   initial: string;
 }
 

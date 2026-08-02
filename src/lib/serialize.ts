@@ -38,6 +38,8 @@ export async function getAppState(userId: string) {
       hasPin: !!user.pinHash,
       kycStatus: user.kycStatus,
       kycTier: user.kycTier,
+      nairaAccount: user.nairaAccount,
+      nairaBank: user.nairaBank,
       initial: user.name.trim().charAt(0).toUpperCase(),
     },
     portfolio,

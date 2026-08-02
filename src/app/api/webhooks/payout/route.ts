@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { finalizePayout, finalizeBuy } from "@/lib/settlement";
+import { prisma } from "@/lib/db";
+import { finalizePayout, finalizeBuy, creditNairaDeposit } from "@/lib/settlement";
 import { verifyFlutterwaveWebhook } from "@/lib/settlement/flutterwave";
 import { verifyPaystackWebhook } from "@/lib/settlement/webhook";
 
@@ -59,7 +60,10 @@ export async function POST(req: Request) {
   if (flwSig) await fanOut(raw, flwSig);
   const psSig = req.headers.get("x-paystack-signature");
 
-  let event: { event?: string; data?: { id?: number; reference?: string; tx_ref?: string; status?: string } };
+  let event: {
+    event?: string;
+    data?: { id?: number; reference?: string; tx_ref?: string; status?: string; amount?: number; currency?: string; customer?: { email?: string } };
+  };
   try {
     event = JSON.parse(raw);
   } catch {
@@ -93,10 +97,27 @@ export async function POST(req: Request) {
       if (!ref) return NextResponse.json({ ok: true, ignored: true });
       const status = (data?.status ?? "").toUpperCase() === "SUCCESSFUL" ? "completed" : "failed";
 
-      // Collections (buy on-ramp) come as charge.completed.
+      // Collections come as charge.completed. First try to match a buy order;
+      // if it's not a buy, it's a dedicated-account (naira) deposit.
       if (evt.startsWith("charge")) {
-        const result = await finalizeBuy({ reference: ref }, status);
-        return NextResponse.json({ ok: true, kind: "buy", ...result });
+        const buy = await finalizeBuy({ reference: ref }, status);
+        if (buy.updated) return NextResponse.json({ ok: true, kind: "buy", ...buy });
+
+        // Naira DVA funding — credit the user whose dedicated account this is.
+        if (status === "completed" && data?.customer?.email && data.amount && data.amount > 0) {
+          const user = await prisma.user.findFirst({ where: { email: data.customer.email, nairaAccount: { not: null } } });
+          if (user) {
+            const dep = await creditNairaDeposit({
+              userId: user.id,
+              amount: data.amount,
+              currency: (data.currency || "NGN").toUpperCase(),
+              externalId: `flw_${data.id ?? ref}`,
+              raw: data,
+            });
+            return NextResponse.json({ ok: true, kind: "naira-deposit", ...dep });
+          }
+        }
+        return NextResponse.json({ ok: true, ignored: true });
       }
       const result = await finalizePayout({ reference: ref }, status);
       return NextResponse.json({ ok: true, kind: "payout", ...result });

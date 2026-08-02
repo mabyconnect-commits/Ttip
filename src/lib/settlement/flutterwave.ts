@@ -108,6 +108,36 @@ export async function flutterwaveResolveAccount(currency: string, bankName: stri
   return json.data?.account_name ?? null;
 }
 
+/**
+ * Create a permanent dedicated virtual account (DVA) for a user, so they can
+ * fund their naira balance by bank transfer. Permanent accounts require a BVN.
+ * Returns the account number + bank, or null on failure.
+ * Docs: https://developer.flutterwave.com/reference/create-a-virtual-account-number
+ */
+export async function flutterwaveCreateVirtualAccount(
+  email: string,
+  bvn: string,
+  name: string,
+  reference: string,
+): Promise<{ accountNumber: string; bankName: string } | null> {
+  const cfg = flutterwaveConfig();
+  if (!cfg) return null;
+  const res = await fetch(`${cfg.baseUrl}/virtual-account-numbers`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${cfg.secretKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      email,
+      bvn,
+      is_permanent: true,
+      tx_ref: reference,
+      narration: name,
+    }),
+  });
+  const json = (await res.json().catch(() => ({}))) as { status?: string; data?: { account_number?: string; bank_name?: string } };
+  if (!res.ok || json.status !== "success" || !json.data?.account_number) return null;
+  return { accountNumber: json.data.account_number, bankName: json.data.bank_name || "Wema Bank" };
+}
+
 /** Verify a Flutterwave webhook using the shared verif-hash header. */
 export function verifyFlutterwaveWebhook(signature: string | null): boolean {
   const cfg = flutterwaveConfig();
