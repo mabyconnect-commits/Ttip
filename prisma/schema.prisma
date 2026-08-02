@@ -84,7 +84,7 @@ model WalletAddress {
 model Transaction {
   id           String   @id @default(cuid())
   userId       String
-  type         String // swap | ttip_out | ttip_in | deposit | withdraw_wallet | withdraw_bank | bill | card_fund | card_spend | referral_bonus
+  type         String // swap | ttip_out | ttip_in | deposit | withdraw_wallet | withdraw_bank | bill | card_fund | card_spend | referral_bonus | deposit_bonus | buy | cashback_earn
   status       String   @default("completed") // pending | completed | failed
   assetIn      String?
   amountIn     Decimal? @db.Decimal(38, 18)

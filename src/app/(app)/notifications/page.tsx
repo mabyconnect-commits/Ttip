@@ -36,6 +36,7 @@ function title(t: Txn): string {
     case "card_fund": return `Card funded`;
     case "buy": return `Bought ${t.assetOut ?? "crypto"}`;
     case "referral_bonus": return `Referral bonus · ${t.counterparty ?? ""}`;
+    case "deposit_bonus": return `First deposit bonus 🎁`;
     default: return t.note ?? t.type;
   }
 }

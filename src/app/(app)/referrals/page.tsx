@@ -12,8 +12,14 @@ interface RefData {
   code: string;
   link: string;
   earned: number;
+  balance: number;
   count: number;
-  perReferral: number;
+  earnPct: number;
+  depositBonus: number;
+  depositBonusMinUsd: number;
+  thisWeek: number;
+  thisMonth: number;
+  earnings: { name: string; amount: number; note: string; time: string }[];
   referrals: { name: string; bonus: number; time: string }[];
 }
 
@@ -21,6 +27,8 @@ export default function ReferralsPage() {
   const { state, toast } = useApp();
   const [data, setData] = useState<RefData | null>(null);
   const fiat = state.user.defaultFiat;
+  const pct = Math.round((data?.earnPct ?? 0.25) * 100);
+  const bonus = data?.depositBonus ?? 500;
 
   useEffect(() => {
     apiGet<RefData>("/api/referrals").then(setData).catch(() => {});
@@ -31,7 +39,7 @@ export default function ReferralsPage() {
     toast("Invite link copied", "good");
   }
   function share() {
-    if (data && navigator.share) navigator.share({ title: "Join me on Ttip", text: "Get ₦2,000 when you join Ttip", url: data.link }).catch(() => {});
+    if (data && navigator.share) navigator.share({ title: "Join me on Ttip", text: `Join Ttip and get ${formatFiat(bonus, "NGN", { decimals: 0 })} on your first $${data?.depositBonusMinUsd ?? 10} deposit`, url: data.link }).catch(() => {});
     else if (data) copy(data.link);
   }
 
@@ -43,9 +51,23 @@ export default function ReferralsPage() {
           <div className="w-14 h-14 mx-auto rounded-full flex items-center justify-center mb-3" style={{ background: "rgba(61,245,176,.10)", border: "1px solid rgba(61,245,176,.28)" }}>
             <Icon name="gift" size={24} className="text-good" />
           </div>
-          <div className="font-grotesk font-bold text-[22px] tracking-[-0.5px]">Give ₦2k, get ₦2k</div>
-          <div className="font-sans text-[13px] text-white/55 mt-1.5 max-w-[260px] mx-auto">
-            Share your link. When a friend joins and makes their first swap, you both earn {formatFiat(data?.perReferral ?? 2000, "NGN", { decimals: 0 })}.
+          <div className="font-grotesk font-bold text-[22px] tracking-[-0.5px]">Refer & earn {pct}%</div>
+          <div className="font-sans text-[13px] text-white/55 mt-1.5 max-w-[280px] mx-auto">
+            Earn {pct}% of the fees on every trade your friends make — for life. They get {formatFiat(bonus, "NGN", { decimals: 0 })} once their first ${data?.depositBonusMinUsd ?? 10} deposit stays 72h on Ttip.
+          </div>
+        </div>
+
+        {/* referral balance */}
+        <div className="rounded-3xl p-5 mt-3 text-center relative overflow-hidden" style={{ background: "linear-gradient(135deg,#0E1330,#171A2E)", border: "1px solid rgba(255,255,255,.08)" }}>
+          <div className="text-[12px] text-white/50">Referral balance</div>
+          <div className="font-grotesk font-bold text-[30px] mt-1 tracking-[-0.5px]">{formatFiat(data?.balance ?? 0, "NGN", { decimals: 2 })}</div>
+          <div className="grid grid-cols-3 gap-2 mt-4">
+            {[["All time", data?.earned], ["This week", data?.thisWeek], ["This month", data?.thisMonth]].map(([label, val]) => (
+              <div key={label as string} className="bg-white/[.04] rounded-2xl py-2.5">
+                <div className="text-[10.5px] text-white/45">{label as string}</div>
+                <div className="font-grotesk font-bold text-[14px] mt-0.5">{formatFiat((val as number) ?? 0, "NGN", { decimals: 0 })}</div>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -70,15 +92,18 @@ export default function ReferralsPage() {
           </div>
         </div>
 
-        {data && data.referrals.length > 0 && (
+        {data && data.earnings.length > 0 && (
           <div className="mt-4 mb-6">
-            <div className="font-grotesk font-semibold text-[13.5px] mb-2">Recent joins</div>
+            <div className="font-grotesk font-semibold text-[13.5px] mb-2">Earnings</div>
             <div className="flex flex-col gap-2">
-              {data.referrals.map((r, i) => (
+              {data.earnings.map((e, i) => (
                 <div key={i} className="flex items-center gap-3 bg-surface border border-white/[.06] rounded-[14px] px-3.5 py-3">
-                  <span className="w-8 h-8 rounded-full bg-surface2 flex items-center justify-center text-white/70 shrink-0"><Icon name="user" size={15} /></span>
-                  <div className="flex-1 text-[13px]">{r.name} <span className="text-white/40">· {r.time}</span></div>
-                  <div className="font-grotesk font-bold text-[13px] text-good">+{formatFiat(r.bonus, "NGN", { decimals: 0 })}</div>
+                  <span className="w-8 h-8 rounded-full bg-surface2 flex items-center justify-center text-good shrink-0"><Icon name="gift" size={15} /></span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13px] truncate">{e.name}</div>
+                    <div className="text-white/40 text-[11px] truncate">{e.note} · {e.time}</div>
+                  </div>
+                  <div className="font-grotesk font-bold text-[13px] text-good shrink-0">+{formatFiat(e.amount, "NGN", { decimals: 2 })}</div>
                 </div>
               ))}
             </div>

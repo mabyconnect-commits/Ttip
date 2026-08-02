@@ -2,11 +2,16 @@ import { prisma } from "./db";
 import { buildPortfolio } from "./wallet";
 import { dayStr } from "./format";
 import { settlementStatus } from "./settlement/config";
+import { maybePayDepositBonus } from "./referral";
 
 const FREE_SWAPS_PER_DAY = 3;
 
 /** Full app-state payload the client needs after auth. */
 export async function getAppState(userId: string) {
+  // Self-healing rewards: pay the first-deposit bonus if it's now due (72h hold).
+  // Cheap no-op for anyone who isn't eligible; never throws.
+  await maybePayDepositBonus(userId);
+
   const user = await prisma.user.findUnique({
     where: { id: userId },
     include: { balances: true, card: true, addresses: true },

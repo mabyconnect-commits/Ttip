@@ -13,6 +13,7 @@ import { payoutFiat, finalizePayout, payoutProvider, ensureFloat, debitFloat, cr
 import { quoteSell, transferFee } from "@/lib/pricing";
 import { referenceFiat } from "@/lib/rate";
 import { accrueCashback } from "@/lib/cashback";
+import { accrueReferralEarning } from "@/lib/referral";
 
 const schema = z.object({
   mode: z.enum(["ttip", "wallet", "bank"]),
@@ -330,11 +331,13 @@ async function handleBankSend(
     throw new ApiError(`${base} — balance not charged.`, 502);
   }
 
-  // The fiat has left the float — draw it down, and reward cashback on the sale.
+  // The fiat has left the float — draw it down, reward cashback on the sale, and
+  // pay the referrer their share of the revenue (spread + transfer fee).
   if (payoutStatus === "completed") {
     await prisma.$transaction(async (tx) => {
       await debitFloat(tx, fiat, fiatAmount);
       await accrueCashback(tx, userId, grossFiat, { fiat, source: "cash out" });
+      await accrueReferralEarning(tx, userId, spreadFiat + fee, { fiat, source: "cash out" });
     });
   }
 

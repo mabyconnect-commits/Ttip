@@ -135,3 +135,15 @@ export const COLLECTION_FEE_PCT = 0.015; // 1.5%
 // cashback balance, claimable once it reaches CASHBACK_MIN_CLAIM.
 export const CASHBACK_PCT = 0.0015; // 0.15%
 export const CASHBACK_MIN_CLAIM = 5000; // ₦5,000
+
+// Referrals: a referrer earns this share of the platform revenue (fees + spread)
+// on every transaction their referred users make — an ongoing lifetime cut, not
+// a one-off. Override with REFERRAL_EARN_PCT.
+export const REFERRAL_EARN_PCT = 0.25; // 25% of downline fees
+
+// First-deposit bonus: a referred user earns this once, HOLD hours after their
+// first deposit worth at least MIN_USD — but only if they still hold that value
+// (they kept it on Ttip rather than cashing straight out).
+export const DEPOSIT_BONUS_NGN = 500; // ₦500
+export const DEPOSIT_BONUS_MIN_USD = 10; // first $10+ deposit
+export const DEPOSIT_BONUS_HOLD_HOURS = 72; // must stay 72h

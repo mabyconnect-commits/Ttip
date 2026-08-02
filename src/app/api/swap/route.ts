@@ -11,6 +11,7 @@ import { freeSwapsLeft, quoteSwap } from "@/lib/swap-math";
 import { referenceRate } from "@/lib/rate";
 import { quoteBuy, quoteSell } from "@/lib/pricing";
 import { accrueCashback } from "@/lib/cashback";
+import { accrueReferralEarning } from "@/lib/referral";
 
 const schema = z.object({
   fromSymbol: z.string(),
@@ -52,6 +53,7 @@ export async function POST(req: Request) {
     let free = false; // whether a free-swap allowance was consumed
     let fiatVolume = 0; // naira value of the trade, for cashback
     let cashbackFiat = "";
+    let revenueFiat = 0; // platform spread on this trade, for referral earnings
 
     if (cryptoFrom && !cryptoTo) {
       // crypto → fiat (off-ramp): our sell rate, margin baked in.
@@ -62,6 +64,7 @@ export async function POST(req: Request) {
       rate = amount > 0 ? net / amount : 0;
       fiatVolume = net;
       cashbackFiat = toSymbol;
+      revenueFiat = q.spreadFiat;
     } else if (!cryptoFrom && cryptoTo) {
       // fiat → crypto (on-ramp): our buy rate, margin baked in.
       const marketRate = await referenceRate(toSymbol, fromSymbol);
@@ -71,6 +74,7 @@ export async function POST(req: Request) {
       rate = amount > 0 ? net / amount : 0;
       fiatVolume = amount;
       cashbackFiat = fromSymbol;
+      revenueFiat = net * Math.max(0, userRate - marketRate); // spread we keep
     } else {
       // crypto → crypto (or fiat → fiat): live market convert with swap-fee model.
       const gross = await convert(amount, fromSymbol, toSymbol);
@@ -93,6 +97,11 @@ export async function POST(req: Request) {
       // Cashback on the naira volume of a crypto↔fiat swap (a buy or a sell).
       if (fiatVolume > 0 && cashbackFiat) {
         await accrueCashback(tx, userId, fiatVolume, {
+          fiat: cashbackFiat,
+          source: cryptoFrom ? "swap sell" : "swap buy",
+        });
+        // Referrer's share of the spread on that swap.
+        await accrueReferralEarning(tx, userId, revenueFiat, {
           fiat: cashbackFiat,
           source: cryptoFrom ? "swap sell" : "swap buy",
         });

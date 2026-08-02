@@ -7,6 +7,7 @@ import { referenceRate } from "../rate";
 import { quoteBuy, collectionFeePct } from "../pricing";
 import { adjustTreasury } from "./treasury";
 import { accrueCashback } from "../cashback";
+import { accrueReferralEarning } from "../referral";
 import { initCollection, collectionProvider } from "./collection";
 
 /**
@@ -49,6 +50,9 @@ export async function createBuyOrder(req: BuyRequest): Promise<BuyResult> {
   // fee never eats our margin (the user effectively covers it).
   const netFiat = req.fiatAmount * (1 - collectionFeePct());
   const amountAsset = netFiat / userRate;
+  // Platform revenue on this buy: what the user pays minus the market cost of the
+  // crypto we hand them. Stored so the referrer's share is paid when it settles.
+  const spreadFiat = Math.max(0, req.fiatAmount - amountAsset * marketRate);
 
   const reference = "buy_" + crypto.randomUUID();
   const provider = collectionProvider();
@@ -80,7 +84,7 @@ export async function createBuyOrder(req: BuyRequest): Promise<BuyResult> {
         status: "pending",
         asset: req.symbol,
         amount: new Prisma.Decimal(amountAsset),
-        raw: { fiat: req.fiat, fiatAmount: req.fiatAmount, rate: userRate } as Prisma.InputJsonValue,
+        raw: { fiat: req.fiat, fiatAmount: req.fiatAmount, rate: userRate, spreadFiat } as Prisma.InputJsonValue,
       },
     });
   });
@@ -146,9 +150,10 @@ export async function finalizeBuy(
       });
       // Crypto has left treasury into the user's custody.
       await adjustTreasury(tx, settlement.asset, -Number(amount));
-      // Cashback on the naira volume of the buy.
-      const raw = settlement.raw as { fiatAmount?: number; fiat?: string } | null;
+      // Cashback on the naira volume of the buy, and the referrer's share of the spread.
+      const raw = settlement.raw as { fiatAmount?: number; fiat?: string; spreadFiat?: number } | null;
       if (raw?.fiatAmount) await accrueCashback(tx, userId, raw.fiatAmount, { fiat: raw.fiat ?? "NGN", source: "buy" });
+      if (raw?.spreadFiat) await accrueReferralEarning(tx, userId, raw.spreadFiat, { fiat: raw.fiat ?? "NGN", source: "buy" });
       return { updated: true, credited: true };
     }
 
