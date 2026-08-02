@@ -20,7 +20,7 @@ export async function POST(req: Request) {
   const flwSig = req.headers.get("verif-hash");
   const psSig = req.headers.get("x-paystack-signature");
 
-  let event: { event?: string; data?: { id?: number; reference?: string; status?: string } };
+  let event: { event?: string; data?: { id?: number; reference?: string; tx_ref?: string; status?: string } };
   try {
     event = JSON.parse(raw);
   } catch {
@@ -49,9 +49,17 @@ export async function POST(req: Request) {
 
     if (flwSig) {
       if (!verifyFlutterwaveWebhook(flwSig)) return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-      if (!data?.reference) return NextResponse.json({ ok: true, ignored: true });
-      const status = (data.status ?? "").toUpperCase() === "SUCCESSFUL" ? "completed" : "failed";
-      const result = await finalizePayout({ reference: data.reference }, status);
+      // Charges echo our tx_ref; transfers echo reference.
+      const ref = data?.tx_ref ?? data?.reference;
+      if (!ref) return NextResponse.json({ ok: true, ignored: true });
+      const status = (data?.status ?? "").toUpperCase() === "SUCCESSFUL" ? "completed" : "failed";
+
+      // Collections (buy on-ramp) come as charge.completed.
+      if (evt.startsWith("charge")) {
+        const result = await finalizeBuy({ reference: ref }, status);
+        return NextResponse.json({ ok: true, kind: "buy", ...result });
+      }
+      const result = await finalizePayout({ reference: ref }, status);
       return NextResponse.json({ ok: true, kind: "payout", ...result });
     }
 

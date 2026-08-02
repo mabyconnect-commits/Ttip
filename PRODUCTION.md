@@ -70,18 +70,29 @@ Register the deposit webhook to `https://<your-domain>/api/webhooks/deposit`.
 Set your per-VM default refund addresses in the Dextopus dashboard.
 
 ### Naira payouts + buy collections
+
+Both the bank payout (off-ramp) and the buy-crypto checkout (on-ramp) run through
+one provider. **Flutterwave does both** and is the simplest single-provider setup:
 ```
-PAYOUT_PROVIDER=paystack        # or monnify | flutterwave | coralpay
+# Flutterwave — payouts AND collections
+PAYOUT_PROVIDER=flutterwave
+COLLECTION_PROVIDER=flutterwave        # optional; auto-detected from the key
+FLUTTERWAVE_SECRET_KEY=FLWSECK-…       # test key FLWSECK_TEST-… works too
+FLUTTERWAVE_WEBHOOK_HASH=…             # the "Secret hash" from the FLW dashboard
+```
+Or use Paystack / Monnify for payouts instead:
+```
+PAYOUT_PROVIDER=paystack               # or monnify | coralpay
 PAYSTACK_SECRET_KEY=sk_live_…
-# Monnify (if used):
-MONNIFY_API_KEY=…
-MONNIFY_SECRET_KEY=…
-MONNIFY_CONTRACT_CODE=…
-MONNIFY_SOURCE_ACCOUNT=…
+MONNIFY_API_KEY=…  MONNIFY_SECRET_KEY=…  MONNIFY_CONTRACT_CODE=…  MONNIFY_SOURCE_ACCOUNT=…
 ```
+Payouts and collections can use different providers (e.g. Monnify payouts +
+Flutterwave collections) — set `PAYOUT_PROVIDER` and `COLLECTION_PROVIDER`
+independently. Checkout pages are branded **Ttip** (title + logo) automatically.
+
 Register the provider webhook to `https://<your-domain>/api/webhooks/payout`.
-This one URL handles **both** naira payouts (`transfer.*`) and buy-crypto
-collections (`charge.*`).
+This one URL handles **both** naira payouts (`transfer.*` / `transfer.completed`)
+and buy-crypto collections (`charge.*` / `charge.completed`).
 
 ### KYC — Dojah
 ```
