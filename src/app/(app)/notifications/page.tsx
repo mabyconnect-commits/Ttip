@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useApp } from "@/context/AppContext";
 import { BackHeader, Sheet } from "@/components/ui";
 import { Icon } from "@/components/Icon";
 import { apiGet } from "@/lib/client";
@@ -40,9 +41,15 @@ function title(t: Txn): string {
 
 export default function NotificationsPage() {
   const router = useRouter();
+  const { toast } = useApp();
   const [txns, setTxns] = useState<Txn[]>([]);
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<Txn | null>(null);
+
+  function copy(text: string) {
+    navigator.clipboard?.writeText(text);
+    toast("Copied", "good");
+  }
 
   useEffect(() => {
     apiGet<{ transactions: Txn[] }>("/api/transactions?limit=40").then((d) => setTxns(d.transactions)).finally(() => setLoading(false));
@@ -105,8 +112,9 @@ export default function NotificationsPage() {
               {sel.counterparty && <DetailRow label={sel.type === "deposit" ? "Source" : "To / From"} value={prettifyChains(sel.counterparty)} />}
               {sel.note && <DetailRow label="Note" value={prettifyChains(sel.note)} />}
               <DetailRow label="When" value={sel.time === "now" ? "Just now" : sel.time + " ago"} />
-              <DetailRow label="Reference" value={sel.id} mono />
+              <DetailRow label="Reference" value={sel.id} mono onCopy={() => copy(sel.id)} />
             </div>
+
             {sel.explorerUrl && (
               <a
                 href={sel.explorerUrl}
@@ -118,6 +126,18 @@ export default function NotificationsPage() {
                 <Icon name="share" size={15} />
               </a>
             )}
+
+            <div className="grid grid-cols-2 gap-2.5 mt-2.5">
+              <button onClick={() => copy(sel.id)} className="rounded-2xl border border-white/12 py-3.5 font-grotesk font-semibold text-[13px] active:scale-[.99]">
+                Copy reference
+              </button>
+              <button
+                onClick={() => { router.push(`/account/support?ref=${sel.id}`); }}
+                className="rounded-2xl border border-white/12 py-3.5 font-grotesk font-semibold text-[13px] text-bad active:scale-[.99]"
+              >
+                Report an issue
+              </button>
+            </div>
           </div>
         )}
       </Sheet>
@@ -125,12 +145,19 @@ export default function NotificationsPage() {
   );
 }
 
-function DetailRow({ label, value, tone, mono }: { label: string; value: string; tone?: "good" | "warn"; mono?: boolean }) {
+function DetailRow({ label, value, tone, mono, onCopy }: { label: string; value: string; tone?: "good" | "warn"; mono?: boolean; onCopy?: () => void }) {
   const color = tone === "good" ? "text-good" : tone === "warn" ? "text-warn" : "text-white/90";
   return (
     <div className="flex items-center justify-between gap-3 py-3">
       <span className="text-[12.5px] text-white/45 shrink-0">{label}</span>
-      <span className={`text-[13px] font-medium text-right break-all ${color} ${mono ? "font-mono text-[11px]" : ""}`}>{value}</span>
+      <span className="flex items-center gap-1.5 min-w-0">
+        <span className={`text-[13px] font-medium text-right break-all ${color} ${mono ? "font-mono text-[11px]" : ""}`}>{value}</span>
+        {onCopy && (
+          <button onClick={onCopy} className="text-white/40 shrink-0 active:text-white/70" aria-label="Copy">
+            <Icon name="copy" size={14} />
+          </button>
+        )}
+      </span>
     </div>
   );
 }

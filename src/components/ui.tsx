@@ -128,9 +128,9 @@ export function Sheet({ open, onClose, children, title }: { open: boolean; onClo
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-md" />
       <div
-        className="relative w-full max-w-[480px] bg-[#0B0D14] border-t border-white/10 rounded-t-[26px] p-5 pb-8 animate-sheet max-h-[85dvh] overflow-y-auto no-scrollbar"
+        className="relative w-full max-w-[480px] bg-[#0B0D14] border-t border-white/10 rounded-t-[26px] p-5 pb-10 animate-sheet max-h-[85dvh] overflow-y-auto no-scrollbar"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-4" />

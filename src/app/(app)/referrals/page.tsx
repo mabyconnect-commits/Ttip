@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useApp } from "@/context/AppContext";
 import { apiGet } from "@/lib/client";
 import { BackHeader } from "@/components/ui";
+import { Icon } from "@/components/Icon";
 import { QR } from "@/components/QR";
 import { formatFiat } from "@/lib/format";
 
@@ -38,9 +39,11 @@ export default function ReferralsPage() {
     <div className="flex flex-col flex-1 px-[22px] min-h-0">
       <BackHeader title="Invite & earn" />
       <div className="flex-1 overflow-y-auto no-scrollbar pt-2">
-        <div className="rounded-[22px] p-5 border border-white/[.08] relative overflow-hidden text-center" style={{ background: "linear-gradient(135deg,#151B33,#0B2420)" }}>
-          <div className="text-[42px]">👯</div>
-          <div className="font-grotesk font-bold text-[22px] mt-1">Give ₦2k, get ₦2k</div>
+        <div className="rounded-3xl p-6 bg-surface border border-white/[.06] text-center">
+          <div className="w-14 h-14 mx-auto rounded-full flex items-center justify-center mb-3" style={{ background: "rgba(61,245,176,.10)", border: "1px solid rgba(61,245,176,.28)" }}>
+            <Icon name="gift" size={24} className="text-good" />
+          </div>
+          <div className="font-grotesk font-bold text-[22px] tracking-[-0.5px]">Give ₦2k, get ₦2k</div>
           <div className="font-sans text-[13px] text-white/55 mt-1.5 max-w-[260px] mx-auto">
             Share your link. When a friend joins and makes their first swap, you both earn {formatFiat(data?.perReferral ?? 2000, "NGN", { decimals: 0 })}.
           </div>
@@ -62,7 +65,7 @@ export default function ReferralsPage() {
           <div className="font-grotesk font-semibold text-[14px] mt-4">Your invite code</div>
           <div className="font-grotesk font-bold text-[22px] tracking-[3px] text-brand-cyan mt-1">{data?.code ?? "…"}</div>
           <div className="flex gap-2.5 mt-4 w-full">
-            <button onClick={() => data && copy(data.link)} className="flex-1 grad-bg rounded-full py-3 font-grotesk font-semibold text-[13px] text-[#04121A]">Copy link</button>
+            <button onClick={() => data && copy(data.link)} className="flex-1 bg-good text-ink rounded-full py-3 font-grotesk font-semibold text-[13px]">Copy link</button>
             <button onClick={share} className="flex-1 rounded-full py-3 font-grotesk font-semibold text-[13px] border border-white/14">Share</button>
           </div>
         </div>
@@ -73,7 +76,7 @@ export default function ReferralsPage() {
             <div className="flex flex-col gap-2">
               {data.referrals.map((r, i) => (
                 <div key={i} className="flex items-center gap-3 bg-surface border border-white/[.06] rounded-[14px] px-3.5 py-3">
-                  <span className="text-lg">🎉</span>
+                  <span className="w-8 h-8 rounded-full bg-surface2 flex items-center justify-center text-white/70 shrink-0"><Icon name="user" size={15} /></span>
                   <div className="flex-1 text-[13px]">{r.name} <span className="text-white/40">· {r.time}</span></div>
                   <div className="font-grotesk font-bold text-[13px] text-good">+{formatFiat(r.bonus, "NGN", { decimals: 0 })}</div>
                 </div>
