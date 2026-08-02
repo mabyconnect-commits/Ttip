@@ -273,9 +273,19 @@ export async function flutterwaveCreateVirtualAccount(
   } catch (e) {
     return { error: `Couldn't reach Flutterwave: ${String(e)}` };
   }
-  const json = (await res.json().catch(() => ({}))) as { status?: string; message?: string; data?: { account_number?: string; bank_name?: string } };
+  // Capture the raw body first — a 502/HTML gateway error has no JSON message,
+  // and we want Flutterwave's exact words surfaced, not a bare status code.
+  const bodyText = await res.text().catch(() => "");
+  let json: { status?: string; message?: string; data?: { account_number?: string; bank_name?: string } } = {};
+  try {
+    json = JSON.parse(bodyText);
+  } catch {
+    /* non-JSON (e.g. an HTML 5xx gateway page) — fall back to the raw text */
+  }
   if (!res.ok || json.status !== "success" || !json.data?.account_number) {
-    return { error: json.message ?? `Virtual account creation failed (${res.status})` };
+    const snippet = bodyText.replace(/\s+/g, " ").trim().slice(0, 160);
+    const detail = json.message || snippet || `no response body`;
+    return { error: `Flutterwave (HTTP ${res.status}): ${detail}` };
   }
   return { accountNumber: json.data.account_number, bankName: json.data.bank_name || "Wema Bank" };
 }
