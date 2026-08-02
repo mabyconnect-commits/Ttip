@@ -94,6 +94,15 @@ Register the provider webhook to `https://<your-domain>/api/webhooks/payout`.
 This one URL handles **both** naira payouts (`transfer.*` / `transfer.completed`)
 and buy-crypto collections (`charge.*` / `charge.completed`).
 
+**Sharing one Flutterwave account with another product?** Flutterwave allows only
+one webhook URL per account. Point it here and set `WEBHOOK_FORWARD_URL` to the
+other backend(s) (comma-separated). Ttip re-posts every event, with the
+`verif-hash` header, to those URLs — each backend verifies and processes its own
+events and ignores the rest. Best-effort, so a slow sibling never breaks Ttip.
+```
+WEBHOOK_FORWARD_URL=https://surlink-backend.onrender.com/api/webhooks/flutterwave
+```
+
 ### KYC — Dojah
 ```
 DOJAH_APP_ID=…

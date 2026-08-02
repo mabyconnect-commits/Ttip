@@ -6,18 +6,57 @@ import { verifyPaystackWebhook } from "@/lib/settlement/webhook";
 export const dynamic = "force-dynamic";
 
 /**
- * Provider webhook for payouts AND buy-collections — Paystack delivers both to a
- * single account webhook URL, so we route by event type after verifying the
- * signature. Matching is by our own `reference`, which providers echo back.
+ * Fan-out to other backends that share this Flutterwave account. Flutterwave
+ * only allows ONE webhook URL per account, so if a sibling product (e.g.
+ * Surlink) also uses it, point Flutterwave here and set WEBHOOK_FORWARD_URL
+ * (comma-separated) to the other backends. We re-post the exact raw body and the
+ * `verif-hash` header, so each backend verifies and processes its own events and
+ * safely ignores the rest. Best-effort: a slow/down sibling never fails our own
+ * processing.
+ */
+async function fanOut(raw: string, verifHash: string | null): Promise<void> {
+  const targets = (process.env.WEBHOOK_FORWARD_URL ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!targets.length) return;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    await Promise.allSettled(
+      targets.map((url) =>
+        fetch(url, {
+          method: "POST",
+          headers: { "content-type": "application/json", ...(verifHash ? { "verif-hash": verifHash } : {}) },
+          body: raw,
+          signal: ctrl.signal,
+        }),
+      ),
+    );
+  } catch {
+    /* never let forwarding break our own webhook */
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Provider webhook for payouts AND buy-collections — Paystack/Flutterwave deliver
+ * both to a single account webhook URL, so we route by event type after verifying
+ * the signature. Matching is by our own `reference`, which providers echo back.
  *
  *   transfer.success/failed/reversed → finalizePayout (naira withdrawal)
  *   charge.success / charge.failed    → finalizeBuy    (buy-crypto on-ramp)
  *
- * Flutterwave payouts use `verif-hash` + data.status SUCCESSFUL/FAILED.
+ * Flutterwave uses `verif-hash` + data.status SUCCESSFUL/FAILED.
  */
 export async function POST(req: Request) {
   const raw = await req.text();
   const flwSig = req.headers.get("verif-hash");
+
+  // If a sibling product shares this Flutterwave account, forward every event to
+  // it before we handle our own. Surlink etc. verify + process independently.
+  if (flwSig) await fanOut(raw, flwSig);
   const psSig = req.headers.get("x-paystack-signature");
 
   let event: { event?: string; data?: { id?: number; reference?: string; tx_ref?: string; status?: string } };
