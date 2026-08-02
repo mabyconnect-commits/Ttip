@@ -6,7 +6,10 @@ import { explorerTxUrl } from "@/lib/chains";
 
 export const dynamic = "force-dynamic";
 
-const INFLOW = new Set(["deposit", "ttip_in", "referral_bonus"]);
+// Transactions where crypto/value lands in the user's wallet — shown as a green
+// "+asset received". A buy is an on-ramp: the user acquires crypto (assetOut),
+// so it reads like a deposit (+USDT), not the naira spent (−₦).
+const INFLOW = new Set(["deposit", "ttip_in", "referral_bonus", "buy"]);
 
 export async function GET(req: Request) {
   return handler(async () => {
