@@ -121,7 +121,7 @@ export const NETWORK_FEE_USDT = 1; // flat network fee on external sends (USDT-e
 // market/P2P reference rate minus this margin; the difference is platform
 // revenue. Keep it tight to stay competitive with Bybit P2P. Override per
 // deploy with PLATFORM_MARGIN_PCT.
-export const PLATFORM_MARGIN_PCT = 0.03; // 3% — buy = +3%, sell = −3% of the Bybit reference
+export const PLATFORM_MARGIN_PCT = 0.016; // 1.6% — buy = +1.6%, sell = −1.6% of the Bybit reference
 
 // What the fiat collection provider (Flutterwave) takes on a buy. We credit
 // crypto on the amount NET of this fee so the fee never eats our margin.
