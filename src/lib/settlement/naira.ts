@@ -17,18 +17,27 @@ import { flutterwaveCreateVirtualAccount } from "./flutterwave";
  * needed. Requires a BVN (permanent DVAs need it) — call this at KYC time. Returns
  * the account, or null if the provider isn't Flutterwave or creation failed.
  */
+export type NairaAccountResult =
+  | { ok: true; accountNumber: string; bankName: string }
+  | { ok: false; error: string };
+
 export async function ensureNairaAccount(
   userId: string,
   opts: { bvn: string; name: string; email: string },
-): Promise<{ accountNumber: string; bankName: string } | null> {
+): Promise<NairaAccountResult> {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { nairaAccount: true, nairaBank: true } });
-  if (user?.nairaAccount) return { accountNumber: user.nairaAccount, bankName: user.nairaBank ?? "" };
-  if (collectionProvider() !== "flutterwave") return null;
+  if (user?.nairaAccount) return { ok: true, accountNumber: user.nairaAccount, bankName: user.nairaBank ?? "" };
+  if (collectionProvider() !== "flutterwave") {
+    return { ok: false, error: "Naira accounts need the Flutterwave collection provider (set COLLECTION_PROVIDER=flutterwave)." };
+  }
+  if (!/^\d{11}$/.test(opts.bvn)) {
+    return { ok: false, error: "A valid 11-digit BVN is required to open a dedicated naira account." };
+  }
 
   const acct = await flutterwaveCreateVirtualAccount(opts.email, opts.bvn, opts.name, "dva_" + crypto.randomUUID());
-  if (!acct) return null;
+  if ("error" in acct) return { ok: false, error: acct.error };
   await prisma.user.update({ where: { id: userId }, data: { nairaAccount: acct.accountNumber, nairaBank: acct.bankName } });
-  return acct;
+  return { ok: true, accountNumber: acct.accountNumber, bankName: acct.bankName };
 }
 
 /**

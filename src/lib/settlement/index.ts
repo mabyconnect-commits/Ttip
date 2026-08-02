@@ -20,6 +20,7 @@ export { cryptoWithdraw, finalizeWithdrawal } from "./withdrawal";
 export type { CryptoWithdrawRequest, CryptoWithdrawResult } from "./withdrawal";
 export { createBuyOrder, finalizeBuy } from "./buy";
 export { ensureNairaAccount, creditNairaDeposit } from "./naira";
+export type { NairaAccountResult } from "./naira";
 // resolveAccountName is defined below (dispatches to the active provider).
 export type { BuyRequest, BuyResult } from "./buy";
 export { collectionProvider } from "./collection";
