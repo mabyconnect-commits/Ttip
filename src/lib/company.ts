@@ -14,7 +14,7 @@ export const COMPANY = {
   legalName: "JENNMEC SOLUTIONS LTD",
   country: "Nigeria",
   domain: "ttip.site",
-  supportEmail: "support@ttip.site",
+  supportEmail: "ttip247@gmail.com",
   // Optional — set when available (shown on the legal pages if present).
   rcNumber: "RC 1961742" as string,
   registeredAddress: "" as string, // e.g. "12 Example Ave, Lagos, Nigeria"
