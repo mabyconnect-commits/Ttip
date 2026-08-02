@@ -9,7 +9,7 @@ import { convert, isCrypto } from "@/lib/prices";
 import { adjust, balanceOf } from "@/lib/wallet";
 import { NETWORK_FEE_USDT } from "@/lib/constants";
 import { dayStr, isYesterday } from "@/lib/format";
-import { payoutFiat, finalizePayout, payoutProvider, ensureFloat, debitFloat, cryptoWithdraw, settlementEnabled } from "@/lib/settlement";
+import { payoutFiat, finalizePayout, payoutProvider, ensureFloat, debitFloat, cryptoWithdraw, settlementEnabled, demoEnabled } from "@/lib/settlement";
 import { quoteSell, transferFee } from "@/lib/pricing";
 import { referenceFiat } from "@/lib/rate";
 import { accrueCashback } from "@/lib/cashback";
@@ -172,6 +172,10 @@ async function handleWalletSend(userId: string, input: z.infer<typeof schema>) {
   if (!isCrypto(symbol)) throw new ApiError("Only crypto can be sent to a wallet", 400);
   if (!input.address || input.address.length < 8) throw new ApiError("Enter a valid wallet address", 400);
 
+  // On-chain crypto withdrawal needs a treasury signer (not yet wired), so it
+  // only runs in demo. Fail closed in live so no funds get stuck as pending.
+  if (!demoEnabled()) throw new ApiError("Crypto withdrawal to an external wallet is coming soon.", 503);
+
   // network fee expressed in the sent asset
   const feeInAsset = await convert(NETWORK_FEE_USDT, "USDT", symbol);
   const total = amount + feeInAsset;
@@ -330,7 +334,7 @@ async function handleBankSend(
   if (payoutStatus === "completed") {
     await prisma.$transaction(async (tx) => {
       await debitFloat(tx, fiat, fiatAmount);
-      await accrueCashback(tx, userId, grossFiat);
+      await accrueCashback(tx, userId, grossFiat, { fiat, source: "cash out" });
     });
   }
 

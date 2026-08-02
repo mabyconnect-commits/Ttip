@@ -147,8 +147,8 @@ export async function finalizeBuy(
       // Crypto has left treasury into the user's custody.
       await adjustTreasury(tx, settlement.asset, -Number(amount));
       // Cashback on the naira volume of the buy.
-      const raw = settlement.raw as { fiatAmount?: number } | null;
-      if (raw?.fiatAmount) await accrueCashback(tx, userId, raw.fiatAmount);
+      const raw = settlement.raw as { fiatAmount?: number; fiat?: string } | null;
+      if (raw?.fiatAmount) await accrueCashback(tx, userId, raw.fiatAmount, { fiat: raw.fiat ?? "NGN", source: "buy" });
       return { updated: true, credited: true };
     }
 

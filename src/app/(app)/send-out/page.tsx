@@ -171,7 +171,7 @@ export default function SendOutPage() {
             return (
               <>
                 <div className="flex justify-between"><span>Transfer fee</span><b className="text-white font-grotesk">{formatFiat(fee, fiat)}</b></div>
-                <div className="flex justify-between"><span>They receive</span><b className="text-good font-grotesk">≈ {formatFiat(net, fiat)}</b></div>
+                <div className="flex justify-between"><span>You receive</span><b className="text-good font-grotesk">≈ {formatFiat(net, fiat)}</b></div>
               </>
             );
           })()}
