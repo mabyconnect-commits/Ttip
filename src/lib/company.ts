@@ -16,7 +16,7 @@ export const COMPANY = {
   domain: "ttip.site",
   supportEmail: "support@ttip.site",
   // Optional — set when available (shown on the legal pages if present).
-  rcNumber: "" as string, // e.g. "RC 1234567"
+  rcNumber: "RC 1961742" as string,
   registeredAddress: "" as string, // e.g. "12 Example Ave, Lagos, Nigeria"
 } as const;
 
