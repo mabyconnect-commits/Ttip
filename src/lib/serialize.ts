@@ -34,6 +34,7 @@ export async function getAppState(userId: string) {
       freeSwapsLeft,
       referralCode: user.referralCode,
       referralEarned: Number(user.referralEarned),
+      cashback: Number(user.cashback),
       hasPin: !!user.pinHash,
       kycStatus: user.kycStatus,
       kycTier: user.kycTier,

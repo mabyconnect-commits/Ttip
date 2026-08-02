@@ -12,6 +12,7 @@ import { dayStr, isYesterday } from "@/lib/format";
 import { payoutFiat, finalizePayout, payoutProvider, ensureFloat, debitFloat, cryptoWithdraw, settlementEnabled } from "@/lib/settlement";
 import { quoteSell } from "@/lib/pricing";
 import { referenceFiat } from "@/lib/rate";
+import { accrueCashback } from "@/lib/cashback";
 
 const schema = z.object({
   mode: z.enum(["ttip", "wallet", "bank"]),
@@ -287,6 +288,7 @@ async function handleBankSend(
   // 2. Ask the provider to move the fiat. Sandbox settles instantly; Flutterwave
   //    may return "pending" and confirm later via /api/webhooks/payout.
   let payoutStatus: "pending" | "completed" | "failed" = "pending";
+  let providerMessage: string | undefined;
   try {
     const result = await payoutFiat({
       userId,
@@ -299,8 +301,10 @@ async function handleBankSend(
       reference,
     });
     payoutStatus = result.status;
-  } catch {
+    providerMessage = result.message;
+  } catch (e: any) {
     payoutStatus = "failed";
+    providerMessage = e?.message;
   }
 
   // 3. Reconcile: a terminal result finalizes now (refunding on failure); a
@@ -310,13 +314,18 @@ async function handleBankSend(
   }
 
   if (payoutStatus === "failed") {
-    // finalizePayout has refunded the debited crypto.
-    throw new ApiError("Payout could not be sent — your balance was not charged.", 502);
+    // finalizePayout has refunded the debited crypto. Surface the provider's
+    // reason (e.g. insufficient float) so it's clear why, not just "failed".
+    const reason = providerMessage ? ` (${providerMessage})` : "";
+    throw new ApiError(`Payout could not be sent — your balance was not charged.${reason}`, 502);
   }
 
-  // The fiat has left the float — draw it down.
+  // The fiat has left the float — draw it down, and reward cashback on the sale.
   if (payoutStatus === "completed") {
-    await prisma.$transaction((tx) => debitFloat(tx, fiat, fiatAmount));
+    await prisma.$transaction(async (tx) => {
+      await debitFloat(tx, fiat, fiatAmount);
+      await accrueCashback(tx, userId, fiatAmount);
+    });
   }
 
   const state = await getAppState(userId);

@@ -1,4 +1,10 @@
-import { PLATFORM_MARGIN_PCT } from "./constants";
+import { PLATFORM_MARGIN_PCT, COLLECTION_FEE_PCT } from "./constants";
+
+/** The collection (buy) fee we net out so the provider's cut never eats margin. */
+export function collectionFeePct(): number {
+  const v = Number(process.env.COLLECTION_FEE_PCT);
+  return Number.isFinite(v) && v >= 0 && v < 0.2 ? v : COLLECTION_FEE_PCT;
+}
 
 /**
  * Competitive pricing engine.

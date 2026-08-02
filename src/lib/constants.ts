@@ -121,4 +121,14 @@ export const NETWORK_FEE_USDT = 1; // flat network fee on external sends (USDT-e
 // market/P2P reference rate minus this margin; the difference is platform
 // revenue. Keep it tight to stay competitive with Bybit P2P. Override per
 // deploy with PLATFORM_MARGIN_PCT.
-export const PLATFORM_MARGIN_PCT = 0.015; // 1.5%
+export const PLATFORM_MARGIN_PCT = 0.03; // 3% — buy = +3%, sell = −3% of the Bybit reference
+
+// What the fiat collection provider (Flutterwave) takes on a buy. We credit
+// crypto on the amount NET of this fee so the fee never eats our margin.
+// Override with COLLECTION_FEE_PCT.
+export const COLLECTION_FEE_PCT = 0.015; // 1.5%
+
+// Cashback: users earn this fraction of every buy/sell back into a separate
+// cashback balance, claimable once it reaches CASHBACK_MIN_CLAIM.
+export const CASHBACK_PCT = 0.0015; // 0.15%
+export const CASHBACK_MIN_CLAIM = 5000; // ₦5,000

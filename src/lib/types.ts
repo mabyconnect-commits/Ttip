@@ -13,6 +13,7 @@ export interface UserSummary {
   freeSwapsLeft: number;
   referralCode: string;
   referralEarned: number;
+  cashback: number;
   hasPin: boolean;
   kycStatus: string;
   kycTier: number;

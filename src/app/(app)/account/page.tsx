@@ -5,6 +5,7 @@ import { useApp } from "@/context/AppContext";
 import { Avatar } from "@/components/ui";
 import { TabBar } from "@/components/TabBar";
 import { Icon, type IconName } from "@/components/Icon";
+import { CashbackCard } from "@/components/CashbackCard";
 import { COMPANY, PRODUCT_OF } from "@/lib/company";
 
 export default function AccountPage() {
@@ -60,6 +61,9 @@ export default function AccountPage() {
           </div>
           <Icon name="chevronRight" size={18} className="text-white/40" />
         </button>
+
+        {/* cashback */}
+        <CashbackCard />
 
         {/* menu */}
         <div className="mt-4 bg-surface border border-white/[.06] rounded-[20px] overflow-hidden">

@@ -28,6 +28,7 @@ model User {
   referralCode   String   @unique
   referredById   String?
   referralEarned Decimal  @default(0) @db.Decimal(18, 2)
+  cashback       Decimal  @default(0) @db.Decimal(18, 2) // earned cashback, claimable at the threshold
   pinHash        String?
   kycStatus      String   @default("unverified") // unverified | pending | verified
   kycTier        Int      @default(1)

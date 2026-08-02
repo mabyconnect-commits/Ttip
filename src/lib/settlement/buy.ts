@@ -4,8 +4,9 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { kindOf } from "../wallet";
 import { referenceRate } from "../rate";
-import { quoteBuy } from "../pricing";
+import { quoteBuy, collectionFeePct } from "../pricing";
 import { adjustTreasury } from "./treasury";
+import { accrueCashback } from "../cashback";
 import { initCollection, collectionProvider } from "./collection";
 
 /**
@@ -44,7 +45,10 @@ export async function createBuyOrder(req: BuyRequest): Promise<BuyResult> {
   if (!(marketRate > 0)) throw new Error("Rate unavailable, try again");
   const q = quoteBuy({ asset: req.symbol, fiat: req.fiat, amountAsset: 1, marketRate });
   const userRate = q.userRate; // fiat per 1 unit incl. margin
-  const amountAsset = req.fiatAmount / userRate;
+  // Credit crypto on the amount NET of the provider's collection fee, so that
+  // fee never eats our margin (the user effectively covers it).
+  const netFiat = req.fiatAmount * (1 - collectionFeePct());
+  const amountAsset = netFiat / userRate;
 
   const reference = "buy_" + crypto.randomUUID();
   const provider = collectionProvider();
@@ -142,6 +146,9 @@ export async function finalizeBuy(
       });
       // Crypto has left treasury into the user's custody.
       await adjustTreasury(tx, settlement.asset, -Number(amount));
+      // Cashback on the naira volume of the buy.
+      const raw = settlement.raw as { fiatAmount?: number } | null;
+      if (raw?.fiatAmount) await accrueCashback(tx, userId, raw.fiatAmount);
       return { updated: true, credited: true };
     }
 
