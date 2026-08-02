@@ -36,19 +36,20 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="flex flex-col flex-1 px-[22px] min-h-0" style={{ background: "radial-gradient(100% 45% at 50% 0%,#141A2E 0%,#07080D 60%)" }}>
-      <BackHeader title="Profile" right={<button onClick={() => router.push("/account")} className="w-9 h-9 rounded-[18px] border border-white/12 flex items-center justify-center text-white/80"><Icon name="settings" size={17} /></button>} />
+    <div className="flex flex-col flex-1 px-[22px] min-h-0">
+      <BackHeader title="Profile" right={<button onClick={() => router.push("/account")} className="w-9 h-9 rounded-full border border-white/10 flex items-center justify-center text-white/70"><Icon name="settings" size={17} /></button>} />
 
       <div className="flex-1 overflow-y-auto no-scrollbar">
         <div className="flex flex-col items-center gap-2 py-2">
           <Avatar gradient={user.avatarGradient} initial={user.initial} size={84} />
-          <div className="font-grotesk font-bold text-[20px]">
-            {user.name} {user.verified && <span className="text-brand-cyan text-[15px]">✓</span>}
+          <div className="font-grotesk font-bold text-[20px] tracking-[-0.3px] flex items-center gap-1.5">
+            {user.name}
+            {user.verified && <Icon name="check" size={15} className="text-brand-cyan" strokeWidth={2.6} />}
           </div>
-          <div className="font-sans font-medium text-[13px] text-good">{data?.link ?? `ttip.money/u/${user.username}`}</div>
+          <div className="font-sans font-medium text-[13px] text-white/45">{data?.link ?? `ttip.money/u/${user.username}`}</div>
           <div className="flex gap-[18px] font-sans text-[12px] text-white/50 mt-0.5">
             <span><b className="text-white">{data?.friends ?? 0}</b> friends</span>
-            <span><b className="text-white">🔥 {user.streakDays}</b> streak</span>
+            <span><b className="text-white">{user.streakDays}</b> streak</span>
             <span><b className="text-white">{user.points.toLocaleString()}</b> pts</span>
           </div>
         </div>
@@ -60,20 +61,10 @@ export default function ProfilePage() {
             <div className="font-grotesk font-semibold text-[14px]">Get Ttipped anywhere</div>
             <div className="font-sans text-[12px] text-white/50">Print it, post it, drop it in your bio. Anyone can tip you — no app needed.</div>
             <div className="flex gap-2 mt-0.5">
-              <button onClick={share} className="font-grotesk font-semibold text-[11.5px] grad-bg rounded-xl px-3 py-1.5 text-[#04121A]">Share link</button>
+              <button onClick={share} className="font-grotesk font-semibold text-[11.5px] bg-good text-ink rounded-xl px-3 py-1.5">Share link</button>
               <button onClick={() => data && copy(data.fullLink)} className="font-grotesk font-semibold text-[11.5px] border border-white/14 rounded-xl px-3 py-1.5">Copy</button>
             </div>
           </div>
-        </div>
-
-        {/* socials */}
-        <div className="flex gap-2 mt-3">
-          {[["📸", "IG bio"], ["🐦", "X card"], ["🎵", "TikTok"], ["💬", "WhatsApp"]].map(([icon, label]) => (
-            <button key={label} onClick={() => { data && copy(data.fullLink); }} className="flex-1 bg-surface border border-white/[.06] rounded-[16px] py-3 text-center active:scale-95">
-              <div className="text-[17px]">{icon}</div>
-              <div className="font-sans font-medium text-[10.5px] text-white/55 mt-1">{label}</div>
-            </button>
-          ))}
         </div>
 
         {/* recent tippers */}
@@ -103,7 +94,7 @@ export default function ProfilePage() {
           <Row label="Username" value={"@" + user.username} />
           <Row label="Payout bank" value={user.bankAccount ?? "Not set"} />
           <Row label="Referral code" value={user.referralCode} />
-          <button onClick={() => router.push("/dashboard")} className="text-left bg-surface border border-white/[.06] rounded-2xl px-4 py-3.5 text-[14px] mt-1">🖥️ Open web dashboard</button>
+          <button onClick={() => router.push("/dashboard")} className="text-left bg-surface border border-white/[.06] rounded-2xl px-4 py-3.5 text-[14px] mt-1">Open web dashboard</button>
           <button onClick={logout} className="text-left bg-bad/10 border border-bad/30 text-bad rounded-2xl px-4 py-3.5 text-[14px] font-medium mt-1">Sign out</button>
         </div>
       </Sheet>

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import { apiGet } from "@/lib/client";
 import { BackHeader, GradientButton, Avatar } from "@/components/ui";
+import { Icon } from "@/components/Icon";
 import { formatFiat } from "@/lib/format";
 import { Receipt } from "@/components/Receipt";
 
@@ -54,7 +55,7 @@ export default function SplitPage() {
 
   return (
     <div className="flex flex-col flex-1 px-[22px] min-h-0">
-      <BackHeader title="Split a bill 🧾" />
+      <BackHeader title="Split a bill" />
       <div className="flex-1 overflow-y-auto no-scrollbar pt-2">
         <div className="bg-surface border border-white/[.08] rounded-[22px] p-5 text-center">
           <div className="text-[12px] text-white/45">Total bill</div>
@@ -73,7 +74,7 @@ export default function SplitPage() {
           </div>
         </div>
 
-        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="What's it for? e.g. suya night 🍢" className="w-full bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] outline-none text-[14px] focus:border-brand-cyan/50 mt-3" />
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="What's it for? e.g. dinner, rent" className="w-full bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] outline-none text-[14px] focus:border-brand-cyan/50 mt-3" />
 
         <div className="font-grotesk font-semibold text-[13.5px] mt-4 mb-2">Split with</div>
         <div className="flex flex-col gap-2">
@@ -86,7 +87,7 @@ export default function SplitPage() {
                   <div className="font-semibold text-[14px]">{c.name}</div>
                   <div className="text-[12px] text-white/40">{c.handle}</div>
                 </div>
-                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[13px] ${on ? "bg-brand-cyan text-[#04121A]" : "border border-white/20"}`}>{on ? "✓" : ""}</div>
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center ${on ? "bg-brand-cyan text-[#04121A]" : "border border-white/20"}`}>{on && <Icon name="check" size={13} strokeWidth={3} />}</div>
               </button>
             );
           })}
