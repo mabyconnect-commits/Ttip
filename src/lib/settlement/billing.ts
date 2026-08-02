@@ -34,8 +34,8 @@ export async function billStatus(reference: string): Promise<"pending" | "comple
 }
 
 /** Validate a bill customer (meter/smartcard name) via the active provider. */
-export async function validateBillCustomer(category: string, customer: string): Promise<BillValidation> {
-  if (billProvider() === "flutterwave") return flutterwaveValidateBill(category, customer);
+export async function validateBillCustomer(billerCode: string, itemCode: string, customer: string): Promise<BillValidation> {
+  if (billProvider() === "flutterwave") return flutterwaveValidateBill(billerCode, itemCode, customer);
   return { valid: false };
 }
 
@@ -45,6 +45,8 @@ export interface PayBillArgs {
   categoryTitle: string;
   categoryEmoji: string;
   provider: string;
+  billerCode: string;
+  itemCode: string;
   customer: string;
   /** Crypto asset debited from the user. */
   fundingSymbol: string;
@@ -107,7 +109,7 @@ export async function payBill(args: PayBillArgs): Promise<PayBillOutcome> {
         asset: args.fundingSymbol,
         amount: new Prisma.Decimal(args.cost),
         address: args.customer,
-        raw: { category: args.category, provider: args.provider, amountFiat: args.amountFiat, currency: args.currency } as Prisma.InputJsonValue,
+        raw: { category: args.category, provider: args.provider, billerCode: args.billerCode, itemCode: args.itemCode, amountFiat: args.amountFiat, currency: args.currency } as Prisma.InputJsonValue,
       },
     });
   });
@@ -119,6 +121,8 @@ export async function payBill(args: PayBillArgs): Promise<PayBillOutcome> {
       userId: args.userId,
       category: args.category,
       provider: args.provider,
+      billerCode: args.billerCode,
+      itemCode: args.itemCode,
       customer: args.customer,
       amountFiat: args.amountFiat,
       currency: args.currency,

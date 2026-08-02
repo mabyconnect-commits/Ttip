@@ -7,14 +7,18 @@ import { getAppState } from "@/lib/serialize";
 import { convert } from "@/lib/prices";
 import { balanceOf } from "@/lib/wallet";
 import { BILL_CATEGORIES } from "@/lib/constants";
-import { payBill, ensureFloat, debitFloat, settlementEnabled } from "@/lib/settlement";
+import { payBill, ensureFloat, debitFloat, settlementEnabled, findBillItem } from "@/lib/settlement";
 
 const schema = z.object({
   category: z.string(),
   provider: z.string(),
+  billerCode: z.string().min(2, "Choose a plan"),
+  itemCode: z.string().min(2, "Choose a plan"),
   account: z.string().min(3, "Enter the account / phone number"),
   fiat: z.string().default("NGN"),
-  fiatAmount: z.number().positive("Enter an amount"),
+  // For fixed-price plans the server uses the plan's price; for variable plans
+  // (airtime, prepaid meters) the user supplies the amount.
+  fiatAmount: z.number().positive("Enter an amount").optional(),
   fundingSymbol: z.string().default("USDT"),
 });
 
@@ -30,11 +34,19 @@ export async function POST(req: Request) {
     const input = schema.parse(await req.json());
     const cat = BILL_CATEGORIES.find((c) => c.id === input.category);
     if (!cat) throw new ApiError("Unknown bill category", 400);
-    if (!(cat.providers as readonly string[]).includes(input.provider)) throw new ApiError("Unknown provider for this bill", 400);
+
+    // Resolve the chosen plan from the catalog and trust its price/label — never
+    // the client — for fixed plans, so the amount can't be tampered with.
+    const found = await findBillItem(input.billerCode, input.itemCode);
+    if (!found || found.category !== input.category) throw new ApiError("Choose a valid plan for this bill", 400);
+    const item = found.item;
+
+    const amountFiat = item.variableAmount ? input.fiatAmount ?? 0 : item.amount;
+    if (!(amountFiat > 0)) throw new ApiError("Enter an amount", 400);
 
     // Crypto to debit = market value of the bill's face amount (matches the
     // "Pays from" figure shown to the user; no hidden markup).
-    const cost = await convert(input.fiatAmount, input.fiat, input.fundingSymbol);
+    const cost = await convert(amountFiat, input.fiat, input.fundingSymbol);
     const bal = await balanceOf(userId, input.fundingSymbol);
     if (bal + 1e-12 < cost) throw new ApiError(`Not enough ${input.fundingSymbol} to pay this bill`, 400);
 
@@ -42,7 +54,7 @@ export async function POST(req: Request) {
 
     // Make sure the fiat float can cover the biller payment; if short, auto-sell
     // treasury crypto into the float so the bill still goes out now.
-    await ensureFloat(input.fiat, input.fiatAmount);
+    await ensureFloat(input.fiat, amountFiat);
 
     // Atomic debit + pending settlement, then deliver the bill. Throws (balance
     // refunded) on failure; returns "completed" (instant biller / sandbox) or
@@ -55,10 +67,12 @@ export async function POST(req: Request) {
         categoryTitle: cat.title,
         categoryEmoji: cat.icon,
         provider: input.provider,
+        billerCode: input.billerCode,
+        itemCode: input.itemCode,
         customer: input.account,
         fundingSymbol: input.fundingSymbol,
         cost,
-        amountFiat: input.fiatAmount,
+        amountFiat,
         currency: input.fiat,
         reference,
       });
@@ -73,7 +87,7 @@ export async function POST(req: Request) {
     // Draw the fiat down from the float once delivered, and reward points.
     if (outcome.status === "completed") {
       await prisma.$transaction(async (tx) => {
-        await debitFloat(tx, input.fiat, input.fiatAmount);
+        await debitFloat(tx, input.fiat, amountFiat);
         await tx.user.update({ where: { id: userId }, data: { points: { increment: 20 } } });
       });
     } else {
@@ -87,9 +101,10 @@ export async function POST(req: Request) {
         kind: "bill",
         category: cat.title,
         provider: input.provider,
+        plan: item.name,
         account: input.account,
         fiat: input.fiat,
-        fiatAmount: input.fiatAmount,
+        fiatAmount: amountFiat,
         funding: input.fundingSymbol,
         cost,
         status: outcome.status, // "completed" (instant) or "pending" (processing)

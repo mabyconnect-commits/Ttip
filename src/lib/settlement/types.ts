@@ -52,10 +52,14 @@ export interface PayoutResult {
 /** A request to pay a bill (airtime, data, electricity, cable, …) to a biller. */
 export interface BillRequest {
   userId: string;
-  /** Our category id — airtime | data | electricity | tv | betting | internet. */
+  /** Our category id — airtime | data | electricity | tv | internet. */
   category: string;
   /** Human biller/provider name, e.g. MTN, DStv, EKEDC. */
   provider: string;
+  /** Flutterwave biller code for the chosen plan, e.g. BIL099. */
+  billerCode: string;
+  /** Flutterwave item code for the chosen plan, e.g. AT099 (airtime) / CB177 (DStv Compact). */
+  itemCode: string;
   /** The thing being topped up: phone number, meter no., smartcard no., customer id. */
   customer: string;
   /** Bill face value in `currency`. */

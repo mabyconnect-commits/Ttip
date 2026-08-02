@@ -16,6 +16,8 @@ export type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
 export { settlementMode, isLive, payoutProvider, billProvider, demoEnabled, settlementEnabled, settlementStatus } from "./config";
 export { payBill, finalizeBill, billStatus, validateBillCustomer } from "./billing";
 export type { PayBillArgs, PayBillOutcome } from "./billing";
+export { getBillCatalog, getCategoryCatalog, findBillItem } from "./bill-catalog";
+export type { CategoryCatalog, ProviderGroup, BillItem } from "./bill-classify";
 export { parseDeposit, verifyDepositSignature, parseDextopusDeposit, verifyDextopusSignature } from "./webhook";
 export { ensureFloat, debitFloat, treasuryBalance, adjustTreasury } from "./treasury";
 export { cryptoWithdraw, finalizeWithdrawal } from "./withdrawal";

@@ -4,7 +4,8 @@ import { handler, ok, unauthorized } from "@/lib/api";
 import { validateBillCustomer } from "@/lib/settlement";
 
 const schema = z.object({
-  category: z.string().min(2),
+  billerCode: z.string().min(2),
+  itemCode: z.string().min(2),
   customer: z.string().min(3),
 });
 
@@ -17,8 +18,8 @@ export async function POST(req: Request) {
   return handler(async () => {
     const userId = await getUserId();
     if (!userId) return unauthorized();
-    const { category, customer } = schema.parse(await req.json());
-    const result = await validateBillCustomer(category, customer);
+    const { billerCode, itemCode, customer } = schema.parse(await req.json());
+    const result = await validateBillCustomer(billerCode, itemCode, customer);
     return ok(result);
   });
 }

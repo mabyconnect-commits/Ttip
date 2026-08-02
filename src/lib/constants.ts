@@ -105,13 +105,16 @@ export const FALLBACK_USD_PRICE: Record<string, number> = {
   MATIC: 0.52, LTC: 92, DOT: 6.4, AVAX: 34, TON: 5.4,
 };
 
+// Consumer bill categories surfaced in the app. Providers and plans are loaded
+// dynamically from the biller catalog (Flutterwave live, static in demo), so only
+// the id/title/icon and the amount presets for variable-amount categories live
+// here. Airtime & electricity are variable-amount; data/tv/internet are plans.
 export const BILL_CATEGORIES = [
-  { id: "airtime", title: "Airtime", icon: "📞", providers: ["MTN", "Airtel", "Glo", "9mobile"], amounts: [500, 1000, 2000, 5000] },
-  { id: "data", title: "Data", icon: "📶", providers: ["MTN", "Airtel", "Glo", "9mobile"], amounts: [1000, 2500, 5000, 10000] },
-  { id: "electricity", title: "Electricity", icon: "💡", providers: ["EKEDC", "IKEDC", "AEDC", "PHED"], amounts: [2000, 5000, 10000, 20000] },
-  { id: "tv", title: "TV / Cable", icon: "📺", providers: ["DStv", "GOtv", "Startimes"], amounts: [2950, 5300, 8400, 24500] },
-  { id: "betting", title: "Betting", icon: "🎯", providers: ["Bet9ja", "SportyBet", "1xBet"], amounts: [1000, 2000, 5000, 10000] },
-  { id: "internet", title: "Internet", icon: "🌐", providers: ["Spectranet", "Smile", "Swift"], amounts: [5000, 10000, 15000, 20000] },
+  { id: "airtime", title: "Airtime", icon: "📞", amounts: [100, 200, 500, 1000] },
+  { id: "data", title: "Data", icon: "📶", amounts: [] },
+  { id: "electricity", title: "Electricity", icon: "💡", amounts: [1000, 2000, 5000, 10000] },
+  { id: "tv", title: "TV / Cable", icon: "📺", amounts: [] },
+  { id: "internet", title: "Internet", icon: "🌐", amounts: [] },
 ] as const;
 
 export const SWAP_FEE_PCT = 0.005; // 0.5% after free swaps used

@@ -1,6 +1,6 @@
 import "server-only";
 import type { PayoutRequest, PayoutResult, BillRequest, BillResult, BillValidation } from "./types";
-import { flutterwaveConfig, billType, type FlutterwaveConfig } from "./config";
+import { flutterwaveConfig, type FlutterwaveConfig } from "./config";
 import { mapBillStatus } from "./bill-status";
 
 /**
@@ -120,32 +120,30 @@ export async function flutterwavePayout(req: PayoutRequest): Promise<PayoutResul
 
 /**
  * Pay a bill (airtime, data, electricity, cable, …) via Flutterwave's Bill
- * Payments API. Debits the same Flutterwave wallet that funds payouts.
- * Docs: https://developer.flutterwave.com/reference/create-a-bill-payment
+ * Payments API, using the specific biller item chosen by the user (biller_code +
+ * item_code). Debits the same Flutterwave wallet that funds payouts.
+ * Docs: https://developer.flutterwave.com/reference/create-a-bill-payment-for-a-biller
  */
 export async function flutterwaveBillPay(req: BillRequest): Promise<BillResult> {
   const cfg = flutterwaveConfig();
   if (!cfg) throw new Error("Flutterwave is not configured (FLUTTERWAVE_SECRET_KEY missing).");
 
-  const type = billType(req.category);
-  if (!type) {
-    return { provider: "flutterwave", externalId: req.reference, status: "failed", message: `No Flutterwave bill type mapped for "${req.category}"` };
+  if (!req.billerCode || !req.itemCode) {
+    return { provider: "flutterwave", externalId: req.reference, status: "failed", message: "Missing biller/item code for this bill" };
   }
   const country = req.currency === "GHS" ? "GH" : req.currency === "KES" ? "KE" : req.currency === "ZAR" ? "ZA" : "NG";
 
   let res: Response;
   try {
-    res = await fwFetch(`${cfg.baseUrl}/bills`, {
+    res = await fwFetch(`${cfg.baseUrl}/billers/${encodeURIComponent(req.billerCode)}/items/${encodeURIComponent(req.itemCode)}/payment`, {
       method: "POST",
       headers: { Authorization: `Bearer ${cfg.secretKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         country,
         customer: req.customer,
+        customer_id: req.customer,
         amount: req.amountFiat,
-        recurrence: "ONCE",
-        type,
         reference: req.reference,
-        biller_name: req.provider,
       }),
     });
   } catch (e) {
@@ -191,13 +189,11 @@ export async function flutterwaveBillStatus(reference: string): Promise<PayoutRe
  * { valid:false } when the biller can't be validated (e.g. airtime).
  * Docs: https://developer.flutterwave.com/reference/validate-a-customer
  */
-export async function flutterwaveValidateBill(category: string, customer: string): Promise<BillValidation> {
+export async function flutterwaveValidateBill(billerCode: string, itemCode: string, customer: string): Promise<BillValidation> {
   const cfg = flutterwaveConfig();
-  if (!cfg) return { valid: false };
-  const type = billType(category);
-  if (!type) return { valid: false };
+  if (!cfg || !billerCode || !itemCode) return { valid: false };
   try {
-    const res = await fwFetch(`${cfg.baseUrl}/bill-items/${encodeURIComponent(type)}/validate?code=${encodeURIComponent(type)}&customer=${encodeURIComponent(customer)}`, {
+    const res = await fwFetch(`${cfg.baseUrl}/bill-items/${encodeURIComponent(itemCode)}/validate?code=${encodeURIComponent(billerCode)}&customer=${encodeURIComponent(customer)}`, {
       headers: { Authorization: `Bearer ${cfg.secretKey}` },
     });
     const json = (await res.json().catch(() => ({}))) as { status?: string; message?: string; data?: { name?: string; customer?: string } };
