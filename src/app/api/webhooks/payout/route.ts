@@ -1,18 +1,19 @@
 import { NextResponse } from "next/server";
-import { finalizePayout } from "@/lib/settlement";
+import { finalizePayout, finalizeBuy } from "@/lib/settlement";
 import { verifyFlutterwaveWebhook } from "@/lib/settlement/flutterwave";
 import { verifyPaystackWebhook } from "@/lib/settlement/webhook";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Payout webhook for both providers — we detect which one by its signature
- * header, verify it, then mark the settlement + transaction completed or failed
- * (refunding the debited crypto on failure). Matching is by our own `reference`,
- * which both providers echo back.
+ * Provider webhook for payouts AND buy-collections — Paystack delivers both to a
+ * single account webhook URL, so we route by event type after verifying the
+ * signature. Matching is by our own `reference`, which providers echo back.
  *
- * Flutterwave: `verif-hash` header, data.status SUCCESSFUL/FAILED.
- * Paystack:    `x-paystack-signature` header, event transfer.success/failed/reversed.
+ *   transfer.success/failed/reversed → finalizePayout (naira withdrawal)
+ *   charge.success / charge.failed    → finalizeBuy    (buy-crypto on-ramp)
+ *
+ * Flutterwave payouts use `verif-hash` + data.status SUCCESSFUL/FAILED.
  */
 export async function POST(req: Request) {
   const raw = await req.text();
@@ -26,25 +27,35 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Bad JSON" }, { status: 422 });
   }
 
-  let verified = false;
-  let status: "completed" | "failed" | null = null;
   const data = event.data;
-
-  if (psSig) {
-    verified = verifyPaystackWebhook(raw, psSig);
-    status = (event.event ?? "").toLowerCase() === "transfer.success" ? "completed" : "failed";
-  } else if (flwSig) {
-    verified = verifyFlutterwaveWebhook(flwSig);
-    status = (data?.status ?? "").toUpperCase() === "SUCCESSFUL" ? "completed" : "failed";
-  }
-
-  if (!verified) return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-  if (!data) return NextResponse.json({ ok: true, ignored: true });
+  const evt = (event.event ?? "").toLowerCase();
 
   try {
-    // Both providers echo our own `reference`; match on that.
-    const result = await finalizePayout({ reference: data.reference }, status!);
-    return NextResponse.json({ ok: true, ...result });
+    if (psSig) {
+      if (!verifyPaystackWebhook(raw, psSig)) return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+      if (!data?.reference) return NextResponse.json({ ok: true, ignored: true });
+
+      // Collections (buy on-ramp).
+      if (evt.startsWith("charge.")) {
+        const status = evt === "charge.success" ? "completed" : "failed";
+        const result = await finalizeBuy({ reference: data.reference }, status);
+        return NextResponse.json({ ok: true, kind: "buy", ...result });
+      }
+      // Transfers (naira payout).
+      const status = evt === "transfer.success" ? "completed" : "failed";
+      const result = await finalizePayout({ reference: data.reference }, status);
+      return NextResponse.json({ ok: true, kind: "payout", ...result });
+    }
+
+    if (flwSig) {
+      if (!verifyFlutterwaveWebhook(flwSig)) return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+      if (!data?.reference) return NextResponse.json({ ok: true, ignored: true });
+      const status = (data.status ?? "").toUpperCase() === "SUCCESSFUL" ? "completed" : "failed";
+      const result = await finalizePayout({ reference: data.reference }, status);
+      return NextResponse.json({ ok: true, kind: "payout", ...result });
+    }
+
+    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }

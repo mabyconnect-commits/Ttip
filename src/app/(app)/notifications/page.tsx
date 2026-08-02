@@ -34,6 +34,7 @@ function title(t: Txn): string {
     case "withdraw_wallet": return `Crypto sent`;
     case "bill": return `${t.note ?? "Bill"} delivered`;
     case "card_fund": return `Card funded`;
+    case "buy": return `Bought ${t.assetOut ?? "crypto"}`;
     case "referral_bonus": return `Referral bonus · ${t.counterparty ?? ""}`;
     default: return t.note ?? t.type;
   }

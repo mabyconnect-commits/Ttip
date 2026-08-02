@@ -18,6 +18,9 @@ export { parseDeposit, verifyDepositSignature, parseDextopusDeposit, verifyDexto
 export { ensureFloat, debitFloat, treasuryBalance, adjustTreasury } from "./treasury";
 export { cryptoWithdraw, finalizeWithdrawal } from "./withdrawal";
 export type { CryptoWithdrawRequest, CryptoWithdrawResult } from "./withdrawal";
+export { createBuyOrder, finalizeBuy } from "./buy";
+export type { BuyRequest, BuyResult } from "./buy";
+export { collectionProvider } from "./collection";
 export { ensureDepositAddresses, getOrCreateDepositAddress } from "./provisioning";
 export { listChains, listTokens } from "./dextopus";
 

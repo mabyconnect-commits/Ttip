@@ -83,7 +83,8 @@ export default function HomePage() {
         </div>
 
         {/* quick actions */}
-        <div className="grid grid-cols-4 gap-2.5 px-5 pt-5">
+        <div className="grid grid-cols-5 gap-2 px-5 pt-5">
+          <QuickAction icon="plus" label="Buy" onClick={() => router.push("/buy")} />
           <QuickAction icon="swap" label="Swap" onClick={() => router.push("/swap")} />
           <QuickAction icon="zap" label="Ttip" accent onClick={() => router.push("/ttip")} />
           <QuickAction icon="card" label="Card" onClick={() => router.push("/card")} />
