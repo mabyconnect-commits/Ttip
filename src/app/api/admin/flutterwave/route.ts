@@ -141,6 +141,30 @@ export async function GET(req: Request) {
     }
   }
 
+  // 4. Optional: attempt a real bill payment to see the exact provider response.
+  //    e.g. ?bill=1&customer=09136214038&amount=100  (defaults to AIRTIME)
+  if (url.searchParams.get("bill") === "1") {
+    const customer = url.searchParams.get("customer");
+    const type = url.searchParams.get("type") || "AIRTIME"; // AIRTIME auto-detects the network
+    const amount = Number(url.searchParams.get("amount") || 100);
+    if (!customer) {
+      out.testBill = { skipped: "provide &customer=<phone/meter> (optional &type=AIRTIME&amount=100)" };
+    } else {
+      await call("testBill", "/bills", {
+        method: "POST",
+        headers: { ...auth, "Content-Type": "application/json" },
+        body: JSON.stringify({ country: "NG", customer, amount, recurrence: "ONCE", type, reference: "billdiag_" + Date.now() }),
+      });
+      const b = (out.testBill as { status?: number; body?: { status?: string; message?: string } }) ?? {};
+      out.billDiagnosis =
+        b.body?.status === "success"
+          ? `Bill accepted ✅ — "${b.body?.message ?? "success"}". Bill payments work.`
+          : /not enabled|not permitted|account administrator|contact support|cannot be processed/i.test(b.body?.message ?? "")
+            ? `Flutterwave blocked the bill at the account level ("${b.body?.message}"). Ask Flutterwave to enable Bill Payments on your account.`
+            : `Flutterwave rejected the bill: "${b.body?.message ?? `HTTP ${b.status}`}".`;
+    }
+  }
+
   out.diagnosis = interpret(out);
   return NextResponse.json(out);
 }
