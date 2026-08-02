@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Ttip</string>
+    <string name="title_activity_main">Ttip</string>
+    <string name="package_name">site.ttip.app</string>
+    <string name="custom_url_scheme">site.ttip.app</string>
+</resources>
