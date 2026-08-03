@@ -177,14 +177,18 @@ async function handleWalletSend(userId: string, input: z.infer<typeof schema>) {
   // Solana). Demo always simulates. Anything else fails closed so no funds get
   // stuck as pending.
   const liveOnChain = !demoEnabled(); // settlementEnabled() already true here → live
-  const onChainSupported = solanaWithdrawSupported(symbol);
+  const isSolanaNet = /sol/i.test(input.network ?? "");
+  const onChainSupported = solanaWithdrawSupported(symbol) && isSolanaNet;
   if (liveOnChain && !onChainSupported) {
-    throw new ApiError(`${symbol} withdrawal isn't available yet. USDC on Solana is supported.`, 503);
+    const msg = symbol === "USDC"
+      ? "USDC withdrawals go out on Solana — select the Solana network."
+      : `${symbol} withdrawal isn't available yet. USDC on Solana is supported.`;
+    throw new ApiError(msg, 503);
   }
   // For a real Solana send, validate the destination and enforce the hot-wallet cap.
   let network = input.network;
   if (liveOnChain && onChainSupported) {
-    if (!isValidSolanaAddress(input.address)) throw new ApiError("Enter a valid Solana (USDC) address.", 400);
+    if (!isValidSolanaAddress(input.address)) throw new ApiError("Enter a valid Solana address.", 400);
     if (amount > maxCryptoWithdrawal()) {
       throw new ApiError(`Max withdrawal is ${maxCryptoWithdrawal()} ${symbol} for now — contact support for larger amounts.`, 400);
     }
