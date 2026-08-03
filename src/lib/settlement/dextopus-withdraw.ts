@@ -219,6 +219,8 @@ function friendlyQuoteError(message: string | undefined, asset: string): string 
 export interface DxStatus {
   settled: boolean;
   failed: boolean;
+  /** Dextopus is still waiting for us to fund it (no deposit received yet). */
+  awaitingDeposit: boolean;
   destinationTxHash?: string;
   raw?: unknown;
 }
@@ -236,12 +238,12 @@ export async function dextopusWithdrawStatus(requestId: string): Promise<DxStatu
   // Dextopus exposes both `status` and `executionStatus`; check both.
   const status = String(pick(json, "status") ?? "").toLowerCase();
   const exec = String(pick(json, "executionStatus") ?? "").toLowerCase();
+  const both = `${status} ${exec}`;
   const hashes = pick<string[]>(json, "destinationTransactionHashes");
-  const done = /complete|settled|delivered|success/;
-  const bad = /fail|expired|refund|error/;
   return {
-    settled: done.test(status) || done.test(exec),
-    failed: bad.test(status) || bad.test(exec),
+    settled: /complete|settled|delivered|success/.test(both),
+    failed: /fail|expired|refund|error/.test(both),
+    awaitingDeposit: /pending_deposit|awaiting_deposit|no_deposit|not_received/.test(both),
     destinationTxHash: Array.isArray(hashes) ? hashes[0] : undefined,
     raw: json,
   };
