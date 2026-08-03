@@ -9,7 +9,7 @@ import { convert, isCrypto } from "@/lib/prices";
 import { adjust, balanceOf } from "@/lib/wallet";
 import { NETWORK_FEE_USDT } from "@/lib/constants";
 import { dayStr, isYesterday } from "@/lib/format";
-import { payoutFiat, finalizePayout, payoutProvider, ensureFloat, debitFloat, cryptoWithdraw, settlementEnabled, demoEnabled, solanaWithdrawSupported, isValidSolanaAddress, maxCryptoWithdrawal, dextopusWithdrawEnabled, dextopusValidateAddress, chainTypeForChainId } from "@/lib/settlement";
+import { payoutFiat, finalizePayout, payoutProvider, ensureFloat, debitFloat, cryptoWithdraw, settlementEnabled, demoEnabled, solanaWithdrawSupported, isValidSolanaAddress, maxCryptoWithdrawal, dextopusWithdrawEnabled, dextopusWithdrawPreview } from "@/lib/settlement";
 import { chainIdForNetwork } from "@/lib/chains";
 import { quoteSell, transferFee } from "@/lib/pricing";
 import { referenceFiat } from "@/lib/rate";
@@ -199,13 +199,15 @@ async function handleWalletSend(userId: string, input: z.infer<typeof schema>) {
     }
     network = "Solana";
   } else if (liveOnChain && dexAvailable) {
-    // Dextopus cross-chain send: check the address format for its chain, and cap.
+    // Dextopus cross-chain send: enforce the cap, then dry-run the whole route
+    // BEFORE debiting — catches unsupported assets (native coins), bad
+    // addresses and below-minimum amounts with a clear message and no debit.
     if (!destChainId) throw new ApiError(`Choose a supported network for ${symbol}.`, 400);
     if (amount > maxCryptoWithdrawal()) {
       throw new ApiError(`Max withdrawal is ${maxCryptoWithdrawal()} ${symbol} for now — contact support for larger amounts.`, 400);
     }
-    const check = await dextopusValidateAddress(chainTypeForChainId(destChainId), input.address);
-    if (!check.valid) throw new ApiError(check.reason ? `Invalid address: ${check.reason}` : "Enter a valid destination wallet address.", 400);
+    const preview = await dextopusWithdrawPreview({ asset: symbol, network: input.network, chainId: destChainId, address: input.address, amount, reference: "" });
+    if (!preview.ok) throw new ApiError(preview.message ?? "This withdrawal can't be processed.", 400);
   }
 
   // network fee expressed in the sent asset
