@@ -230,17 +230,38 @@ export async function reconcilePendingWithdrawals(limit = 25, userId?: string): 
     take: limit,
   });
 
+  const REFUND_AFTER_MS = 5 * 60_000; // past the quote's 2-min expiry, with buffer
   let settled = 0;
   let failed = 0;
   for (const s of pending) {
-    const requestId = (s.raw as { dextopusRequestId?: string } | null)?.dextopusRequestId;
-    if (!requestId) continue;
+    const raw = (s.raw as { dextopusRequestId?: string; fundingTx?: string } | null) ?? {};
+    const requestId = raw.dextopusRequestId;
+    const ageMs = Date.now() - s.createdAt.getTime();
+
+    // No provider request id at all → the quote never succeeded; refund once the
+    // quote window is well past (nothing was ever handed to Dextopus).
+    if (!requestId) {
+      if (ageMs > REFUND_AFTER_MS) {
+        await finalizeWithdrawal({ reference: s.reference ?? undefined, externalId: s.externalId }, "failed");
+        failed++;
+      }
+      continue;
+    }
+
     const st = await dextopusWithdrawStatus(String(requestId)).catch(() => null);
     if (!st) continue;
+
     if (st.settled) {
       await finalizeWithdrawal({ reference: s.reference ?? undefined, externalId: s.externalId }, "completed", st.destinationTxHash);
       settled++;
     } else if (st.failed) {
+      await finalizeWithdrawal({ reference: s.reference ?? undefined, externalId: s.externalId }, "failed");
+      failed++;
+    } else if (st.awaitingDeposit && !raw.fundingTx && ageMs > REFUND_AFTER_MS) {
+      // Dextopus received nothing and we have no funding tx — the treasury send
+      // failed. Safe to refund: no USDC left the treasury (and a late deposit
+      // after quote expiry is returned to our refundTo, never delivered), so the
+      // user can't be both refunded and paid.
       await finalizeWithdrawal({ reference: s.reference ?? undefined, externalId: s.externalId }, "failed");
       failed++;
     }
