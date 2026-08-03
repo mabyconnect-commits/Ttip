@@ -32,7 +32,7 @@ export function TabBar() {
             key={t.href}
             href={t.href}
             className="flex flex-col items-center gap-[3px] w-14"
-            style={{ color: path === t.href ? "#2AC8FF" : "rgba(255,255,255,.42)" }}
+            style={{ color: path === t.href ? "var(--link)" : "rgb(var(--fg) / .45)" }}
           >
             <Icon name={t.icon} size={22} />
             <span className="font-medium text-[10px]">{t.label}</span>

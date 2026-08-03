@@ -127,7 +127,7 @@ export default function DepositPage() {
                 <Detail label="Bank" value="Providus Bank" onCopy={copy} />
                 <Detail label="Account number" value="9901234567" onCopy={copy} />
                 <Detail label="Account name" value={`Ttip / ${state.user.name}`} onCopy={copy} />
-                <div className="mt-4 rounded-xl px-3.5 py-3 text-[12.5px]" style={{ background: "rgba(255,200,91,.08)", border: "1px solid rgba(255,200,91,.3)", color: "rgba(255,255,255,.75)" }}>
+                <div className="mt-4 rounded-xl px-3.5 py-3 text-[12.5px]" style={{ background: "rgba(255,200,91,.08)", border: "1px solid rgba(255,200,91,.3)", color: "rgb(var(--fg) / .78)" }}>
                   ⚠️ Demo account for testing only — do not send real money here.
                 </div>
               </div>
@@ -219,7 +219,7 @@ export default function DepositPage() {
                 {nairaBusy ? "Opening your account…" : "Get my account number"}
               </button>
               {nairaErr && (
-                <div className="mt-3 rounded-xl px-3.5 py-3 text-[12.5px] leading-[1.5] flex gap-2" style={{ background: "rgba(255,122,138,.08)", border: "1px solid rgba(255,122,138,.3)", color: "rgba(255,255,255,.8)" }}>
+                <div className="mt-3 rounded-xl px-3.5 py-3 text-[12.5px] leading-[1.5] flex gap-2" style={{ background: "rgba(255,122,138,.08)", border: "1px solid rgba(255,122,138,.3)", color: "rgb(var(--fg) / .8)" }}>
                   <span className="shrink-0">⚠️</span>
                   <span>{nairaErr}</span>
                 </div>
@@ -279,7 +279,7 @@ export default function DepositPage() {
                   <button onClick={() => { if (navigator.share) navigator.share({ text: addr }).catch(() => {}); else copy(addr); }} className="rounded-full px-5 py-2.5 font-grotesk font-semibold text-[13px] border border-white/14">Share</button>
                 </div>
               </div>
-              <div className="mt-3 rounded-2xl px-4 py-3.5 text-[12.5px] leading-[1.55] flex gap-2.5" style={{ background: "rgba(255,200,91,.1)", border: "1px solid rgba(255,200,91,.35)", color: "rgba(255,255,255,.8)" }}>
+              <div className="mt-3 rounded-2xl px-4 py-3.5 text-[12.5px] leading-[1.55] flex gap-2.5" style={{ background: "rgba(255,200,91,.1)", border: "1px solid rgba(255,200,91,.35)", color: "rgb(var(--fg) / .8)" }}>
                 <span className="text-warn shrink-0">⚠</span>
                 <span>
                   Send <b className="text-warn">only {selToken?.symbol}</b> on <b className="text-warn">{selChain?.name}</b> to this exact address.
@@ -343,7 +343,7 @@ export default function DepositPage() {
                 </div>
               </div>
 
-              <div className="mt-3 rounded-xl px-3.5 py-3 text-[12.5px] flex gap-2" style={{ background: "rgba(255,200,91,.08)", border: "1px solid rgba(255,200,91,.3)", color: "rgba(255,255,255,.75)" }}>
+              <div className="mt-3 rounded-xl px-3.5 py-3 text-[12.5px] flex gap-2" style={{ background: "rgba(255,200,91,.08)", border: "1px solid rgba(255,200,91,.3)", color: "rgb(var(--fg) / .78)" }}>
                 <span>⚠️</span>
                 <span>
                   Only send <b className="text-warn">{asset?.name} ({sym})</b> on <b className="text-warn">{net.network}</b>. Other assets or networks will be lost.

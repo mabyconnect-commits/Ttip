@@ -17,7 +17,8 @@ export function QR({ value, size = 160, className = "" }: { value: string; size?
   }, [value, size]);
 
   return (
-    <div className={`bg-white rounded-2xl p-2 relative ${className}`} style={{ width: size, height: size }}>
+    <div // keep-white: a QR needs a light background with dark modules to scan.
+      className={`bg-white keep-white rounded-2xl p-2 relative ${className}`} style={{ width: size, height: size }}>
       {url && (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={url} alt="QR code" width={size - 16} height={size - 16} className="rounded" />

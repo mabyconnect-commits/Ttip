@@ -5,6 +5,7 @@ import { useApp } from "@/context/AppContext";
 import { Avatar } from "@/components/ui";
 import { TabBar } from "@/components/TabBar";
 import { Icon, type IconName } from "@/components/Icon";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { CashbackCard } from "@/components/CashbackCard";
 import { COMPANY, PRODUCT_OF } from "@/lib/company";
 
@@ -36,8 +37,9 @@ export default function AccountPage() {
 
   return (
     <>
-      <div className="flex items-center px-[22px] pt-3.5 pb-3">
+      <div className="flex items-center justify-between px-[22px] pt-3.5 pb-3">
         <div className="font-grotesk font-bold text-[22px]">Account</div>
+        <ThemeToggle />
       </div>
       <div className="flex-1 overflow-y-auto no-scrollbar px-[22px] pb-4">
         {/* profile header */}

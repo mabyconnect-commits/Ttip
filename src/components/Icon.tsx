@@ -7,7 +7,7 @@ export type IconName =
   | "home" | "swap" | "zap" | "activity" | "card" | "bills"
   | "bell" | "gift" | "arrowDown" | "arrowUp" | "back" | "settings"
   | "plus" | "check" | "snowflake" | "scan" | "copy" | "share"
-  | "chevronRight" | "chevronDown" | "grid" | "swapVertical" | "sun" | "search"
+  | "chevronRight" | "chevronDown" | "grid" | "swapVertical" | "sun" | "moon" | "search"
   | "user" | "shield" | "list" | "bank" | "headset" | "gauge" | "logout" | "lock" | "edit" | "trash"
   | "message" | "mail" | "phone" | "x" | "flag";
 
@@ -86,6 +86,7 @@ const P: Record<IconName, React.ReactNode> = {
     </>
   ),
   sun: <path d="M12 4V2M12 22v-2M6 6 4.5 4.5M19.5 19.5 18 18M4 12H2M22 12h-2M6 18l-1.5 1.5M19.5 4.5 18 6M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z" />,
+  moon: <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" />,
   search: (
     <>
       <circle cx="11" cy="11" r="7" />

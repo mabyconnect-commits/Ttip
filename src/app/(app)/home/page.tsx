@@ -10,6 +10,7 @@ import { Icon, type IconName } from "@/components/Icon";
 import { formatFiat, formatUsd, formatCrypto } from "@/lib/format";
 import { FIATS } from "@/lib/constants";
 import { payoutCurrencySupported } from "@/lib/settlement/payout-country";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export default function HomePage() {
   const { state, action, toast } = useApp();
@@ -51,6 +52,7 @@ export default function HomePage() {
             <Icon name="activity" size={15} />
             <span className="font-grotesk font-semibold text-[12.5px]">Rates</span>
           </button>
+          <ThemeToggle compact />
           <button onClick={() => router.push("/notifications")} className="w-9 h-9 rounded-full border border-white/10 flex items-center justify-center text-white/70 active:scale-95">
             <Icon name="bell" size={17} />
           </button>
@@ -179,7 +181,7 @@ function QuickAction({ icon, label, onClick, accent, soon }: { icon: IconName; l
         style={
           accent
             ? { background: "rgba(61,245,176,.10)", borderColor: "rgba(61,245,176,.30)", color: "#3DF5B0" }
-            : { background: "#101219", borderColor: "rgba(255,255,255,.07)", color: "#fff" }
+            : { background: "rgb(var(--surface2))", borderColor: "rgb(var(--fg) / .08)", color: "rgb(var(--fg))" }
         }
       >
         <Icon name={icon} size={22} strokeWidth={1.9} />

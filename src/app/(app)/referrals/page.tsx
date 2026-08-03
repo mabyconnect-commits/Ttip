@@ -79,7 +79,9 @@ export default function ReferralsPage() {
         </div>
 
         {/* referral balance */}
-        <div className="rounded-3xl p-5 mt-3 text-center relative overflow-hidden" style={{ background: "linear-gradient(135deg,#0E1330,#171A2E)", border: "1px solid rgba(255,255,255,.08)" }}>
+        {/* Keeps its dark brand gradient in both themes, so `on-dark` holds the
+            text light instead of letting light mode turn it near-black. */}
+        <div className="on-dark rounded-3xl p-5 mt-3 text-center relative overflow-hidden" style={{ background: "linear-gradient(135deg,#0E1330,#171A2E)", border: "1px solid rgba(255,255,255,.08)" }}>
           <div className="text-[12px] text-white/50">Referral balance</div>
           <div className="font-grotesk font-bold text-[30px] mt-1 tracking-[-0.5px]">{formatFiat(data?.balance ?? 0, "NGN", { decimals: 2 })}</div>
           <div className="grid grid-cols-3 gap-2 mt-4">

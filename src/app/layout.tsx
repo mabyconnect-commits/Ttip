@@ -3,6 +3,7 @@ import { Space_Grotesk, DM_Sans } from "next/font/google";
 import "./globals.css";
 import { NativeBridge } from "@/components/NativeBridge";
 import { InstallPrompt } from "@/components/InstallPrompt";
+import { THEME_INIT_SCRIPT } from "@/components/ThemeToggle";
 
 const grotesk = Space_Grotesk({
   subsets: ["latin"],
@@ -45,7 +46,12 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${grotesk.variable} ${dm.variable}`}>
+    <html lang="en" className={`${grotesk.variable} ${dm.variable}`} suppressHydrationWarning>
+      <head>
+        {/* Sets data-theme before the first paint. Applying it from a component
+            would render the dark UI for a frame and then flash to light. */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="font-sans">
         <NativeBridge />
         {children}

@@ -37,7 +37,7 @@ export default function LimitsPage() {
               <div
                 key={t.tier}
                 className="rounded-[18px] p-4 border"
-                style={active ? { borderColor: "rgba(42,200,255,.5)", background: "rgba(42,200,255,.06)" } : { borderColor: "rgba(255,255,255,.07)", background: "#0D0F17" }}
+                style={active ? { borderColor: "rgba(42,200,255,.5)", background: "rgba(42,200,255,.06)" } : { borderColor: "rgb(var(--fg) / .10)", background: "rgb(var(--surface))" }}
               >
                 <div className="flex items-center justify-between">
                   <div className="font-grotesk font-semibold text-[15px] flex items-center gap-2">

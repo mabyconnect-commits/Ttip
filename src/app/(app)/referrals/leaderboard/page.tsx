@@ -69,7 +69,7 @@ export default function LeaderboardPage() {
                       <div className="font-grotesk font-bold text-[12px] text-good mt-0.5">{formatFiat(r.earned, "NGN", { decimals: 0 })}</div>
                       <div
                         className="w-full rounded-t-xl mt-2 flex items-start justify-center pt-1.5 font-grotesk font-bold text-[18px] text-white/80"
-                        style={{ height: heights[i], background: "linear-gradient(180deg,rgba(42,200,255,.22),rgba(42,200,255,.05))", border: "1px solid rgba(255,255,255,.08)" }}
+                        style={{ height: heights[i], background: "linear-gradient(180deg,rgba(42,200,255,.22),rgba(42,200,255,.05))", border: "1px solid rgb(var(--fg) / .10)" }}
                       >
                         {r.rank}
                       </div>

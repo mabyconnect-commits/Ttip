@@ -75,7 +75,7 @@ export default function NotificationsPage() {
                     style={{ background: state[it.key] ? "#3DF5B0" : "rgba(255,255,255,.14)" }}
                     aria-label={it.label}
                   >
-                    <span className="block w-[22px] h-[22px] rounded-full bg-white transition-transform" style={{ transform: state[it.key] ? "translateX(20px)" : "translateX(0)" }} />
+                    <span className="block w-[22px] h-[22px] rounded-full bg-white keep-white transition-transform" style={{ transform: state[it.key] ? "translateX(20px)" : "translateX(0)" }} />
                   </button>
                 </div>
               ))}

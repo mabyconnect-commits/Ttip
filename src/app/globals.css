@@ -135,3 +135,96 @@ input[type="number"] {
     box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
   }
 }
+
+/*
+ * LIGHT MODE
+ *
+ * The UI is written as white-on-dark — ~500 uses of `text-white/45`,
+ * `border-white/[.06]` and friends across 54 files. Rewriting every one of them
+ * by hand would be an enormous diff through every screen in a live money app,
+ * with a real chance of breaking one.
+ *
+ * So light mode re-points those exact utilities at the foreground colour
+ * instead. Each rule below is scoped to [data-theme="light"], which means dark
+ * mode compiles to precisely what it did before — byte for byte. Nothing that
+ * works today can change.
+ *
+ * The alphas are raised, not mirrored: dark text at 40% on white is far fainter
+ * than white text at 40% on black, so each step is boosted to keep the same
+ * visual hierarchy.
+ */
+[data-theme="light"] .text-white { color: rgb(var(--fg)); }
+[data-theme="light"] .text-white\/25 { color: rgb(var(--fg) / .45); }
+[data-theme="light"] .text-white\/30 { color: rgb(var(--fg) / .48); }
+[data-theme="light"] .text-white\/35 { color: rgb(var(--fg) / .50); }
+[data-theme="light"] .text-white\/40 { color: rgb(var(--fg) / .55); }
+[data-theme="light"] .text-white\/45 { color: rgb(var(--fg) / .58); }
+[data-theme="light"] .text-white\/50 { color: rgb(var(--fg) / .60); }
+[data-theme="light"] .text-white\/55 { color: rgb(var(--fg) / .62); }
+[data-theme="light"] .text-white\/60 { color: rgb(var(--fg) / .66); }
+[data-theme="light"] .text-white\/65 { color: rgb(var(--fg) / .68); }
+[data-theme="light"] .text-white\/70 { color: rgb(var(--fg) / .72); }
+[data-theme="light"] .text-white\/75 { color: rgb(var(--fg) / .76); }
+[data-theme="light"] .text-white\/80 { color: rgb(var(--fg) / .80); }
+[data-theme="light"] .text-white\/85 { color: rgb(var(--fg) / .85); }
+[data-theme="light"] .text-white\/90 { color: rgb(var(--fg) / .90); }
+[data-theme="light"] .text-white\/95 { color: rgb(var(--fg) / .94); }
+
+[data-theme="light"] .border-white\/\[\.05\] { border-color: rgb(var(--fg) / .08); }
+[data-theme="light"] .border-white\/\[\.06\] { border-color: rgb(var(--fg) / .10); }
+[data-theme="light"] .border-white\/\[\.07\] { border-color: rgb(var(--fg) / .10); }
+[data-theme="light"] .border-white\/\[\.08\] { border-color: rgb(var(--fg) / .12); }
+[data-theme="light"] .border-white\/\[\.10\] { border-color: rgb(var(--fg) / .14); }
+[data-theme="light"] .border-white\/\[\.12\] { border-color: rgb(var(--fg) / .14); }
+[data-theme="light"] .border-white\/8 { border-color: rgb(var(--fg) / .12); }
+[data-theme="light"] .border-white\/10 { border-color: rgb(var(--fg) / .14); }
+[data-theme="light"] .border-white\/12 { border-color: rgb(var(--fg) / .14); }
+[data-theme="light"] .border-white\/14 { border-color: rgb(var(--fg) / .16); }
+[data-theme="light"] .border-white\/15 { border-color: rgb(var(--fg) / .18); }
+[data-theme="light"] .border-white\/20 { border-color: rgb(var(--fg) / .22); }
+
+[data-theme="light"] .bg-white\/5 { background-color: rgb(var(--fg) / .05); }
+[data-theme="light"] .bg-white\/10 { background-color: rgb(var(--fg) / .07); }
+[data-theme="light"] .bg-white\/20 { background-color: rgb(var(--fg) / .12); }
+[data-theme="light"] .bg-white\/45 { background-color: rgb(var(--fg) / .30); }
+[data-theme="light"] .bg-white\/\[\.04\] { background-color: rgb(var(--fg) / .04); }
+[data-theme="light"] .bg-white\/\[\.06\] { background-color: rgb(var(--fg) / .05); }
+[data-theme="light"] .bg-white\/\[\.08\] { background-color: rgb(var(--fg) / .06); }
+
+/* Surfaces. The dark palette's near-black cards become white//near-white ones. */
+[data-theme="light"] .bg-ink { background-color: rgb(var(--bg)); }
+[data-theme="light"] .bg-surface { background-color: rgb(var(--surface)); }
+[data-theme="light"] .bg-surface2 { background-color: rgb(var(--surface2)); }
+[data-theme="light"] .app-shell { background: rgb(var(--bg)); }
+
+/* The handful of hardcoded dark hexes, mapped to the same surfaces. */
+[data-theme="light"] .bg-\[\#0B0D14\],
+[data-theme="light"] .bg-\[\#0D0F17\] { background-color: rgb(var(--surface)); }
+[data-theme="light"] .bg-\[\#151827\],
+[data-theme="light"] .bg-\[\#1A2230\] { background-color: rgb(var(--surface2)); }
+[data-theme="light"] .bg-\[\#0A0C12\]\/95 { background-color: rgb(var(--bg) / .95); }
+
+/*
+ * Anything that keeps a dark background in BOTH themes — a brand gradient card,
+ * a coloured pill — marks itself `on-dark` so its text stays light instead of
+ * turning near-black on near-black.
+ */
+[data-theme="light"] .on-dark,
+[data-theme="light"] .on-dark * { color: #fff; }
+[data-theme="light"] .on-dark .text-white\/45,
+[data-theme="light"] .on-dark .text-white\/50 { color: rgb(255 255 255 / .55); }
+
+/* Shadows read as dirt on a light background; soften them right down. */
+[data-theme="light"] .shadow-\[0_10px_30px_rgba\(0\,0\,0\,\.55\)\] {
+  box-shadow: 0 10px 30px rgb(12 14 22 / .12);
+}
+
+/*
+ * Selected chips and segments are `bg-white text-[#07080D]` everywhere — white
+ * pill, dark label. On a white card that pill vanishes, so light mode inverts
+ * the pair: dark pill, light label. `keep-white` opts out for the two things
+ * that must stay white in both themes (a QR code, a switch knob).
+ */
+[data-theme="light"] .bg-white:not(.keep-white) { background-color: rgb(var(--fg)); }
+[data-theme="light"] .border-white:not(.keep-white) { border-color: rgb(var(--fg)); }
+[data-theme="light"] .text-\[\#07080D\] { color: rgb(var(--bg)); }

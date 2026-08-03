@@ -151,7 +151,7 @@ export function Toasts() {
           <div
             key={t.id}
             className="animate-toast inline-flex items-center gap-2.5 max-w-full pl-2.5 pr-4 py-2 rounded-full shadow-[0_10px_30px_rgba(0,0,0,.55)]"
-            style={{ background: "rgba(18,20,28,.92)", border: "1px solid rgba(255,255,255,.1)", backdropFilter: "blur(14px)" }}
+            style={{ background: "rgb(var(--surface2) / .96)", border: "1px solid rgb(var(--fg) / .12)", backdropFilter: "blur(14px)", color: "rgb(var(--fg))" }}
           >
             <span className="w-[22px] h-[22px] rounded-full flex items-center justify-center shrink-0" style={{ background: `${color}26`, color }}>
               {t.tone === "bad" ? (
