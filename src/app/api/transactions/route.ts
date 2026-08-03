@@ -3,6 +3,7 @@ import { getUserId } from "@/lib/auth";
 import { handler, ok, unauthorized } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
 import { explorerTxUrl } from "@/lib/chains";
+import { reconcilePendingWithdrawals } from "@/lib/settlement";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,12 @@ export async function GET(req: Request) {
   return handler(async () => {
     const userId = await getUserId();
     if (!userId) return unauthorized();
+
+    // Self-heal: finalize any of this user's pending Dextopus withdrawals that
+    // have since settled (or failed → refund), so the list is current even when
+    // the reconciliation cron runs infrequently. Cheap no-op if none are pending.
+    await reconcilePendingWithdrawals(10, userId).catch(() => {});
+
     const params = new URL(req.url).searchParams;
     const limit = Number(params.get("limit") ?? 30);
 
