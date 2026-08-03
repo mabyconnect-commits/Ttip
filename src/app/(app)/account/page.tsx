@@ -28,6 +28,12 @@ export default function AccountPage() {
     { icon: "headset", label: "Support", sub: "Talk to us", href: "/account/support" },
   ];
 
+  // Admin-only tools. The link is hidden for everyone else purely for tidiness —
+  // the endpoints behind it authorise server-side and 404 for non-admins.
+  if (user.isAdmin) {
+    items.push({ icon: "gauge", label: "Funding audit", sub: "Unfunded balances & demo accounts", href: "/account/admin" });
+  }
+
   return (
     <>
       <div className="flex items-center px-[22px] pt-3.5 pb-3">

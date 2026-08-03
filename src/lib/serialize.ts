@@ -58,6 +58,13 @@ export async function getAppState(userId: string) {
       nairaAccount: user.nairaAccount,
       nairaBank: user.nairaBank,
       initial: user.name.trim().charAt(0).toUpperCase(),
+      // Drives the admin link only. Every admin API re-checks server-side, so
+      // flipping this in the client grants nothing.
+      isAdmin: (process.env.ADMIN_EMAILS ?? process.env.ADMIN_MAILS ?? "")
+        .split(",")
+        .map((e) => e.trim().toLowerCase())
+        .filter(Boolean)
+        .includes(user.email.toLowerCase()),
     },
     portfolio,
     // Runtime money mode, so the UI can flag test mode and never imply real

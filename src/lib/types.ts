@@ -24,6 +24,8 @@ export interface UserSummary {
   nairaAccount?: string | null;
   nairaBank?: string | null;
   initial: string;
+  /** Shows the admin link. Authorisation itself is always server-side. */
+  isAdmin?: boolean;
 }
 
 export interface PortfolioAsset {
