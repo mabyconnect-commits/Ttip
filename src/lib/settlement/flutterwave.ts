@@ -1,4 +1,5 @@
 import "server-only";
+import { ProxyAgent } from "undici";
 import type { PayoutRequest, PayoutResult, BillRequest, BillResult, BillValidation } from "./types";
 import { flutterwaveConfig, type FlutterwaveConfig } from "./config";
 import { mapBillStatus } from "./bill-status";
@@ -27,22 +28,42 @@ interface FwTransferResponse {
  * then leaves from the same address. With no proxy configured, behaviour is
  * unchanged (direct fetch).
  */
-let dispatcherPromise: Promise<unknown> | undefined;
-async function fwDispatcher(): Promise<unknown> {
+// undici's ProxyAgent is statically imported (and undici is a direct dependency)
+// so it's bundled into the serverless function. The earlier dynamic
+// import("undici") silently failed to resolve at runtime on Vercel and fell back
+// to a DIRECT fetch — which is why Flutterwave kept seeing a non-whitelisted IP
+// even with FLUTTERWAVE_PROXY_URL set. Now the dispatcher is built up-front.
+let proxyDispatcher: ProxyAgent | null | undefined; // undefined = not initialised
+let proxyInitError: string | null = null;
+function fwDispatcher(): ProxyAgent | undefined {
   const url = process.env.FLUTTERWAVE_PROXY_URL;
   if (!url) return undefined;
-  if (!dispatcherPromise) {
-    const mod = "undici"; // non-literal specifier: loaded only when a proxy is set
-    dispatcherPromise = import(mod)
-      .then((u: any) => new u.ProxyAgent(url))
-      .catch(() => null);
+  if (proxyDispatcher === undefined) {
+    try {
+      proxyDispatcher = new ProxyAgent(url);
+    } catch (e) {
+      proxyDispatcher = null;
+      proxyInitError = String(e);
+    }
   }
-  return (await dispatcherPromise) ?? undefined;
+  return proxyDispatcher ?? undefined;
+}
+
+/**
+ * Whether the static-IP proxy is not just configured but actually usable — i.e.
+ * the dispatcher was built. `active:false` while `configured:true` means egress
+ * is still going direct (the exact failure we just fixed). Surfaced by the
+ * admin diagnostic so this can never silently regress.
+ */
+export function proxyStatus(): { configured: boolean; active: boolean; error: string | null } {
+  const configured = !!process.env.FLUTTERWAVE_PROXY_URL;
+  const active = configured && fwDispatcher() != null;
+  return { configured, active, error: proxyInitError };
 }
 
 /** fetch that routes through the static-IP proxy when one is configured. */
 export async function fwFetch(url: string, init: RequestInit = {}): Promise<Response> {
-  const dispatcher = await fwDispatcher();
+  const dispatcher = fwDispatcher();
   return fetch(url, (dispatcher ? { ...init, dispatcher } : init) as RequestInit);
 }
 

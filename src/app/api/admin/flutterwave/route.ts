@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { flutterwaveConfig } from "@/lib/settlement/config";
-import { fwFetch, flutterwaveBillCategories } from "@/lib/settlement/flutterwave";
+import { fwFetch, flutterwaveBillCategories, proxyStatus } from "@/lib/settlement/flutterwave";
 
 export const dynamic = "force-dynamic";
 
@@ -98,6 +98,9 @@ export async function GET(req: Request) {
   }
 
   out.proxy = process.env.FLUTTERWAVE_PROXY_URL ? "configured (static-IP egress)" : "none (direct Vercel egress — dynamic IP)";
+  // configured === true but active === false means the proxy env is set but the
+  // dispatcher didn't load, so traffic is STILL going direct (Vercel dynamic IP).
+  out.proxyStatus = proxyStatus();
 
   // 0. Egress IP as seen by an outside echo — routed through fwFetch, so it uses
   //    the SAME path (static proxy or direct Vercel) that Flutterwave calls take.
