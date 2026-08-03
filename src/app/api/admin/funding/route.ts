@@ -41,8 +41,13 @@ interface Debit {
   shortfall: number;
 }
 
-/** Unfunded amount per asset for one user, net of anything already reversed. */
-async function unfundedFor(userId: string): Promise<Map<string, number>> {
+/**
+ * Unfunded amount per asset for one user, net of anything already reversed.
+ * `sources` explains where each figure came from, so a real user's balance can
+ * be checked by eye before it's debited — a ₦500 line could be the signup
+ * bonus rather than abuse, and the two must never be confused.
+ */
+async function unfundedFor(userId: string, sources: string[] = []): Promise<Map<string, number>> {
   const out = new Map<string, number>();
 
   const settlements = await prisma.settlement.findMany({
@@ -51,6 +56,7 @@ async function unfundedFor(userId: string): Promise<Map<string, number>> {
   for (const s of settlements) {
     if (REAL_PROVIDERS.includes(s.provider)) continue;
     out.set(s.asset, (out.get(s.asset) ?? 0) + Number(s.amount));
+    sources.push(`simulated ${s.kind} ${s.amount} ${s.asset} via ${s.provider} (${s.externalId})`);
   }
 
   // The old simulator's fiat branch wrote a transaction and no settlement.
@@ -60,6 +66,7 @@ async function unfundedFor(userId: string): Promise<Map<string, number>> {
   for (const t of fiatSims) {
     const asset = t.assetOut ?? "NGN";
     out.set(asset, (out.get(asset) ?? 0) + Number(t.amountOut ?? 0));
+    sources.push(`simulated bank deposit ${t.amountOut} ${asset} (no settlement row)`);
   }
 
   // Balances with no deposit provenance at all (demo seed / manual edits), less
@@ -75,8 +82,16 @@ async function unfundedFor(userId: string): Promise<Map<string, number>> {
       granted.set(a, (granted.get(a) ?? 0) + Number(g.amountOut ?? 0));
     }
     for (const b of balances) {
-      const unexplained = Number(b.amount) - (granted.get(b.symbol) ?? 0);
-      if (unexplained > 0) out.set(b.symbol, unexplained);
+      const g = granted.get(b.symbol) ?? 0;
+      const unexplained = Number(b.amount) - g;
+      if (unexplained > 0) {
+        out.set(b.symbol, unexplained);
+        sources.push(
+          `${unexplained} ${b.symbol} held with no deposit of any kind` +
+            (g > 0 ? ` (after allowing ${g} ${b.symbol} of promos)` : "") +
+            ` — demo seed or manual DB edit`,
+        );
+      }
     }
   }
 
@@ -88,6 +103,7 @@ async function unfundedFor(userId: string): Promise<Map<string, number>> {
     const asset = r.assetIn ?? "";
     if (!out.has(asset)) continue;
     const left = (out.get(asset) ?? 0) - Number(r.amountIn ?? 0);
+    sources.push(`${r.amountIn} ${asset} already reversed by an earlier clawback`);
     if (left > 1e-9) out.set(asset, left);
     else out.delete(asset);
   }
@@ -107,7 +123,8 @@ async function report(userFilter?: string) {
   let totalGoneUsd = 0;
 
   for (const u of users) {
-    const unfunded = await unfundedFor(u.id);
+    const sources: string[] = [];
+    const unfunded = await unfundedFor(u.id, sources);
     if (!unfunded.size) continue;
 
     const debits: Debit[] = [];
@@ -124,7 +141,7 @@ async function report(userFilter?: string) {
 
     totalRecoverableUsd += recoverableUsd;
     totalGoneUsd += goneUsd;
-    rows.push({ userId: u.id, email: u.email, username: u.username, debits, recoverableUsd, goneUsd });
+    rows.push({ userId: u.id, email: u.email, username: u.username, debits, recoverableUsd, goneUsd, sources });
   }
 
   return { accounts: rows, totalRecoverableUsd, totalGoneUsd };
