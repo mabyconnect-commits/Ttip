@@ -223,9 +223,9 @@ export async function finalizeWithdrawal(
  * Safe to run on a schedule and lazily; finalizeWithdrawal is idempotent. Returns
  * how many settled/failed this pass.
  */
-export async function reconcilePendingWithdrawals(limit = 25): Promise<{ checked: number; settled: number; failed: number }> {
+export async function reconcilePendingWithdrawals(limit = 25, userId?: string): Promise<{ checked: number; settled: number; failed: number }> {
   const pending = await prisma.settlement.findMany({
-    where: { kind: "withdrawal", status: "pending", provider: "dextopus" },
+    where: { kind: "withdrawal", status: "pending", provider: "dextopus", ...(userId ? { userId } : {}) },
     orderBy: { createdAt: "asc" },
     take: limit,
   });
