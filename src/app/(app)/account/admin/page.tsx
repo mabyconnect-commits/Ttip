@@ -57,6 +57,7 @@ interface Revenue {
   fees?: {
     bankTransfers: number;
     fiatDeposits: number;
+    bills: number;
     swaps: number;
     swapSpread: number;
     cryptoWithdrawals: number;
@@ -198,6 +199,7 @@ export default function AdminFundingPage() {
                     {[
                       ["Bank transfers", rev.fees?.bankTransfers ?? 0],
                       ["Fiat deposits", rev.fees?.fiatDeposits ?? 0],
+                      ["Bills", rev.fees?.bills ?? 0],
                       ["Swap fees", rev.fees?.swaps ?? 0],
                       ["Swap spread", rev.fees?.swapSpread ?? 0],
                       ["Crypto withdrawals", rev.fees?.cryptoWithdrawals ?? 0],

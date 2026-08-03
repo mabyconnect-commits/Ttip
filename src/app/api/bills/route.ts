@@ -5,6 +5,7 @@ import { getUserId } from "@/lib/auth";
 import { handler, ok, unauthorized, ApiError } from "@/lib/api";
 import { getAppState } from "@/lib/serialize";
 import { convert } from "@/lib/prices";
+import { billFee } from "@/lib/fees";
 import { balanceOf } from "@/lib/wallet";
 import { BILL_CATEGORIES, BILL_FIAT } from "@/lib/constants";
 import { payBill, ensureFloat, settlementEnabled, findBillItem } from "@/lib/settlement";
@@ -48,9 +49,13 @@ export async function POST(req: Request) {
     // would charge a ZAR user R100 for a ₦100 recharge — ~82x the real price.
     const fiat = BILL_FIAT;
 
-    // Crypto to debit = market value of the bill's face amount (matches the
-    // "Pays from" figure shown to the user; no hidden markup).
-    const cost = await convert(amountFiat, fiat, input.fundingSymbol);
+    // Crypto to debit = market value of the bill's face amount PLUS our service
+    // fee. The biller still receives exactly `amountFiat`; the fee is ours, and
+    // it's shown on the bills screen before the user confirms. Bills previously
+    // ran at exactly zero margin while still costing us the provider and the
+    // float — work done for nothing on every recharge.
+    const serviceFee = billFee(amountFiat);
+    const cost = await convert(amountFiat + serviceFee, fiat, input.fundingSymbol);
     const bal = await balanceOf(userId, input.fundingSymbol);
     if (bal + 1e-12 < cost) throw new ApiError(`Not enough ${input.fundingSymbol} to pay this bill`, 400);
 
@@ -77,6 +82,7 @@ export async function POST(req: Request) {
         fundingSymbol: input.fundingSymbol,
         cost,
         amountFiat,
+        serviceFee,
         currency: fiat,
         reference,
       });
@@ -103,6 +109,7 @@ export async function POST(req: Request) {
         account: input.account,
         fiat,
         fiatAmount: amountFiat,
+        serviceFee,
         funding: input.fundingSymbol,
         cost,
         status: outcome.status, // "completed" (instant) or "pending" (processing)

@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { providerTransferFee, transferFee, depositFee, depositFeeSchedule } from "../src/lib/fees";
+import {
+  providerTransferFee,
+  transferFee,
+  depositFee,
+  depositFeeSchedule,
+  billFee,
+  cryptoDepositFeePct,
+} from "../src/lib/fees";
 import { payoutCurrencySupported } from "../src/lib/settlement/payout-country";
 import { FIATS } from "../src/lib/constants";
 
@@ -101,4 +108,26 @@ test("the quoted schedule matches what is actually charged", () => {
 test("an uncapped currency charges the straight percentage", () => {
   assert.equal(depositFeeSchedule("GHS", 0.02).cap, null);
   assert.equal(depositFee(1000, "GHS", 0.02), Math.ceil(1000 * 0.02 * 1.2));
+});
+
+// ---- bill service fee -------------------------------------------------------
+
+test("a bill charges a service fee on top of the face value", () => {
+  // ₦1,000 airtime at 1% = ₦10. The biller still receives the full ₦1,000.
+  assert.equal(billFee(1000), 10);
+});
+
+test("the bill fee is capped so a big bill isn't punished", () => {
+  assert.equal(billFee(500_000), 100);
+  assert.ok(billFee(500_000) < 500_000 * 0.01);
+});
+
+test("no bill, no fee", () => {
+  assert.equal(billFee(0), 0);
+  assert.equal(billFee(-100), 0);
+});
+
+test("crypto deposits charge nothing until the provider's terms are confirmed", () => {
+  // Charging on top of a fee the provider already netted off would double-bill.
+  assert.equal(cryptoDepositFeePct(), 0);
 });

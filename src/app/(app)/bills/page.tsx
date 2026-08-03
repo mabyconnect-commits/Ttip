@@ -10,6 +10,7 @@ import { Icon } from "@/components/Icon";
 import { BILL_CATEGORIES, BILL_FIAT } from "@/lib/constants";
 import { pickFunding } from "@/lib/funding";
 import { formatFiat, formatCrypto } from "@/lib/format";
+import { billFee } from "@/lib/fees";
 import { Receipt } from "@/components/Receipt";
 
 type Category = (typeof BILL_CATEGORIES)[number];
@@ -60,7 +61,8 @@ export default function BillsPage() {
 
   const variable = !!item?.variableAmount;
   const payAmount = item ? (variable ? amount : item.amount) : 0;
-  const cost = convert(payAmount, fiat, funding);
+  const serviceFee = billFee(payAmount);
+  const cost = convert(payAmount + serviceFee, fiat, funding);
   const needsValidation = !!item && /meter|smart/i.test(item.label);
 
   // Load providers + plans when a category opens.
@@ -261,9 +263,21 @@ export default function BillsPage() {
               )}
 
               {item && payAmount > 0 && (
-                <div className="flex justify-between mt-4 px-1 text-[13px] text-white/55">
-                  <span>Pays from</span>
-                  <b className="text-white font-grotesk">≈ {formatCrypto(cost, funding)} {funding}</b>
+                <div className="flex flex-col gap-2 mt-4 px-1 text-[13px] text-white/55">
+                  <div className="flex justify-between">
+                    <span>{cat?.title ?? "Bill"}</span>
+                    <b className="text-white font-grotesk">{formatFiat(payAmount, fiat, { decimals: 0 })}</b>
+                  </div>
+                  {serviceFee > 0 && (
+                    <div className="flex justify-between">
+                      <span>Service fee</span>
+                      <b className="text-white font-grotesk">{formatFiat(serviceFee, fiat, { decimals: 0 })}</b>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span>Pays from</span>
+                    <b className="text-white font-grotesk">≈ {formatCrypto(cost, funding)} {funding}</b>
+                  </div>
                 </div>
               )}
 
@@ -323,6 +337,7 @@ export default function BillsPage() {
             receipt.plan ? { label: "Plan", value: receipt.plan } : null,
             { label: receipt.category === "Airtime" || receipt.category === "Data" ? "Phone number" : "Account / meter", value: receipt.account, mono: true },
             { label: "Amount", value: formatFiat(receipt.fiatAmount, BILL_FIAT) },
+            receipt.serviceFee ? { label: "Service fee", value: formatFiat(receipt.serviceFee, BILL_FIAT) } : null,
             { label: "Debited", value: `${formatCrypto(receipt.cost, receipt.funding)} ${receipt.funding}` },
             resolvedName ? { label: "Account name", value: resolvedName } : null,
           ]}

@@ -152,3 +152,59 @@ export function depositFeeSchedule(currency: string, pct: number): DepositFeeSch
   const cap = collectionFeeCap(currency);
   return { pct: pct * markup, cap: cap === null ? null : Math.ceil(cap * markup) };
 }
+
+/**
+ * Service fee on a bill payment (airtime, data, electricity, TV, internet).
+ *
+ * Bills used to run at exactly zero margin — the crypto was debited at the pure
+ * market rate with an explicit "no hidden markup", while we still carry the
+ * provider's cost and the float. Every bill was work done for nothing.
+ *
+ * PRICING WARNING: Nigerian VTU apps compete hard here and several give a small
+ * DISCOUNT on airtime rather than charging. A visible fee on a ₦100 recharge is
+ * the most price-compared thing on the platform. Set BILL_FEE_PCT=0 to turn it
+ * off, or lower it, if that trade isn't worth it.
+ *
+ * Rate: BILL_FEE_PCT (default 1%). Cap: BILL_FEE_CAP (default ₦100, 0 = none).
+ */
+export function billFeePct(): number {
+  const v = Number(process.env.BILL_FEE_PCT);
+  return Number.isFinite(v) && v >= 0 && v < 0.2 ? v : 0.01;
+}
+
+export function billFeeCap(): number | null {
+  const raw = process.env.BILL_FEE_CAP;
+  if (raw !== undefined) {
+    const v = Number(raw);
+    if (Number.isFinite(v) && v >= 0) return v > 0 ? v : null;
+  }
+  return 100;
+}
+
+/** The fee added on top of a bill's face value, in the bill currency. */
+export function billFee(amountFiat: number): number {
+  if (!(amountFiat > 0)) return 0;
+  const cap = billFeeCap();
+  const raw = amountFiat * billFeePct();
+  return Math.ceil(cap === null ? raw : Math.min(raw, cap));
+}
+
+/**
+ * Fee on a CRYPTO deposit, as a fraction. Default 0 — deliberately.
+ *
+ * The sweep provider (Dextopus) charges ~0.25% per transaction. Whether that is
+ * already deducted from the amount they report to us is a question for their
+ * contract, and it decides this number:
+ *
+ *   - if their fee IS netted off before the webhook, we credit what actually
+ *     arrived and charging again would double-bill the user;
+ *   - if it is NOT, we currently credit more than the treasury received, and
+ *     this should be set to about 0.003 (their 0.25% plus markup).
+ *
+ * Confirm, then set CRYPTO_DEPOSIT_FEE_PCT. Guessing either way is a real cost
+ * to somebody, so the default charges nothing.
+ */
+export function cryptoDepositFeePct(): number {
+  const v = Number(process.env.CRYPTO_DEPOSIT_FEE_PCT);
+  return Number.isFinite(v) && v >= 0 && v < 0.05 ? v : 0;
+}

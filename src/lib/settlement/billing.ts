@@ -55,6 +55,8 @@ export interface PayBillArgs {
   cost: number;
   /** Bill face value, in `currency`, delivered to the biller. */
   amountFiat: number;
+  /** Our service fee, in `currency`. Included in `cost`, not sent to the biller. */
+  serviceFee?: number;
   currency: string;
   reference: string;
 }
@@ -95,7 +97,15 @@ export async function payBill(args: PayBillArgs): Promise<PayBillOutcome> {
         counterparty: `${args.provider} · ${args.customer}`,
         note: `${args.categoryTitle} — ${args.provider}`,
         emoji: args.categoryEmoji,
-        meta: { reference: args.reference, provider, category: args.category, customer: args.customer },
+        // `fee` is what the revenue dashboard reads for this segment.
+        meta: {
+          reference: args.reference,
+          provider,
+          category: args.category,
+          customer: args.customer,
+          fee: args.serviceFee ?? 0,
+          feeCurrency: args.currency,
+        },
       },
     });
 

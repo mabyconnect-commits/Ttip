@@ -62,6 +62,7 @@ type Meta = {
   fee?: number;
   spreadFiat?: number;
   spreadFiatCurrency?: string;
+  feeCurrency?: string;
   feePct?: number;
   grossFiat?: number;
 } | null;
@@ -84,6 +85,7 @@ export async function GET(req: Request) {
 
   let bankTransferFees = 0;
   let depositFees = 0;
+  let billFees = 0;
   let sellSpread = 0;
   let swapFees = 0;
   let swapSpread = 0;
@@ -150,8 +152,14 @@ export async function GET(req: Request) {
         volume += await usd(Number(t.amountOut ?? 0), cur);
         break;
       }
+      // Bill service fee, charged on top of the face value the biller receives.
+      case "bill": {
+        const cur = t.assetOut ?? "NGN";
+        if (meta?.fee) billFees += await usd(meta.fee, meta.feeCurrency ?? cur);
+        volume += await usd(Number(t.amountOut ?? t.amountIn ?? 0), cur);
+        break;
+      }
       case "buy":
-      case "bill":
       case "ttip_out":
         volume += await usd(Number(t.amountOut ?? t.amountIn ?? 0), t.assetOut ?? t.assetIn ?? "NGN");
         break;
@@ -172,7 +180,14 @@ export async function GET(req: Request) {
   }
 
   const feeTotal =
-    bankTransferFees + depositFees + swapFees + swapSpread + cryptoWithdrawalFees + buySpread + sellSpread;
+    bankTransferFees +
+    depositFees +
+    billFees +
+    swapFees +
+    swapSpread +
+    cryptoWithdrawalFees +
+    buySpread +
+    sellSpread;
   const rewardsTotal = referralPaid + cashbackPaid + depositBonusPaid;
 
   return NextResponse.json({
@@ -180,6 +195,7 @@ export async function GET(req: Request) {
     fees: {
       bankTransfers: bankTransferFees,
       fiatDeposits: depositFees,
+      bills: billFees,
       swaps: swapFees,
       swapSpread,
       cryptoWithdrawals: cryptoWithdrawalFees,
