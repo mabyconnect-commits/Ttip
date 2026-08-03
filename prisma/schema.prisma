@@ -40,6 +40,7 @@ model User {
   kycProvider    String? // which provider verified (dojah | sandbox | manual)
   kycRef         String? // provider reference / audit id for the identity check
   kycVerifiedAt  DateTime?
+  resetTokens    PasswordResetToken[]
   bvnHash        String?   @unique // HMAC of the verified BVN — one BVN per account (anti-reuse) + trace
   bvnLast4       String?   // last 4 digits of the BVN, for support/display
   nairaAccount   String? // dedicated virtual account number for naira funding
@@ -85,6 +86,22 @@ model WalletAddress {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, symbol, network])
+  @@index([userId])
+}
+
+/// Single-use password-reset tokens. Only a HASH of the token is stored, so a
+/// database leak can't be used to reset anyone's password; the raw token exists
+/// only in the email we sent.
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId])
 }
 

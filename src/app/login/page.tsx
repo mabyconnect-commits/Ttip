@@ -42,7 +42,7 @@ export default function LoginPage() {
         <p className="text-white/50 text-sm mb-7">Sign in to move money and tip your crew.</p>
 
         <form onSubmit={submit} className="flex flex-col gap-3">
-          <Field label="Email or @username" value={identifier} onChange={setIdentifier} placeholder="kola@ttip.money" autoFocus />
+          <Field label="Email or @username" value={identifier} onChange={setIdentifier} placeholder="you@example.com" autoFocus />
           <Field label="Password" value={password} onChange={setPassword} placeholder="••••••••" type="password" />
           {err && <div className="text-bad text-[13px] px-1">{err}</div>}
           <GradientButton type="submit" loading={loading} className="mt-2">
@@ -50,11 +50,9 @@ export default function LoginPage() {
           </GradientButton>
         </form>
 
-        {process.env.NEXT_PUBLIC_SHOW_DEMO === "1" && (
-          <div className="mt-4 rounded-2xl bg-surface border border-white/[.07] p-3 text-[12px] text-white/50">
-            Demo account · <b className="text-white/75">kola@ttip.money</b> / <b className="text-white/75">password123</b>
-          </div>
-        )}
+        <Link href="/forgot" className="block text-center text-white/45 text-[13px] mt-4 active:text-white/70">
+          Forgot your password?
+        </Link>
       </div>
 
       <p className="text-center text-white/50 text-sm pb-8">
