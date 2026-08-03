@@ -18,6 +18,7 @@ interface RefData {
   earnPct: number;
   depositBonus: number;
   depositBonusMinUsd: number;
+  depositBonusHoldHours: number;
   thisWeek: number;
   thisMonth: number;
   earnings: { name: string; amount: number; note: string; time: string }[];
@@ -58,7 +59,7 @@ export default function ReferralsPage() {
     toast("Invite link copied", "good");
   }
   function share() {
-    if (data && navigator.share) navigator.share({ title: "Join me on Ttip", text: `Join Ttip and get ${formatFiat(bonus, "NGN", { decimals: 0 })} on your first $${data?.depositBonusMinUsd ?? 10} deposit`, url: data.link }).catch(() => {});
+    if (data && navigator.share) navigator.share({ title: "Join me on Ttip", text: `Join Ttip and get ${formatFiat(bonus, "NGN", { decimals: 0 })} when your first deposit of $${data?.depositBonusMinUsd ?? 10} or more stays ${data?.depositBonusHoldHours ?? 72}h`, url: data.link }).catch(() => {});
     else if (data) copy(data.link);
   }
 
@@ -72,7 +73,7 @@ export default function ReferralsPage() {
           </div>
           <div className="font-grotesk font-bold text-[22px] tracking-[-0.5px]">Refer & earn {pct}%</div>
           <div className="font-sans text-[13px] text-white/55 mt-1.5 max-w-[280px] mx-auto">
-            Earn {pct}% of the fees on every trade your friends make — for life. They get {formatFiat(bonus, "NGN", { decimals: 0 })} once their first ${data?.depositBonusMinUsd ?? 10} deposit stays 72h on Ttip.
+            Earn {pct}% of the fees on every trade your friends make — for life. They get {formatFiat(bonus, "NGN", { decimals: 0 })} once their first deposit of ${data?.depositBonusMinUsd ?? 10} or more stays {data?.depositBonusHoldHours ?? 72}h on Ttip.
           </div>
         </div>
 

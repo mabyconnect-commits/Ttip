@@ -37,7 +37,9 @@ test("payoutCurrencySupported mirrors payoutCountry", () => {
  * about payouts instead of silently inheriting a wrong country.
  */
 test("every offered fiat is either payable or explicitly display-only", () => {
-  const displayOnly = new Set(["XOF", "XAF", "EGP", "MAD", "ETB", "USD"]);
+  // ZMW is here because Flutterwave settles Zambia by mobile money only — it
+  // has no bank-payout rail, and a bank account is the only destination we send to.
+  const displayOnly = new Set(["XOF", "XAF", "EGP", "MAD", "ETB", "USD", "ZMW"]);
   for (const f of FIATS) {
     const payable = payoutCurrencySupported(f.code);
     assert.equal(

@@ -48,7 +48,9 @@ export async function createBuyOrder(req: BuyRequest): Promise<BuyResult> {
   const userRate = q.userRate; // fiat per 1 unit incl. margin
   // Credit crypto on the amount NET of the provider's collection fee, so that
   // fee never eats our margin (the user effectively covers it).
-  const netFiat = req.fiatAmount * (1 - collectionFeePct());
+  // Per-currency: Flutterwave's collection rate differs by country, so a flat
+  // global rate would under-recover on the more expensive ones.
+  const netFiat = req.fiatAmount * (1 - collectionFeePct(req.fiat));
   const amountAsset = netFiat / userRate;
   // Platform revenue on this buy: what the user pays minus the market cost of the
   // crypto we hand them. Stored so the referrer's share is paid when it settles.

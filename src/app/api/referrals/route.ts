@@ -3,7 +3,7 @@ import { getUserId } from "@/lib/auth";
 import { handler, ok, unauthorized } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
 import { baseUrl } from "@/lib/url";
-import { referralEarnPct } from "@/lib/referral";
+import { referralEarnPct, depositBonusHoldHours } from "@/lib/referral";
 import { DEPOSIT_BONUS_NGN, DEPOSIT_BONUS_MIN_USD } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +50,7 @@ export async function GET() {
       earnPct: referralEarnPct(), // e.g. 0.25
       depositBonus: DEPOSIT_BONUS_NGN, // ₦ paid to a referral on their first deposit
       depositBonusMinUsd: DEPOSIT_BONUS_MIN_USD,
+      depositBonusHoldHours: depositBonusHoldHours(),
       thisWeek,
       thisMonth,
       // Earning entries — who generated it and how much.

@@ -282,8 +282,13 @@ async function handleBankSend(
   }
 
   // Transfer fee (provider cost + markup), charged to the user like a bank fee.
-  // The net amount is what actually lands in their bank.
+  // The net amount is what actually lands in their bank. A currency we can't
+  // price is refused outright — charging 0 would mean absorbing the provider's
+  // fee on every withdrawal in that currency.
   const fee = transferFee(grossFiat, fiat);
+  if (fee === null) {
+    throw new ApiError(`Bank payouts in ${fiat} aren't supported yet — your balance was not charged.`, 400);
+  }
   const fiatAmount = grossFiat - fee;
   if (fiatAmount <= 0) throw new ApiError("Amount is too small to cover the transfer fee", 400);
 

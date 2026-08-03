@@ -20,7 +20,9 @@ const PAYOUT_COUNTRY: Record<string, string> = {
   UGX: "UG",
   TZS: "TZ",
   RWF: "RW",
-  ZMW: "ZM",
+  // ZMW is intentionally omitted: Flutterwave supports Zambian mobile money but
+  // NOT bank payouts, and a bank account is the only destination Ttip settles
+  // to. Listing it would take a withdrawal we can't complete.
 };
 
 /** Country code for a payout currency, or null when we can't safely infer one. */

@@ -258,6 +258,13 @@ export default function SendOutPage() {
           {mode === "bank" && amt > 0 && (() => {
             const gross = convert(amt, sym, fiat);
             const fee = transferFee(gross, fiat);
+            if (fee === null) {
+              return (
+                <div className="text-[12px] text-bad leading-snug">
+                  Bank payouts in {fiat} aren&apos;t supported yet.
+                </div>
+              );
+            }
             const net = Math.max(0, gross - fee);
             return (
               <>

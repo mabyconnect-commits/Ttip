@@ -19,6 +19,13 @@ import { REFERRAL_EARN_PCT, DEPOSIT_BONUS_NGN, DEPOSIT_BONUS_MIN_USD, DEPOSIT_BO
  *      if they still hold at least that value (they didn't cash straight out).
  */
 
+/**
+ * Providers that mean real money actually arrived. The sandbox/simulator is
+ * deliberately excluded — the deposit bonus pays real naira, so it must only
+ * ever be triggered by a deposit real money backed.
+ */
+const REAL_FUNDING_PROVIDERS = ["dextopus", "flutterwave", "paystack", "monnify", "coralpay"] as const;
+
 export function referralEarnPct(): number {
   const v = Number(process.env.REFERRAL_EARN_PCT);
   return Number.isFinite(v) && v >= 0 && v <= 1 ? v : REFERRAL_EARN_PCT;
@@ -66,9 +73,14 @@ export async function accrueReferralEarning(
   });
 }
 
-function holdMs(): number {
+/** How long the qualifying deposit must stay on Ttip, in hours. */
+export function depositBonusHoldHours(): number {
   const h = Number(process.env.DEPOSIT_BONUS_HOLD_HOURS);
-  return (Number.isFinite(h) && h > 0 ? h : DEPOSIT_BONUS_HOLD_HOURS) * 3600_000;
+  return Number.isFinite(h) && h > 0 ? h : DEPOSIT_BONUS_HOLD_HOURS;
+}
+
+function holdMs(): number {
+  return depositBonusHoldHours() * 3600_000;
 }
 function minUsd(): number {
   const v = Number(process.env.DEPOSIT_BONUS_MIN_USD);
@@ -93,18 +105,26 @@ export async function maybePayDepositBonus(userId: string): Promise<void> {
     if (!user?.referredById) return;
     if (await prisma.transaction.count({ where: { userId, type: "deposit_bonus" } })) return;
 
-    // First deposit worth ≥ MIN_USD.
-    const deposits = await prisma.transaction.findMany({
-      where: { userId, type: "deposit", status: "completed", assetOut: { not: null } },
+    // First deposit worth ≥ MIN_USD that REAL money actually backed. Read from
+    // settlements, not transactions: the deposit simulator also writes a
+    // "deposit" transaction, so counting those would pay a real ₦ bonus for
+    // funds nobody ever sent.
+    const deposits = await prisma.settlement.findMany({
+      where: {
+        userId,
+        status: "completed",
+        kind: { in: ["deposit", "buy"] },
+        provider: { in: [...REAL_FUNDING_PROVIDERS] },
+      },
       orderBy: { createdAt: "asc" },
-      select: { assetOut: true, amountOut: true, createdAt: true },
+      select: { asset: true, amount: true, createdAt: true },
     });
     if (!deposits.length) return;
 
     const threshold = minUsd();
     let qualifiedAt: Date | null = null;
     for (const d of deposits) {
-      const usd = await toUsd(Number(d.amountOut ?? 0), d.assetOut!);
+      const usd = await toUsd(Number(d.amount), d.asset);
       if (usd >= threshold) { qualifiedAt = d.createdAt; break; }
     }
     if (!qualifiedAt) return;
