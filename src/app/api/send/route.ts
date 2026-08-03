@@ -9,7 +9,7 @@ import { convert, isCrypto } from "@/lib/prices";
 import { adjust, balanceOf } from "@/lib/wallet";
 import { NETWORK_FEE_USDT } from "@/lib/constants";
 import { dayStr, isYesterday } from "@/lib/format";
-import { payoutFiat, finalizePayout, payoutProvider, ensureFloat, debitFloat, cryptoWithdraw, settlementEnabled, demoEnabled } from "@/lib/settlement";
+import { payoutFiat, finalizePayout, payoutProvider, ensureFloat, debitFloat, cryptoWithdraw, settlementEnabled, demoEnabled, solanaWithdrawSupported, isValidSolanaAddress, maxCryptoWithdrawal } from "@/lib/settlement";
 import { quoteSell, transferFee } from "@/lib/pricing";
 import { referenceFiat } from "@/lib/rate";
 import { accrueCashback } from "@/lib/cashback";
@@ -173,9 +173,23 @@ async function handleWalletSend(userId: string, input: z.infer<typeof schema>) {
   if (!isCrypto(symbol)) throw new ApiError("Only crypto can be sent to a wallet", 400);
   if (!input.address || input.address.length < 8) throw new ApiError("Enter a valid wallet address", 400);
 
-  // On-chain crypto withdrawal needs a treasury signer (not yet wired), so it
-  // only runs in demo. Fail closed in live so no funds get stuck as pending.
-  if (!demoEnabled()) throw new ApiError("Crypto withdrawal to an external wallet is coming soon.", 503);
+  // Live on-chain sends are supported for assets with a treasury signer (USDC on
+  // Solana). Demo always simulates. Anything else fails closed so no funds get
+  // stuck as pending.
+  const liveOnChain = !demoEnabled(); // settlementEnabled() already true here → live
+  const onChainSupported = solanaWithdrawSupported(symbol);
+  if (liveOnChain && !onChainSupported) {
+    throw new ApiError(`${symbol} withdrawal isn't available yet. USDC on Solana is supported.`, 503);
+  }
+  // For a real Solana send, validate the destination and enforce the hot-wallet cap.
+  let network = input.network;
+  if (liveOnChain && onChainSupported) {
+    if (!isValidSolanaAddress(input.address)) throw new ApiError("Enter a valid Solana (USDC) address.", 400);
+    if (amount > maxCryptoWithdrawal()) {
+      throw new ApiError(`Max withdrawal is ${maxCryptoWithdrawal()} ${symbol} for now — contact support for larger amounts.`, 400);
+    }
+    network = "Solana";
+  }
 
   // network fee expressed in the sent asset
   const feeInAsset = await convert(NETWORK_FEE_USDT, "USDT", symbol);
@@ -196,7 +210,7 @@ async function handleWalletSend(userId: string, input: z.infer<typeof schema>) {
       amount,
       fee: feeInAsset,
       address: input.address,
-      network: input.network,
+      network,
       reference,
     });
   } catch (e: any) {
@@ -211,9 +225,9 @@ async function handleWalletSend(userId: string, input: z.infer<typeof schema>) {
       symbol,
       amount,
       address: input.address,
-      network: input.network,
+      network,
       fee: feeInAsset,
-      status: result.status, // "completed" (sandbox) or "pending" (live, processing)
+      status: result.status, // "completed" (sandbox/solana) or "pending" (queued)
       txHash: result.txHash,
     },
   });

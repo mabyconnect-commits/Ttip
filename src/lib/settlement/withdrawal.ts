@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { kindOf } from "../wallet";
 import { isLive, depositProvider } from "./config";
+import { sendSolanaUsdc, solanaWithdrawSupported } from "./solana";
 
 /**
  * Crypto withdrawal (send crypto off-platform to an external wallet).
@@ -47,9 +48,21 @@ async function dispatchCryptoWithdraw(req: CryptoWithdrawRequest): Promise<Crypt
     const txHash = "sbx_" + req.reference.replace(/[^a-z0-9]/gi, "").slice(-16);
     return { provider: "sandbox", status: "completed", txHash };
   }
-  // Live: we do not hold an automated signer in-process. Queue the withdrawal as
-  // pending; the treasury signer (or ops) broadcasts it and calls
-  // finalizeWithdrawal with the tx hash. This is deliberately not auto-completed.
+  // Live: USDC on Solana is sent on-chain right now from the treasury wallet.
+  if (solanaWithdrawSupported(req.asset)) {
+    try {
+      const { txHash } = await sendSolanaUsdc({ toAddress: req.address, amount: req.amount });
+      return { provider: "solana", status: "completed", txHash };
+    } catch (e) {
+      // Send failed (bad address, treasury short, RPC error) — mark failed so the
+      // pipeline refunds the user; never leave it silently pending.
+      return { provider: "solana", status: "failed", message: (e as Error).message };
+    }
+  }
+
+  // Any other asset/chain has no in-process signer yet. Queue as pending; the
+  // treasury signer (or ops) broadcasts it and calls finalizeWithdrawal with the
+  // tx hash. Deliberately never auto-completed.
   return { provider: depositProvider(), status: "pending", message: "Queued for on-chain processing" };
 }
 

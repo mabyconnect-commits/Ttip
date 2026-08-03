@@ -199,6 +199,35 @@ export function flutterwaveConfig(): FlutterwaveConfig | null {
   };
 }
 
+export interface SolanaConfig {
+  rpcUrl: string;
+  secretKey: string; // treasury keypair: base58 or JSON byte array
+  usdcMint: string;
+}
+
+/**
+ * Treasury Solana wallet for crypto withdrawals (USDC-SPL sends). Configured
+ * only when SOLANA_TREASURY_SECRET_KEY is present; without it, crypto
+ * withdrawals stay queued (never a false "sent"). Keep only a small hot float
+ * here + a little SOL for fees; the rest belongs in cold storage.
+ */
+export function solanaConfig(): SolanaConfig | null {
+  const secretKey = process.env.SOLANA_TREASURY_SECRET_KEY;
+  if (!secretKey) return null;
+  return {
+    rpcUrl: process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com",
+    secretKey,
+    // Canonical mainnet USDC mint.
+    usdcMint: process.env.SOLANA_USDC_MINT || "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  };
+}
+
+/** Per-withdrawal cap (in USDC) for the on-chain hot wallet. Default 2000. */
+export function maxCryptoWithdrawal(): number {
+  const v = Number(process.env.MAX_CRYPTO_WITHDRAWAL);
+  return Number.isFinite(v) && v > 0 ? v : 2000;
+}
+
 export interface PaystackConfig {
   secretKey: string;
   baseUrl: string;
