@@ -35,6 +35,7 @@ export async function getBillCatalog(): Promise<Record<string, CategoryCatalog>>
       // Only trust a live fetch that actually produced the mainstream categories;
       // otherwise keep the static catalog so the UI is never empty.
       if (built.airtime && built.data) {
+        backfillAirtimeNetworks(built);
         cache = { at: Date.now(), data: built };
         return built;
       }
@@ -43,6 +44,30 @@ export async function getBillCatalog(): Promise<Record<string, CategoryCatalog>>
     }
   }
   return STATIC_CATALOG;
+}
+
+/**
+ * Make sure every major network appears under Airtime.
+ *
+ * Flutterwave's bill-category list doesn't reliably return a per-network airtime
+ * biller for all four — MTN in particular went missing from the live fetch while
+ * Airtel, Glo and 9mobile came through, so the app simply had no MTN airtime.
+ * Airtime doesn't actually need a per-network biller: the generic item
+ * (BIL099/AT099) detects the network from the phone number, so any network the
+ * live fetch dropped is backfilled with it. Only ever ADDS a missing network —
+ * a network the live fetch did return keeps its own live codes.
+ */
+function backfillAirtimeNetworks(built: Record<string, CategoryCatalog>): void {
+  const airtime = built.airtime;
+  if (!airtime) return;
+  for (const fallback of STATIC_CATALOG.airtime.providers) {
+    if (!airtime.providers.some((p) => p.provider === fallback.provider)) {
+      airtime.providers.push(fallback);
+    }
+  }
+  // Keep the familiar MTN / Airtel / Glo / 9mobile order.
+  const order = STATIC_CATALOG.airtime.providers.map((p) => p.provider);
+  airtime.providers.sort((a, b) => order.indexOf(a.provider) - order.indexOf(b.provider));
 }
 
 /** One category's providers + plans. */

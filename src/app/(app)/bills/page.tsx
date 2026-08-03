@@ -13,6 +13,22 @@ import { formatFiat, formatCrypto } from "@/lib/format";
 import { Receipt } from "@/components/Receipt";
 
 type Category = (typeof BILL_CATEGORIES)[number];
+
+/**
+ * Trim the noise off a plan name for the compact grid cards. The provider is
+ * already selected above, so "MTN 1GB data purchase (7 days)" only needs to say
+ * "1GB (7 days)" — the repeated network name and filler words just push the
+ * useful part out of view.
+ */
+function planLabel(name: string): string {
+  return (
+    name
+      .replace(/^(MTN|Airtel|Glo|9 ?mobile|Etisalat|DS?Tv|GOtv|Startimes|Showmax|Smile|Spectranet)\s*/i, "")
+      .replace(/\b(data\s+)?(purchase|bundle|plan)\b/gi, "")
+      .replace(/\s{2,}/g, " ")
+      .trim() || name
+  );
+}
 interface Item { billerCode: string; itemCode: string; name: string; amount: number; variableAmount: boolean; label: string }
 interface Provider { provider: string; items: Item[] }
 
@@ -64,8 +80,12 @@ export default function BillsPage() {
     setProvider(p);
     setResolvedName(null);
     // Auto-select the only variable item (e.g. airtime); otherwise wait for a pick.
+    // When every item is variable (airtime, electricity prepaid/postpaid) there
+    // is no plan to pick, so select the first straight away — otherwise the
+    // screen sits empty with a dead Pay button until the user guesses to tap a
+    // sub-type chip.
     const variableItems = p.items.filter((i) => i.variableAmount);
-    if (variableItems.length === 1 && p.items.length === 1) {
+    if (variableItems.length > 0 && variableItems.length === p.items.length) {
       setItem(variableItems[0]);
       setAmount(c?.amounts[0] ?? 0);
     } else {
@@ -151,7 +171,7 @@ export default function BillsPage() {
             <>
               {/* provider */}
               <div className="text-[12px] text-white/50 mb-2">Provider</div>
-              <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+              <div className="flex flex-wrap gap-2 pb-1">
                 {providers.map((p) => (
                   <button key={p.provider} onClick={() => pickProvider(p)} className={`h-10 px-4 rounded-[20px] shrink-0 border font-grotesk font-semibold text-[13px] ${provider?.provider === p.provider ? "bg-white text-[#07080D] border-white" : "border-white/14 text-white/70"}`}>
                     {p.provider}
@@ -161,7 +181,7 @@ export default function BillsPage() {
 
               {/* variable sub-type chips (e.g. Prepaid / Postpaid) */}
               {variableItems.length > 1 && (
-                <div className="flex gap-2 overflow-x-auto no-scrollbar mt-3">
+                <div className="flex flex-wrap gap-2 mt-3">
                   {variableItems.map((it) => (
                     <button key={it.itemCode} onClick={() => setItem(it)} className={`h-9 px-4 rounded-[18px] shrink-0 border font-grotesk font-semibold text-[12.5px] ${item?.itemCode === it.itemCode ? "bg-brand-cyan/15 border-brand-cyan text-brand-cyan" : "border-white/12 text-white/65"}`}>
                       {it.name}
@@ -170,15 +190,31 @@ export default function BillsPage() {
                 </div>
               )}
 
-              {/* fixed plan list (data / tv / internet) */}
+              {/* fixed plans (data / tv / internet) — a two-column grid of small
+                  cards. A full-width row per plan made these lists scroll for
+                  screens on providers with dozens of bundles. */}
               {fixedItems.length > 0 && (
-                <div className="flex flex-col gap-2 mt-3">
-                  {fixedItems.map((it) => (
-                    <button key={it.itemCode} onClick={() => setItem(it)} className={`flex items-center justify-between rounded-2xl px-4 h-[54px] border text-left ${item?.itemCode === it.itemCode ? "bg-brand-cyan/[.1] border-brand-cyan" : "bg-surface border-white/[.08]"}`}>
-                      <span className="text-[13.5px] font-medium text-white/90 truncate pr-2">{it.name}</span>
-                      <span className="font-grotesk font-bold text-[13.5px] shrink-0">{formatFiat(it.amount, fiat, { decimals: 0 })}</span>
-                    </button>
-                  ))}
+                <div className="grid grid-cols-2 gap-2 mt-3">
+                  {fixedItems.map((it) => {
+                    const active = item?.itemCode === it.itemCode;
+                    return (
+                      <button
+                        key={it.itemCode}
+                        onClick={() => setItem(it)}
+                        title={it.name}
+                        className={`rounded-2xl px-3 py-3 border text-left flex flex-col justify-between min-h-[76px] active:scale-[.98] transition ${
+                          active ? "bg-brand-cyan/[.1] border-brand-cyan" : "bg-surface border-white/[.08]"
+                        }`}
+                      >
+                        <span className="text-[12.5px] font-medium text-white/85 leading-snug line-clamp-2">
+                          {planLabel(it.name)}
+                        </span>
+                        <span className={`font-grotesk font-bold text-[14px] mt-1.5 ${active ? "text-brand-cyan" : "text-white"}`}>
+                          {formatFiat(it.amount, fiat, { decimals: 0 })}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
 
