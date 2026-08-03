@@ -1,9 +1,26 @@
 import { PLATFORM_MARGIN_PCT, COLLECTION_FEE_PCT } from "./constants";
-import { collectionFeePct as feeForCurrency } from "./fees";
+import {
+  collectionFeePct as feeForCurrency,
+  depositFee as rawDepositFee,
+  depositFeeSchedule as rawDepositFeeSchedule,
+} from "./fees";
 
 // The per-currency fee schedule lives in ./fees so it can be unit-tested and
 // shared with the client. Re-exported here so existing importers keep working.
-export { providerTransferFee, transferFee, transferFeeMarkup } from "./fees";
+export { providerTransferFee, transferFee, transferFeeMarkup, depositFeeMarkup } from "./fees";
+
+/**
+ * The fee charged on a fiat deposit, in that currency. Wraps ./fees with the
+ * per-currency collection rate already resolved, so callers just pass an amount.
+ */
+export function depositFeeFor(amountFiat: number, currency = "NGN"): number {
+  return rawDepositFee(amountFiat, currency, collectionFeePct(currency));
+}
+
+/** The deposit fee as a rate + cap, for showing the user before they send. */
+export function depositFeeScheduleFor(currency = "NGN") {
+  return rawDepositFeeSchedule(currency, collectionFeePct(currency));
+}
 
 /**
  * The collection (buy) fee we net out so the provider's cut never eats margin.

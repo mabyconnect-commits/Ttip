@@ -56,6 +56,7 @@ interface Revenue {
   window?: string;
   fees?: {
     bankTransfers: number;
+    fiatDeposits: number;
     swaps: number;
     swapSpread: number;
     cryptoWithdrawals: number;
@@ -196,6 +197,7 @@ export default function AdminFundingPage() {
                   <div className="flex flex-col gap-2 mt-3">
                     {[
                       ["Bank transfers", rev.fees?.bankTransfers ?? 0],
+                      ["Fiat deposits", rev.fees?.fiatDeposits ?? 0],
                       ["Swap fees", rev.fees?.swaps ?? 0],
                       ["Swap spread", rev.fees?.swapSpread ?? 0],
                       ["Crypto withdrawals", rev.fees?.cryptoWithdrawals ?? 0],

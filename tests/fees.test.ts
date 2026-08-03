@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { providerTransferFee, transferFee } from "../src/lib/fees";
+import { providerTransferFee, transferFee, depositFee, depositFeeSchedule } from "../src/lib/fees";
 import { payoutCurrencySupported } from "../src/lib/settlement/payout-country";
 import { FIATS } from "../src/lib/constants";
 
@@ -65,4 +65,40 @@ test("the markup is applied identically in every currency", () => {
     const raw = providerTransferFee(10_000, code) as number;
     assert.ok((transferFee(10_000, code) as number) >= raw, `${code} charges below cost`);
   }
+});
+
+// ---- deposit fees -----------------------------------------------------------
+// A fiat deposit used to credit the full amount while the provider still billed
+// us ~1.5% to collect it, so every deposit drained the float.
+
+test("a fiat deposit is charged the provider's cost plus the markup", () => {
+  // ₦10,000 at 1.5% = ₦150 cost, +20% markup = ₦180.
+  assert.equal(depositFee(10000, "NGN", 0.015), 180);
+});
+
+test("the deposit fee is capped, so a large deposit isn't gouged", () => {
+  // Flutterwave caps NGN collection at ₦2,000 however large the transfer, so an
+  // uncapped 1.5% on ₦1,000,000 would charge ₦18,000 against a ₦2,000 cost.
+  assert.equal(depositFee(1_000_000, "NGN", 0.015), Math.ceil(2000 * 1.2));
+  assert.ok(depositFee(1_000_000, "NGN", 0.015) < 1_000_000 * 0.015);
+});
+
+test("the deposit fee can never exceed the deposit", () => {
+  assert.ok(depositFee(10, "NGN", 0.015) <= 10);
+  assert.equal(depositFee(0, "NGN", 0.015), 0);
+  assert.equal(depositFee(-5, "NGN", 0.015), 0);
+});
+
+test("the quoted schedule matches what is actually charged", () => {
+  // The screen shows pct + cap; the webhook charges depositFee(). They must agree
+  // or the user is told one number and debited another.
+  const s = depositFeeSchedule("NGN", 0.015);
+  const amount = 10000;
+  const quoted = Math.min(Math.ceil(amount * s.pct), s.cap ?? Infinity);
+  assert.equal(quoted, depositFee(amount, "NGN", 0.015));
+});
+
+test("an uncapped currency charges the straight percentage", () => {
+  assert.equal(depositFeeSchedule("GHS", 0.02).cap, null);
+  assert.equal(depositFee(1000, "GHS", 0.02), Math.ceil(1000 * 0.02 * 1.2));
 });

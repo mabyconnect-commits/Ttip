@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { kindOf } from "../wallet";
+import { depositFeeFor } from "../pricing";
 import { collectionProvider } from "./collection";
 import { flutterwaveCreateVirtualAccount } from "./flutterwave";
 
@@ -60,6 +61,14 @@ export async function creditNairaDeposit(opts: {
   externalId: string;
   raw?: unknown;
 }): Promise<{ credited: boolean }> {
+  // The provider bills us to collect this money (Flutterwave ~1.5% on NGN), so
+  // crediting the gross amount lost that fee on EVERY deposit. The user is
+  // credited net of the fee, exactly as they are on a payout. This is separate
+  // from the trading spread — that's what we earn for converting, not a subsidy
+  // for the collection charge.
+  const fee = depositFeeFor(opts.amount, opts.currency);
+  const net = Math.max(0, opts.amount - fee);
+
   try {
     return await prisma.$transaction(async (tx) => {
       await tx.settlement.create({
@@ -70,14 +79,16 @@ export async function creditNairaDeposit(opts: {
           externalId: opts.externalId,
           status: "completed",
           asset: opts.currency,
+          // The gross that actually arrived — reconciliation against the
+          // provider has to match their figure, not ours.
           amount: new Prisma.Decimal(opts.amount),
           raw: (opts.raw ?? Prisma.JsonNull) as Prisma.InputJsonValue,
         },
       });
       await tx.balance.upsert({
         where: { userId_symbol: { userId: opts.userId, symbol: opts.currency } },
-        create: { userId: opts.userId, symbol: opts.currency, kind: kindOf(opts.currency), amount: new Prisma.Decimal(opts.amount) },
-        update: { amount: { increment: opts.amount } },
+        create: { userId: opts.userId, symbol: opts.currency, kind: kindOf(opts.currency), amount: new Prisma.Decimal(net) },
+        update: { amount: { increment: net } },
       });
       await tx.transaction.create({
         data: {
@@ -85,10 +96,15 @@ export async function creditNairaDeposit(opts: {
           type: "deposit",
           status: "completed",
           assetOut: opts.currency,
-          amountOut: new Prisma.Decimal(opts.amount),
+          amountOut: new Prisma.Decimal(net),
           counterparty: "Bank transfer",
-          note: `Added ${opts.currency} via bank transfer`,
+          note: fee > 0
+            ? `Added ${opts.currency} via bank transfer · fee ${fee.toLocaleString()}`
+            : `Added ${opts.currency} via bank transfer`,
           emoji: "🏦",
+          // `fee` is what the revenue dashboard reads; `gross` keeps the
+          // pre-fee amount on the record for support and reconciliation.
+          meta: { fee, gross: opts.amount, currency: opts.currency },
         },
       });
       return { credited: true };

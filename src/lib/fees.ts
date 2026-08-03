@@ -77,3 +77,78 @@ export function collectionFeePct(currency: string, fallback: number): number {
   if (Number.isFinite(global) && global >= 0 && global < 0.2) return global;
   return fallback;
 }
+
+/**
+ * The provider's cap on a percentage collection fee, in that currency.
+ *
+ * Flutterwave caps NGN collections at ₦2,000 however large the transfer, so
+ * charging a flat percentage on a ₦1,000,000 deposit would bill the user
+ * ₦15,000 against a ₦2,000 cost. Override per currency with
+ * `COLLECTION_FEE_CAP_<CODE>`; `0` means genuinely uncapped.
+ *
+ * CONFIRM BOTH the rate and this cap against your own Flutterwave contract —
+ * the defaults are Flutterwave's published Nigerian pricing, not your rate card.
+ */
+export function collectionFeeCap(currency: string): number | null {
+  const raw = process.env[`COLLECTION_FEE_CAP_${(currency ?? "").toUpperCase()}`];
+  if (raw !== undefined) {
+    const v = Number(raw);
+    if (Number.isFinite(v) && v >= 0) return v > 0 ? v : null;
+  }
+  return (currency ?? "").toUpperCase() === "NGN" ? 2000 : null;
+}
+
+/** What the provider actually bills US to collect `amountFiat`. */
+export function providerCollectionFee(amountFiat: number, currency: string, pct: number): number {
+  if (!(amountFiat > 0)) return 0;
+  const raw = amountFiat * pct;
+  const cap = collectionFeeCap(currency);
+  return cap === null ? raw : Math.min(raw, cap);
+}
+
+/** The markup added on top of the provider's collection cost (default 20%). */
+export function depositFeeMarkup(): number {
+  const raw = Number(process.env.DEPOSIT_FEE_MARKUP);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 0.2;
+}
+
+/**
+ * The fee charged on a fiat DEPOSIT — the provider's real cost plus our markup,
+ * exactly the shape the bank-transfer payout fee uses.
+ *
+ * Without this a naira deposit credited the full amount while Flutterwave still
+ * billed us ~1.5% of it, so every single deposit drained the float. This is a
+ * separate cost from the ~1.8% trading spread and has to be recovered
+ * separately — the spread is what we earn for converting, not a subsidy for the
+ * provider's collection charge.
+ *
+ * Never exceeds the deposit itself, so a tiny deposit can't go negative.
+ */
+export function depositFee(amountFiat: number, currency: string, pct: number): number {
+  if (!(amountFiat > 0)) return 0;
+  const cost = providerCollectionFee(amountFiat, currency, pct);
+  const withMarkup = Math.ceil(cost * (1 + depositFeeMarkup()));
+  return Math.min(withMarkup, amountFiat);
+}
+
+/**
+ * The deposit fee expressed as a rate + cap, for display.
+ *
+ * Resolved on the SERVER and handed to the client, because the per-currency
+ * overrides are read with a computed key (`COLLECTION_FEE_PCT_${code}`) which
+ * Next cannot inline into a client bundle — so a client computing this itself
+ * would quote the default while the server charged the override. On a money
+ * screen the quoted fee has to be the charged fee.
+ */
+export interface DepositFeeSchedule {
+  /** Fraction of the deposit, markup included. */
+  pct: number;
+  /** Maximum fee in that currency, markup included; null when uncapped. */
+  cap: number | null;
+}
+
+export function depositFeeSchedule(currency: string, pct: number): DepositFeeSchedule {
+  const markup = 1 + depositFeeMarkup();
+  const cap = collectionFeeCap(currency);
+  return { pct: pct * markup, cap: cap === null ? null : Math.ceil(cap * markup) };
+}

@@ -1,12 +1,13 @@
 import { prisma } from "./db";
 import { buildPortfolio } from "./wallet";
 import { dayStr } from "./format";
+import { freeSwapsLeft } from "./swap-math";
 import { settlementStatus } from "./settlement/config";
+import { depositFeeScheduleFor } from "./pricing";
 import { maybePayDepositBonus } from "./referral";
 import { cashbackMinClaim } from "./cashback";
 import { rewardsRate } from "./rewards";
 
-const FREE_SWAPS_PER_DAY = 3;
 
 /** Full app-state payload the client needs after auth. */
 export async function getAppState(userId: string) {
@@ -22,8 +23,10 @@ export async function getAppState(userId: string) {
 
   const portfolio = await buildPortfolio(user.balances, user.defaultFiat);
 
-  // Free-swap allowance is per-day; show the full amount on a fresh day.
-  const freeSwapsLeft = user.freeSwapDay === dayStr() ? user.freeSwapsLeft : FREE_SWAPS_PER_DAY;
+  // Free-swap allowance is per-day. Uses the shared helper rather than its own
+  // copy of the number — this file had a second hardcoded 3, so changing the
+  // allowance in swap-math left the UI still advertising free swaps.
+  const freeSwaps = freeSwapsLeft(user.freeSwapDay, user.freeSwapsLeft, dayStr());
 
   // The reward pots are stored in the base fiat; convert them — and the claim
   // threshold — into the user's display currency at the same rate, so the
@@ -45,7 +48,7 @@ export async function getAppState(userId: string) {
       bankAccount: user.bankAccount,
       streakDays: user.streakDays,
       points: user.points,
-      freeSwapsLeft,
+      freeSwapsLeft: freeSwaps,
       referralCode: user.referralCode,
       // Left in REWARDS_BASE_FIAT to match /api/referrals and the referrals
       // screen, which both label this pot in the base currency.
@@ -69,7 +72,12 @@ export async function getAppState(userId: string) {
     portfolio,
     // Runtime money mode, so the UI can flag test mode and never imply real
     // money is moving when it isn't. "live" | "demo" | "disabled".
-    config: { payments: settlementStatus() },
+    config: {
+      payments: settlementStatus(),
+      // Resolved here so the deposit screen quotes exactly what gets charged —
+      // the per-currency overrides can't be read from a client bundle.
+      depositFee: depositFeeScheduleFor(user.defaultFiat),
+    },
     card: user.card
       ? {
           last4: user.card.last4,

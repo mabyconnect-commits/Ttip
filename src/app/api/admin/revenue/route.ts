@@ -14,14 +14,15 @@ export const dynamic = "force-dynamic";
  *
  * Where each number comes from:
  *   bank transfers    withdraw_bank.meta.fee          the transfer fee charged
+ *   fiat deposits     deposit.meta.fee                collection cost + markup
  *   sell spread       withdraw_bank.meta.spreadFiat   margin on crypto -> fiat
  *   swaps             swap.meta.feePct + amountOut    the 0.5% after free swaps
  *   swap spread       swap.meta.spreadFiat            margin on a crypto<->fiat swap
  *   crypto withdrawals withdraw_wallet.meta.fee       the flat withdrawal fee
  *   buy spread        settlement.raw.spreadFiat       margin on fiat -> crypto
  *
- * Deposits are deliberately absent: Ttip charges nothing to receive crypto, so
- * there is no deposit fee to report. Revenue on funded money is the buy spread.
+ * CRYPTO deposits are absent: Ttip charges nothing to receive crypto. FIAT
+ * deposits do carry a fee — the provider bills us to collect them.
  *
  * Referral commission, cashback and the first-deposit bonus are costs, not
  * revenue — reported separately and subtracted to give the net.
@@ -82,6 +83,7 @@ export async function GET(req: Request) {
   });
 
   let bankTransferFees = 0;
+  let depositFees = 0;
   let sellSpread = 0;
   let swapFees = 0;
   let swapSpread = 0;
@@ -140,6 +142,14 @@ export async function GET(req: Request) {
       case "deposit_bonus":
         depositBonusPaid += await usd(Number(t.amountOut ?? 0), t.assetOut ?? "NGN");
         break;
+      // Fiat deposits: the provider's collection cost plus our markup, taken
+      // out before the balance is credited.
+      case "deposit": {
+        const cur = t.assetOut ?? "NGN";
+        if (meta?.fee) depositFees += await usd(meta.fee, cur);
+        volume += await usd(Number(t.amountOut ?? 0), cur);
+        break;
+      }
       case "buy":
       case "bill":
       case "ttip_out":
@@ -161,13 +171,15 @@ export async function GET(req: Request) {
     if (raw?.spreadFiat) buySpread += await usd(raw.spreadFiat, raw.fiat ?? "NGN");
   }
 
-  const feeTotal = bankTransferFees + swapFees + swapSpread + cryptoWithdrawalFees + buySpread + sellSpread;
+  const feeTotal =
+    bankTransferFees + depositFees + swapFees + swapSpread + cryptoWithdrawalFees + buySpread + sellSpread;
   const rewardsTotal = referralPaid + cashbackPaid + depositBonusPaid;
 
   return NextResponse.json({
     window: since ? `last ${days} days` : "all time",
     fees: {
       bankTransfers: bankTransferFees,
+      fiatDeposits: depositFees,
       swaps: swapFees,
       swapSpread,
       cryptoWithdrawals: cryptoWithdrawalFees,

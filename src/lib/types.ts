@@ -59,7 +59,11 @@ export interface AppState {
   user: UserSummary;
   portfolio: Portfolio;
   card: CardInfo | null;
-  config?: { payments: "live" | "demo" | "disabled" };
+  config?: {
+    payments: "live" | "demo" | "disabled";
+    /** Deposit fee resolved on the server, so the quote matches the charge. */
+    depositFee?: { pct: number; cap: number | null };
+  };
   receipt?: any;
 }
 

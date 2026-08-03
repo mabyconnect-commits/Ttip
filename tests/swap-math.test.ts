@@ -9,8 +9,22 @@ test("freeSwapsLeft resets on a new calendar day", () => {
 });
 
 test("freeSwapsLeft keeps the stored counter within the same day", () => {
-  assert.equal(freeSwapsLeft("2026-08-01", 1, "2026-08-01"), 1);
+  assert.equal(freeSwapsLeft("2026-08-01", 1, "2026-08-01"), Math.min(1, FREE_SWAPS_PER_DAY));
   assert.equal(freeSwapsLeft("2026-08-01", 0, "2026-08-01"), 0);
+});
+
+test("free swaps are OFF by default — every swap is priced", () => {
+  // A free swap earns 0% and still accrues 0.15% cashback on its volume, so it
+  // is a straight loss. If this ever reads above 0 without FREE_SWAPS_PER_DAY
+  // being set deliberately, the platform is paying users to trade again.
+  assert.equal(FREE_SWAPS_PER_DAY, 0);
+  assert.equal(freeSwapsLeft(null, 0, "2026-08-01"), 0);
+  assert.equal(quoteSwap(100, 200, 0).feePct, SWAP_FEE_PCT);
+});
+
+test("lowering the allowance takes effect the same day", () => {
+  // Someone who banked 3 free swaps this morning must not keep them.
+  assert.ok(freeSwapsLeft("2026-08-01", 3, "2026-08-01") <= FREE_SWAPS_PER_DAY);
 });
 
 test("quoteSwap charges no fee while free swaps remain", () => {

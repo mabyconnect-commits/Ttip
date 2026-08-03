@@ -1,13 +1,30 @@
 import { SWAP_FEE_PCT } from "./constants";
 
-export const FREE_SWAPS_PER_DAY = 3;
+/**
+ * Free swaps per user per day. NONE by default.
+ *
+ * This was 3, and it was a straight loss on every one: a free swap earns 0%
+ * while still accruing 0.15% cashback on its volume, so the platform paid the
+ * user to trade. Every swap is now priced.
+ *
+ * Kept configurable so a promo can be run deliberately — set FREE_SWAPS_PER_DAY
+ * for a limited period — rather than being a permanent giveaway nobody costed.
+ */
+export const FREE_SWAPS_PER_DAY = (() => {
+  const v = Number(process.env.FREE_SWAPS_PER_DAY);
+  return Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0;
+})();
 
 /**
  * How many free swaps a user has today. The stored counter only applies to the
  * stored day; on any new calendar day the full daily allowance is restored.
+ *
+ * Clamped to the current allowance so lowering it takes effect immediately —
+ * otherwise everyone who had banked 3 today would keep them.
  */
 export function freeSwapsLeft(storedDay: string | null, storedLeft: number, today: string): number {
-  return storedDay !== today ? FREE_SWAPS_PER_DAY : storedLeft;
+  if (storedDay !== today) return FREE_SWAPS_PER_DAY;
+  return Math.min(Math.max(0, storedLeft), FREE_SWAPS_PER_DAY);
 }
 
 export interface SwapQuote {
