@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { dextopusConfig } from "@/lib/settlement/config";
+import { resolveTokenAddress } from "@/lib/settlement/dextopus";
+import { chainIdForNetwork, explorerTxUrl } from "@/lib/chains";
+import { toUsd } from "@/lib/prices";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +55,75 @@ export async function GET(req: Request) {
     } catch (e) {
       return { error: String((e as Error)?.message ?? e) };
     }
+  }
+
+  // ── Withdrawal diagnostics ────────────────────────────────────────────────
+  // ?withdrawals=1[&minutes=10][&reference=…] → why a withdrawal is stuck.
+  if (url.searchParams.get("withdrawals") === "1") {
+    const minutes = Number(url.searchParams.get("minutes") ?? 10);
+    const ref = url.searchParams.get("reference");
+    const pending = await prisma.settlement.findMany({
+      where: { kind: "withdrawal", provider: "dextopus", status: "pending", ...(ref ? { reference: ref } : {}) },
+      orderBy: { createdAt: "asc" },
+      take: 25,
+    });
+    const withdrawals = [];
+    for (const s of pending) {
+      const raw = (s.raw ?? {}) as { dextopusRequestId?: string; fundingTx?: string };
+      const requestId = raw.dextopusRequestId;
+      const ageMinutes = Math.round((Date.now() - s.createdAt.getTime()) / 60000);
+      const status = requestId ? await call(`/deposit/status?depositRequestId=${encodeURIComponent(requestId)}`, { headers }) : null;
+      withdrawals.push({
+        reference: s.reference,
+        requestId: requestId ?? null,
+        asset: s.asset,
+        amount: Number(s.amount),
+        destination: s.address,
+        fundingTx: raw.fundingTx ?? null,
+        fundingTxUrl: raw.fundingTx ? explorerTxUrl(792703809, raw.fundingTx) : null,
+        ageMinutes,
+        stuck: ageMinutes >= minutes,
+        status,
+        diagnosis: interpretWithdrawal(requestId, status, ageMinutes, minutes),
+      });
+    }
+    return NextResponse.json({ pendingCount: pending.length, stuckThresholdMinutes: minutes, withdrawals });
+  }
+
+  // ?dryRun=1&asset=USDT&network=tron&address=…&amount=2 → preview a withdrawal
+  // (fees + output) WITHOUT moving money, to verify config end-to-end.
+  if (url.searchParams.get("dryRun") === "1") {
+    const asset = url.searchParams.get("asset") ?? "USDT";
+    const network = url.searchParams.get("network") ?? "tron";
+    const address = url.searchParams.get("address") ?? "";
+    const amount = Number(url.searchParams.get("amount") ?? 2);
+    const destinationChainId = chainIdForNetwork(network);
+    const [oAsset, dAsset] = await Promise.all([
+      resolveTokenAddress(cfg, cfg.settlementChainId!, cfg.settlementAsset ?? "USDC"),
+      destinationChainId ? resolveTokenAddress(cfg, destinationChainId, asset) : Promise.resolve(undefined),
+    ]);
+    const usdc = await toUsd(amount, asset);
+    const quote = await call("/deposit/quote", {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        originChainId: cfg.settlementChainId,
+        originAsset: oAsset,
+        destinationChainId,
+        destinationAsset: dAsset,
+        amount: Math.round(usdc * 1e6).toString(),
+        recipient: address,
+        refundTo: cfg.settlementAddress,
+        dry: true,
+        metadata: { source: "ttip-debug" },
+      }),
+    });
+    return NextResponse.json({
+      input: { asset, network, amount, address: address ? address.slice(0, 6) + "…" + address.slice(-4) : "(none — pass &address=)" },
+      resolved: { originChainId: cfg.settlementChainId, destinationChainId, originAsset: oAsset ?? "UNRESOLVED", destinationAsset: dAsset ?? "UNRESOLVED", sendUsdc: usdc },
+      dryRunQuote: quote,
+      diagnosis: interpretDryRun(destinationChainId, oAsset, dAsset, quote),
+    });
   }
 
   // ?deposits=<address> → what Dextopus recorded for that address (incl. failed/
@@ -139,4 +211,38 @@ export async function GET(req: Request) {
   };
 
   return NextResponse.json(out, { status: 200 });
+}
+
+/** Plain-English read of why a pending withdrawal is where it is. */
+function interpretWithdrawal(requestId: string | undefined, statusResp: unknown, ageMinutes: number, minutes: number): string {
+  if (!requestId) {
+    return "No Dextopus request id was recorded — the quote or the treasury funding never completed, so nothing was handed to Dextopus. Check the funding tx and the /api/send logs; this one won't auto-reconcile.";
+  }
+  const r = statusResp as { status?: number; body?: any; error?: string } | null;
+  if (!r || r.error) return `Couldn't read Dextopus status (${r?.error ?? "no response"}). Retry.`;
+  const body = r.body?.data ?? r.body ?? {};
+  const s = String(body.status ?? "").toLowerCase();
+  const e = String(body.executionStatus ?? "").toLowerCase();
+  const both = `${s} ${e}`;
+  if (/complete|settled|delivered|success/.test(both)) {
+    return "Delivered on Dextopus ✅ — it just hasn't been finalized in Ttip yet. Hit /api/cron/withdrawals (or wait for the cron) to mark it completed.";
+  }
+  if (/fail|expired|refund|error/.test(both)) {
+    return `Dextopus reports "${s || e}" — this withdrawal will be refunded to the user on the next reconcile pass.`;
+  }
+  if (ageMinutes >= minutes) {
+    return `Still processing after ${ageMinutes} min (status="${s || "?"}", execution="${e || "?"}"). Confirm the funding tx actually landed on Solana (fundingTxUrl); if it did, Dextopus is still awaiting confirmations or routing to the destination chain. If the funding tx is missing/failed, the treasury may be short on USDC or SOL for fees.`;
+  }
+  return `Processing normally (${ageMinutes} min): status="${s || "?"}", execution="${e || "?"}".`;
+}
+
+/** Read of a dry-run quote — confirms the withdrawal path resolves before going live. */
+function interpretDryRun(destChainId: number | null, oAsset: string | undefined, dAsset: string | undefined, quote: unknown): string {
+  if (!destChainId) return "Unknown network — no Dextopus chain id maps to it. Use a supported network.";
+  if (!oAsset) return "Treasury (origin) asset didn't resolve on Dextopus — check DEXTOPUS_SETTLEMENT_ASSET/CHAIN_ID.";
+  if (!dAsset) return "Destination asset isn't listed on that chain in Dextopus — the user can't receive it there.";
+  const q = quote as { status?: number; body?: any; error?: string } | null;
+  if (!q || q.error) return `Couldn't reach the quote endpoint (${q?.error ?? "no response"}).`;
+  if (q.status && q.status >= 400) return `Dextopus rejected the quote (${q.status}): "${q.body?.message ?? "see body"}". Fix the request before going live.`;
+  return "Quote OK ✅ — origin/destination resolve and Dextopus returns a preview. Withdrawals should work; check dryRunQuote.body for the expected amountOut and fees.";
 }
