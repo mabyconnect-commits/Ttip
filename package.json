@@ -2,7 +2,7 @@
   "name": "ttip",
   "version": "1.0.0",
   "private": true,
-  "description": "Ttip \u2014 crypto in, cash out, tip anyone. Swap BTC/ETH/USDT to African fiat and tip friends instantly.",
+  "description": "Ttip — crypto in, cash out, tip anyone. Swap BTC/ETH/USDT to African fiat and tip friends instantly.",
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && node scripts/setup-db.mjs && next build",
@@ -27,6 +27,7 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.115.0",
     "@capacitor/app": "^6.0.3",
     "@capacitor/browser": "^6.0.6",
     "@capacitor/core": "^6.2.1",

@@ -1,0 +1,331 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Icon } from "@/components/Icon";
+import { COMPANY } from "@/lib/company";
+
+/**
+ * Ada — the floating in-app assistant.
+ *
+ * Mounted once in the app shell, so it's reachable from every screen without
+ * each page knowing about it. Other screens open it by dispatching
+ * `window.dispatchEvent(new Event(ASSISTANT_OPEN))` — that's how the "Live chat"
+ * tile on the support page works, with no prop drilling.
+ *
+ * The launcher renders nothing at all until the server confirms the assistant is
+ * configured, so a deploy without an API key simply doesn't show a button that
+ * would fail when tapped.
+ */
+
+export const ASSISTANT_OPEN = "ttip:assistant-open";
+
+const STORE_KEY = "ttip_ada_thread";
+const NAME = "Ada";
+
+interface Msg {
+  role: "user" | "assistant";
+  content: string;
+  /** Set when Ada asked for a human — renders the hand-over button. */
+  escalate?: boolean;
+}
+
+const STARTERS = [
+  "How do I cash out to my bank?",
+  "Why is my transfer still pending?",
+  "How do I raise my limits?",
+  "What fees does Ttip charge?",
+];
+
+export function Assistant() {
+  const [enabled, setEnabled] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [msgs, setMsgs] = useState<Msg[]>([]);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const scroller = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/assistant")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => alive && setEnabled(!!d?.enabled))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Restore the thread so closing the panel mid-conversation doesn't lose it.
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(STORE_KEY);
+      if (saved) setMsgs(JSON.parse(saved));
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(STORE_KEY, JSON.stringify(msgs.slice(-20)));
+    } catch {}
+  }, [msgs]);
+
+  useEffect(() => {
+    const h = () => setOpen(true);
+    window.addEventListener(ASSISTANT_OPEN, h);
+    return () => window.removeEventListener(ASSISTANT_OPEN, h);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [open]);
+
+  // Keep the newest message in view as it streams in.
+  useEffect(() => {
+    const el = scroller.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [msgs, open]);
+
+  const send = useCallback(
+    async (text: string) => {
+      const question = text.trim();
+      if (!question || busy) return;
+
+      // History the model sees, then an empty bubble that fills as it streams.
+      const history: Msg[] = [...msgs, { role: "user", content: question }];
+      setMsgs([...history, { role: "assistant", content: "" }]);
+      setInput("");
+      setBusy(true);
+
+      const fail = (m: string) =>
+        setMsgs((prev) => {
+          const next = [...prev];
+          next[next.length - 1] = { role: "assistant", content: m, escalate: true };
+          return next;
+        });
+
+      try {
+        const res = await fetch("/api/assistant", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages: history.slice(-12).map((m) => ({ role: m.role, content: m.content })),
+          }),
+        });
+
+        // Anything that isn't the stream is a normal JSON error from the API.
+        if (!res.ok || !res.body || !res.headers.get("content-type")?.includes("event-stream")) {
+          let msg = "I couldn't reach the server. Try again in a moment.";
+          try {
+            const j = await res.json();
+            if (j?.error) msg = j.error;
+          } catch {}
+          fail(msg);
+          return;
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+
+          // SSE frames are separated by a blank line.
+          const frames = buf.split("\n\n");
+          buf = frames.pop() ?? "";
+
+          for (const frame of frames) {
+            const line = frame.split("\n").find((l) => l.startsWith("data:"));
+            if (!line) continue;
+            let ev: { t: string; text?: string; message?: string; escalate?: boolean };
+            try {
+              ev = JSON.parse(line.slice(5).trim());
+            } catch {
+              continue;
+            }
+
+            if (ev.t === "delta" && ev.text) {
+              const chunk = ev.text;
+              setMsgs((prev) => {
+                const next = [...prev];
+                const last = next[next.length - 1]!;
+                next[next.length - 1] = { ...last, content: last.content + chunk };
+                return next;
+              });
+            } else if (ev.t === "done") {
+              setMsgs((prev) => {
+                const next = [...prev];
+                const last = next[next.length - 1]!;
+                next[next.length - 1] = {
+                  ...last,
+                  escalate: !!ev.escalate,
+                  content: last.content || "I'm not sure about that one.",
+                };
+                return next;
+              });
+            } else if (ev.t === "error") {
+              fail(ev.message ?? "Something went wrong.");
+            }
+          }
+        }
+      } catch {
+        fail("I lost connection there. Try again, or email support if it's urgent.");
+      } finally {
+        setBusy(false);
+        inputRef.current?.focus();
+      }
+    },
+    [msgs, busy],
+  );
+
+  if (!enabled) return null;
+
+  return (
+    <>
+      {/* launcher — pinned inside the 480px app column, clear of the tab bar */}
+      {!open && (
+        <div className="fixed bottom-[96px] left-1/2 -translate-x-1/2 w-full max-w-[480px] px-4 flex justify-end pointer-events-none z-40">
+          <button
+            onClick={() => setOpen(true)}
+            aria-label={`Ask ${NAME}`}
+            className="pointer-events-auto grad-bg-135 w-[52px] h-[52px] rounded-full flex items-center justify-center text-[#04121A] shadow-[0_10px_28px_rgba(42,200,255,.35)] active:scale-95 transition"
+          >
+            <Icon name="message" size={22} strokeWidth={2} />
+          </button>
+        </div>
+      )}
+
+      {open && (
+        <div className="fixed inset-0 z-[70] flex items-end justify-center">
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => setOpen(false)} />
+          <div className="relative w-full max-w-[480px] h-[90dvh] bg-[#0B0D14] border-t border-white/10 rounded-t-[26px] flex flex-col animate-sheet overflow-hidden">
+            {/* header */}
+            <div className="flex items-center gap-3 px-5 pt-4 pb-3 border-b border-white/[.07] shrink-0">
+              <div className="grad-bg-135 w-9 h-9 rounded-full flex items-center justify-center text-[#04121A] shrink-0">
+                <Icon name="zap" size={18} fill="#04121A" strokeWidth={1.5} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-grotesk font-semibold text-[15px] leading-tight">{NAME}</div>
+                <div className="font-sans text-[11.5px] text-white/40">Ttip assistant · here 24/7</div>
+              </div>
+              {msgs.length > 0 && (
+                <button
+                  onClick={() => setMsgs([])}
+                  className="text-white/40 text-[11.5px] border border-white/10 rounded-full px-2.5 py-1 active:scale-95"
+                >
+                  Clear
+                </button>
+              )}
+              <button
+                onClick={() => setOpen(false)}
+                aria-label="Close"
+                className="w-8 h-8 rounded-full border border-white/10 flex items-center justify-center text-white/60 active:scale-95"
+              >
+                <Icon name="plus" size={15} strokeWidth={2.4} className="rotate-45" />
+              </button>
+            </div>
+
+            {/* thread */}
+            <div ref={scroller} className="flex-1 overflow-y-auto no-scrollbar px-4 py-4 flex flex-col gap-3">
+              {msgs.length === 0 && (
+                <div className="pt-2">
+                  <div className="font-grotesk font-bold text-[20px] tracking-[-0.3px]">
+                    Hi, I&apos;m {NAME}.
+                  </div>
+                  <p className="text-white/50 text-[13.5px] mt-1.5 leading-[1.55]">
+                    Ask me anything about Ttip — fees, limits, deposits, payouts, bills. I can see
+                    your account, so I can tell you exactly what&apos;s going on with it.
+                  </p>
+                  <div className="flex flex-col gap-2 mt-4">
+                    {STARTERS.map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => send(s)}
+                        className="text-left bg-surface border border-white/[.06] rounded-2xl px-4 py-3 text-[13px] text-white/75 active:scale-[.99]"
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {msgs.map((m, i) => (
+                <div key={i} className={m.role === "user" ? "self-end max-w-[84%]" : "self-start max-w-[92%]"}>
+                  <div
+                    className={
+                      m.role === "user"
+                        ? "bg-[#1A2230] border border-white/[.08] rounded-2xl rounded-br-md px-3.5 py-2.5 text-[13.5px] leading-[1.55] whitespace-pre-wrap"
+                        : "bg-surface border border-white/[.06] rounded-2xl rounded-bl-md px-3.5 py-2.5 text-[13.5px] leading-[1.55] whitespace-pre-wrap text-white/85"
+                    }
+                  >
+                    {m.content || (busy && i === msgs.length - 1 ? <Typing /> : "")}
+                  </div>
+                  {m.role === "assistant" && m.escalate && (
+                    <a
+                      href={`mailto:${COMPANY.supportEmail}?subject=${encodeURIComponent("Help with my Ttip account")}`}
+                      className="mt-2 inline-flex items-center gap-2 bg-good text-ink rounded-xl px-3.5 py-2 font-grotesk font-semibold text-[12.5px] active:scale-95"
+                    >
+                      <Icon name="mail" size={14} /> Email the team
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* composer */}
+            <div className="shrink-0 border-t border-white/[.07] px-4 pt-3 pb-5">
+              <div className="flex items-end gap-2">
+                <textarea
+                  ref={inputRef}
+                  rows={1}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value.slice(0, 2000))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      send(input);
+                    }
+                  }}
+                  placeholder={`Ask ${NAME} anything…`}
+                  className="flex-1 resize-none bg-surface border border-white/[.08] rounded-2xl px-4 py-3 text-[13.5px] outline-none focus:border-white/20 max-h-[110px]"
+                />
+                <button
+                  onClick={() => send(input)}
+                  disabled={busy || !input.trim()}
+                  aria-label="Send"
+                  className="w-[46px] h-[46px] rounded-2xl bg-good text-ink flex items-center justify-center shrink-0 disabled:opacity-35 active:scale-95"
+                >
+                  <Icon name="arrowUp" size={19} strokeWidth={2.4} />
+                </button>
+              </div>
+              <p className="text-center text-white/30 text-[10.5px] mt-2.5 tracking-[0.2px] uppercase">
+                {NAME} can make mistakes · we&apos;ll loop in the team when needed
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function Typing() {
+  return (
+    <span className="inline-flex gap-1 items-center py-1">
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          className="w-[5px] h-[5px] rounded-full bg-white/45 animate-pulse"
+          style={{ animationDelay: `${i * 160}ms` }}
+        />
+      ))}
+    </span>
+  );
+}

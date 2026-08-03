@@ -2,14 +2,16 @@
 
 import { useState } from "react";
 import { COMPANY } from "@/lib/company";
+import { buildReceiptImage } from "@/lib/receipt-image";
 
 /**
  * Success screen for a completed money movement, with a shareable receipt.
  *
- * People who send money need proof to hand to whoever they sent it to. The
- * Share button produces a plain-text receipt through the native share sheet
- * (WhatsApp, SMS, anywhere), falling back to the clipboard on desktop, so the
- * recipient gets something readable rather than a screenshot of a dark screen.
+ * People who send money need proof to hand to whoever they sent it to, and
+ * proof has to LOOK like proof. Sharing plain text landed in WhatsApp as an
+ * ordinary message bubble — anyone could have typed it — so Share now sends a
+ * branded PNG receipt with the Ttip logo, the amount, the details and the
+ * reference. Text is kept as the fallback for anywhere files can't be shared.
  *
  * `reference` is what makes the receipt useful — it's the string support needs
  * to trace the payment — so it's shown and included whenever the caller has one.
@@ -34,6 +36,7 @@ export function Receipt({
   shareable?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const detail = lines.filter(Boolean) as string[];
   const [primary, ...meta] = detail;
 
@@ -57,23 +60,66 @@ export function Receipt({
       .join("\n");
   }
 
+  /** A filename the recipient can recognise in their downloads. */
+  function fileName(): string {
+    const stamp = new Date().toISOString().slice(0, 10);
+    return `${COMPANY.product.toLowerCase()}-receipt-${stamp}.png`;
+  }
+
   async function share() {
+    if (sharing) return;
+    setSharing(true);
     const text = receiptText();
-    // Native share sheet where available (every phone); clipboard on desktop.
-    if (typeof navigator !== "undefined" && navigator.share) {
-      try {
-        await navigator.share({ title: `${COMPANY.product} receipt`, text });
-        return;
-      } catch {
-        /* user dismissed the sheet, or it's unavailable — fall through to copy */
-      }
-    }
+
     try {
+      // 1. The real thing: a branded PNG through the native share sheet.
+      const blob = await buildReceiptImage({
+        title,
+        primary,
+        rows: meta,
+        reference,
+      }).catch(() => null);
+
+      if (blob) {
+        const file = new File([blob], fileName(), { type: "image/png" });
+        if (navigator.canShare?.({ files: [file] })) {
+          try {
+            await navigator.share({ files: [file], title: `${COMPANY.product} receipt`, text });
+            return;
+          } catch (e: any) {
+            // A dismissed sheet is not a failure — don't then dump a download.
+            if (e?.name === "AbortError") return;
+          }
+        }
+
+        // 2. Desktop / no file sharing: save the image instead.
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = fileName();
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+        return;
+      }
+
+      // 3. Canvas unavailable — the original text receipt still works.
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: `${COMPANY.product} receipt`, text });
+          return;
+        } catch {
+          /* dismissed or unsupported — fall through to the clipboard */
+        }
+      }
       await navigator.clipboard?.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      /* clipboard blocked — nothing further we can do */
+      /* nothing further we can do */
+    } finally {
+      setSharing(false);
     }
   }
 
@@ -133,7 +179,7 @@ export function Receipt({
             onClick={share}
             className="w-full h-[50px] rounded-2xl border border-white/15 text-white font-grotesk font-semibold text-[14px] flex items-center justify-center gap-2 active:scale-[.98]"
           >
-            {copied ? "Receipt copied ✓" : "Share receipt"}
+            {sharing ? "Preparing receipt…" : copied ? "Receipt saved ✓" : "Share receipt"}
           </button>
         </div>
       )}

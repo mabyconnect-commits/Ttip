@@ -1,7 +1,13 @@
 ext {
-    minSdkVersion = 22
-    compileSdkVersion = 34
-    targetSdkVersion = 34
+    // minSdk 23 (Android 6): below 23 the OS itself warns on install, and every
+    // AndroidX version we use already requires 23.
+    minSdkVersion = 23
+    // Android 15 (API 35). Google Play has required targetSdk 35 for new apps
+    // and updates since 31 Aug 2025, and Play Protect blocks the install of a
+    // sideloaded APK that targets an older platform ("built for an older
+    // version of Android and doesn't include the latest privacy protections").
+    compileSdkVersion = 35
+    targetSdkVersion = 35
     androidxActivityVersion = '1.8.0'
     androidxAppCompatVersion = '1.6.1'
     androidxCoordinatorLayoutVersion = '1.2.0'

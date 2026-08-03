@@ -2,10 +2,10 @@
 
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { useApp } from "@/context/AppContext";
 import { BackHeader } from "@/components/ui";
 import { Icon, type IconName } from "@/components/Icon";
 import { COMPANY } from "@/lib/company";
+import { ASSISTANT_OPEN } from "@/components/Assistant";
 
 export default function SupportPage() {
   return (
@@ -16,10 +16,10 @@ export default function SupportPage() {
 }
 
 function SupportInner() {
-  const { toast } = useApp();
   const ref = useSearchParams().get("ref");
   const channels: { icon: IconName; label: string; sub: string; href?: string; action?: () => void; soon?: boolean }[] = [
-    { icon: "message", label: "Live chat", sub: "Typical reply in a few minutes", action: () => toast("Live chat coming soon — email us for now", "info") },
+    // Opens Ada, the in-app assistant, which is mounted in the app shell.
+    { icon: "message", label: "Chat with Ada", sub: "Instant answers, 24/7", action: () => window.dispatchEvent(new Event(ASSISTANT_OPEN)) },
     { icon: "mail", label: "Email us", sub: COMPANY.supportEmail, href: `mailto:${COMPANY.supportEmail}` },
     // WhatsApp has no line yet — it pointed at a placeholder number, so it's
     // shown as coming soon rather than sending people into a dead chat.

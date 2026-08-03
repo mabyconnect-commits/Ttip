@@ -57,6 +57,22 @@ npm run cap:android        # opens Android Studio
   Bundle. Create/upload a keystore; Play App Signing manages the rest.
 - Bump `versionCode` / `versionName` in `android/app/build.gradle` per release.
 
+> **"Unsafe app blocked — built for an older version of Android"**
+>
+> That Play Protect dialog is about `targetSdkVersion`, not about your code. It
+> appears when the APK targets a platform older than the phone's Android version
+> allows for a sideloaded install. This project targets **API 35 (Android 15)**
+> in `android/variables.gradle`, which is also what Google Play has required for
+> new apps and updates since 31 Aug 2025, so an APK built from `android/` will
+> not trigger it.
+>
+> If you see it, the APK almost certainly came from somewhere else — a
+> "website → APK" generator wraps your site in a shell that usually targets a
+> very old SDK. Build from this project instead.
+>
+> Raising the target means AGP ≥ 8.6 and Gradle ≥ 8.7 (both bumped here). The
+> first build after this change re-downloads Gradle, so give it a few minutes.
+
 ### iOS (macOS only)
 ```
 npm run cap:ios            # opens Xcode
