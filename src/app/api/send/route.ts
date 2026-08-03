@@ -30,6 +30,7 @@ const schema = z.object({
   amount: z.number().positive().optional(),
   address: z.string().optional(),
   network: z.string().optional(),
+  chainId: z.number().optional(), // Dextopus destination chain id (dynamic picker)
   // bank
   bankName: z.string().optional(),
   accountNumber: z.string().optional(),
@@ -179,7 +180,10 @@ async function handleWalletSend(userId: string, input: z.infer<typeof schema>) {
   // asset on their chain). Demo always simulates. If neither rail is available it
   // fails closed so no funds get stuck as pending.
   const liveOnChain = !demoEnabled(); // settlementEnabled() already true here → live
-  const isSolanaNet = /sol/i.test(input.network ?? "");
+  // Destination chain: the dynamic picker sends an explicit chainId; fall back to
+  // resolving the network label for older clients.
+  const destChainId = input.chainId ?? chainIdForNetwork(input.network) ?? undefined;
+  const isSolanaNet = /sol/i.test(input.network ?? "") || destChainId === 792703809;
   const solanaDirect = solanaWithdrawSupported(symbol) && isSolanaNet;
   const dexAvailable = dextopusWithdrawEnabled();
   if (liveOnChain && !solanaDirect && !dexAvailable) {
@@ -196,12 +200,11 @@ async function handleWalletSend(userId: string, input: z.infer<typeof schema>) {
     network = "Solana";
   } else if (liveOnChain && dexAvailable) {
     // Dextopus cross-chain send: check the address format for its chain, and cap.
-    const chainId = chainIdForNetwork(input.network);
-    if (!chainId) throw new ApiError(`Choose a supported network for ${symbol}.`, 400);
+    if (!destChainId) throw new ApiError(`Choose a supported network for ${symbol}.`, 400);
     if (amount > maxCryptoWithdrawal()) {
       throw new ApiError(`Max withdrawal is ${maxCryptoWithdrawal()} ${symbol} for now — contact support for larger amounts.`, 400);
     }
-    const check = await dextopusValidateAddress(chainTypeForChainId(chainId), input.address);
+    const check = await dextopusValidateAddress(chainTypeForChainId(destChainId), input.address);
     if (!check.valid) throw new ApiError(check.reason ? `Invalid address: ${check.reason}` : "Enter a valid destination wallet address.", 400);
   }
 
@@ -225,6 +228,7 @@ async function handleWalletSend(userId: string, input: z.infer<typeof schema>) {
       fee: feeInAsset,
       address: input.address,
       network,
+      chainId: destChainId,
       reference,
     });
   } catch (e: any) {

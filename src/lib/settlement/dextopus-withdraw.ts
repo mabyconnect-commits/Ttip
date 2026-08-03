@@ -32,6 +32,7 @@ const USDC_DECIMALS = 6;
 export interface DxWithdrawRequest {
   asset: string; // what the user receives, e.g. USDT
   network?: string; // destination network label/id, e.g. "TRC-20 (Tron)"
+  chainId?: number; // explicit Dextopus destination chain id (from the dynamic picker)
   address: string; // user's external wallet on the destination chain
   amount: number; // amount of `asset` the user is withdrawing
   reference: string; // our idempotency reference
@@ -63,7 +64,7 @@ export async function dextopusWithdraw(req: DxWithdrawRequest): Promise<DxWithdr
     return { status: "failed", message: "Treasury signer only supports a Solana (USDC) origin." };
   }
 
-  const destinationChainId = chainIdForNetwork(req.network);
+  const destinationChainId = req.chainId ?? chainIdForNetwork(req.network);
   if (!destinationChainId) return { status: "failed", message: `Unsupported network for ${req.asset}.` };
 
   const [originAsset, destinationAsset] = await Promise.all([
