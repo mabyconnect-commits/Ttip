@@ -146,14 +146,14 @@ export async function cryptoWithdraw(req: CryptoWithdrawRequest): Promise<Crypto
 
   // 2b. A pending provider send (e.g. Dextopus) settles asynchronously — record its
   //     provider + request id + funding tx so reconciliation can poll and finalize.
-  if (result.status === "pending" && (result.providerRef || result.txHash)) {
+  if (result.status === "pending" && (result.providerRef || result.txHash || result.message)) {
     await prisma.settlement.updateMany({
       where: { kind: "withdrawal", reference: req.reference },
-      data: { provider: result.provider, raw: { network: req.network, chainId: req.chainId, fee: req.fee, dextopusRequestId: result.providerRef, fundingTx: result.txHash } as Prisma.InputJsonValue },
+      data: { provider: result.provider, raw: { network: req.network, chainId: req.chainId, fee: req.fee, dextopusRequestId: result.providerRef, fundingTx: result.txHash, fundingError: result.txHash ? undefined : result.message } as Prisma.InputJsonValue },
     });
     const txn = await prisma.transaction.findFirst({ where: { userId: req.userId, type: "withdraw_wallet", meta: { path: ["reference"], equals: req.reference } } });
     if (txn) {
-      const meta = { ...((txn.meta as Record<string, unknown>) ?? {}), provider: result.provider, dextopusRequestId: result.providerRef, ...(result.txHash ? { fundingTx: result.txHash } : {}) };
+      const meta = { ...((txn.meta as Record<string, unknown>) ?? {}), provider: result.provider, dextopusRequestId: result.providerRef, ...(result.txHash ? { fundingTx: result.txHash } : { fundingError: result.message }) };
       await prisma.transaction.update({ where: { id: txn.id }, data: { meta: meta as Prisma.InputJsonValue } });
     }
   }
