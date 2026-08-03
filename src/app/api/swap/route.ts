@@ -128,7 +128,12 @@ export async function POST(req: Request) {
           counterparty: settledToBank ? user.bankAccount : "Ttip wallet",
           note: `Swapped ${fromSymbol} → ${toSymbol}`,
           emoji: "⇄",
-          meta: { rate, feePct, settledToBank, free },
+          // spreadFiat is the margin we kept on this swap, in `cashbackFiat`.
+          // It was already being computed (it's what the referrer's 25% is a
+          // share of) but never recorded — so the revenue dashboard saw the
+          // referral cost with none of the income that paid for it, and every
+          // crypto↔fiat swap looked like it earned zero.
+          meta: { rate, feePct, settledToBank, free, spreadFiat: revenueFiat, spreadFiatCurrency: cashbackFiat },
         },
       });
       return { updated, txn, settledToBank };

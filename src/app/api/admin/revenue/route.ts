@@ -16,14 +16,21 @@ export const dynamic = "force-dynamic";
  *   bank transfers    withdraw_bank.meta.fee          the transfer fee charged
  *   sell spread       withdraw_bank.meta.spreadFiat   margin on crypto -> fiat
  *   swaps             swap.meta.feePct + amountOut    the 0.5% after free swaps
+ *   swap spread       swap.meta.spreadFiat            margin on a crypto<->fiat swap
  *   crypto withdrawals withdraw_wallet.meta.fee       the flat withdrawal fee
  *   buy spread        settlement.raw.spreadFiat       margin on fiat -> crypto
  *
  * Deposits are deliberately absent: Ttip charges nothing to receive crypto, so
  * there is no deposit fee to report. Revenue on funded money is the buy spread.
  *
- * Referral commission and cashback are costs, not revenue — reported separately
- * and subtracted to give the net.
+ * Referral commission, cashback and the first-deposit bonus are costs, not
+ * revenue — reported separately and subtracted to give the net.
+ *
+ * NOTE ON HISTORY: swaps only began recording `spreadFiat` from the commit that
+ * added this line. Swaps before it show no spread even though the margin was
+ * taken and the referrer was paid a share of it, so any all-time net that spans
+ * that date understates revenue. Windowed figures (30d/7d) become correct as
+ * soon as the window clears the change.
  *
  * Everything is converted to USD so segments in different currencies add up.
  */
@@ -50,7 +57,13 @@ function usdConverter() {
   };
 }
 
-type Meta = { fee?: number; spreadFiat?: number; feePct?: number; grossFiat?: number } | null;
+type Meta = {
+  fee?: number;
+  spreadFiat?: number;
+  spreadFiatCurrency?: string;
+  feePct?: number;
+  grossFiat?: number;
+} | null;
 
 export async function GET(req: Request) {
   const userId = await getUserId();
@@ -71,9 +84,11 @@ export async function GET(req: Request) {
   let bankTransferFees = 0;
   let sellSpread = 0;
   let swapFees = 0;
+  let swapSpread = 0;
   let cryptoWithdrawalFees = 0;
   let referralPaid = 0;
   let cashbackPaid = 0;
+  let depositBonusPaid = 0;
   let volume = 0;
 
   for (const t of txns) {
@@ -97,6 +112,12 @@ export async function GET(req: Request) {
           const gross = out / (1 - pct);
           swapFees += await usd(gross - out, t.assetOut ?? "USDT");
         }
+        // A crypto↔fiat swap charges no swap fee — the margin IS the rate. That
+        // spread is the single largest revenue line and was invisible here until
+        // the swap started recording it.
+        if (meta?.spreadFiat) {
+          swapSpread += await usd(meta.spreadFiat, meta.spreadFiatCurrency ?? t.assetOut ?? "NGN");
+        }
         volume += await usd(out, t.assetOut ?? "USDT");
         break;
       }
@@ -112,6 +133,12 @@ export async function GET(req: Request) {
         break;
       case "cashback_earn":
         cashbackPaid += await usd(Number(t.amountOut ?? 0), t.assetOut ?? "NGN");
+        break;
+      // The flat first-deposit bonus. Unlike referral commission and cashback
+      // this is not a share of anything we earned — it is money given away to
+      // win the user, and it was missing from the cost side entirely.
+      case "deposit_bonus":
+        depositBonusPaid += await usd(Number(t.amountOut ?? 0), t.assetOut ?? "NGN");
         break;
       case "buy":
       case "bill":
@@ -134,14 +161,15 @@ export async function GET(req: Request) {
     if (raw?.spreadFiat) buySpread += await usd(raw.spreadFiat, raw.fiat ?? "NGN");
   }
 
-  const feeTotal = bankTransferFees + swapFees + cryptoWithdrawalFees + buySpread + sellSpread;
-  const rewardsTotal = referralPaid + cashbackPaid;
+  const feeTotal = bankTransferFees + swapFees + swapSpread + cryptoWithdrawalFees + buySpread + sellSpread;
+  const rewardsTotal = referralPaid + cashbackPaid + depositBonusPaid;
 
   return NextResponse.json({
     window: since ? `last ${days} days` : "all time",
     fees: {
       bankTransfers: bankTransferFees,
       swaps: swapFees,
+      swapSpread,
       cryptoWithdrawals: cryptoWithdrawalFees,
       buySpread,
       sellSpread,
@@ -149,7 +177,12 @@ export async function GET(req: Request) {
       cryptoDeposits: 0,
       total: feeTotal,
     },
-    rewards: { referralCommission: referralPaid, cashback: cashbackPaid, total: rewardsTotal },
+    rewards: {
+      referralCommission: referralPaid,
+      cashback: cashbackPaid,
+      depositBonus: depositBonusPaid,
+      total: rewardsTotal,
+    },
     netRevenue: feeTotal - rewardsTotal,
     volume,
     currency: "USD",

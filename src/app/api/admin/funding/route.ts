@@ -25,7 +25,17 @@ export const dynamic = "force-dynamic";
  */
 
 const REAL_PROVIDERS = ["dextopus", "flutterwave", "paystack", "monnify", "coralpay"];
-const GRANT_TYPES = ["deposit_bonus", "referral_bonus", "referral_withdraw", "cashback"];
+/**
+ * Promos that actually credited a SPENDABLE balance.
+ *
+ * `referral_bonus` and `cashback_earn` are deliberately absent: they only
+ * increment the claimable pots (user.referralEarned / user.cashback), which
+ * aren't Balance rows and so aren't in "users hold". Counting the accrual as
+ * well as the later claim (`referral_withdraw` / `cashback`) credited the same
+ * naira twice — which inflated "promos granted" and therefore made the unbacked
+ * hole read SMALLER than it is.
+ */
+const GRANT_TYPES = ["deposit_bonus", "referral_withdraw", "cashback"];
 
 async function isAdmin(userId: string): Promise<boolean> {
   const raw = process.env.ADMIN_EMAILS ?? process.env.ADMIN_MAILS ?? "";

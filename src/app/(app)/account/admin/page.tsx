@@ -57,13 +57,14 @@ interface Revenue {
   fees?: {
     bankTransfers: number;
     swaps: number;
+    swapSpread: number;
     cryptoWithdrawals: number;
     buySpread: number;
     sellSpread: number;
     cryptoDeposits: number;
     total: number;
   };
-  rewards?: { referralCommission: number; cashback: number; total: number };
+  rewards?: { referralCommission: number; cashback: number; depositBonus: number; total: number };
   netRevenue?: number;
   volume?: number;
   error?: string;
@@ -172,7 +173,12 @@ export default function AdminFundingPage() {
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="rounded-2xl bg-surface border border-good/25 p-4">
                     <div className="text-white/45 text-[11.5px]">Net revenue</div>
-                    <div className="font-grotesk font-bold text-[19px] mt-1 text-good">{usd(rev.netRevenue ?? 0)}</div>
+                    <div
+                      className="font-grotesk font-bold text-[19px] mt-1"
+                      style={{ color: (rev.netRevenue ?? 0) < 0 ? "#FF7A8A" : "#3DF5B0" }}
+                    >
+                      {usd(rev.netRevenue ?? 0)}
+                    </div>
                     <div className="text-white/35 text-[10.5px] mt-0.5">fees minus rewards paid</div>
                   </div>
                   <div className="rounded-2xl bg-surface border border-white/[.08] p-4">
@@ -190,7 +196,8 @@ export default function AdminFundingPage() {
                   <div className="flex flex-col gap-2 mt-3">
                     {[
                       ["Bank transfers", rev.fees?.bankTransfers ?? 0],
-                      ["Swaps", rev.fees?.swaps ?? 0],
+                      ["Swap fees", rev.fees?.swaps ?? 0],
+                      ["Swap spread", rev.fees?.swapSpread ?? 0],
                       ["Crypto withdrawals", rev.fees?.cryptoWithdrawals ?? 0],
                       ["Buy spread", rev.fees?.buySpread ?? 0],
                       ["Sell spread", rev.fees?.sellSpread ?? 0],
@@ -203,6 +210,13 @@ export default function AdminFundingPage() {
                     <div className="flex justify-between text-[12.5px] pt-2 border-t border-white/[.06]">
                       <span className="text-white/35">Crypto deposits</span>
                       <span className="text-white/35">free — no fee charged</span>
+                    </div>
+                    {/* Swaps only started recording their spread recently, so an
+                        all-time total that predates that reads too low. */}
+                    <div className="text-white/30 text-[10.5px] leading-[1.45] pt-1">
+                      Swap spread is only recorded on swaps made after this was added, so
+                      all-time understates it. The 30d and 7d windows become accurate once
+                      they clear that date.
                     </div>
                   </div>
                 </div>
@@ -220,6 +234,10 @@ export default function AdminFundingPage() {
                     <div className="flex justify-between text-[12.5px]">
                       <span className="text-white/55">Cashback</span>
                       <span className="font-grotesk font-semibold">{usd(rev.rewards?.cashback ?? 0)}</span>
+                    </div>
+                    <div className="flex justify-between text-[12.5px]">
+                      <span className="text-white/55">First-deposit bonus</span>
+                      <span className="font-grotesk font-semibold">{usd(rev.rewards?.depositBonus ?? 0)}</span>
                     </div>
                   </div>
                 </div>
