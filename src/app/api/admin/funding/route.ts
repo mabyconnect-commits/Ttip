@@ -111,6 +111,68 @@ async function unfundedFor(userId: string, sources: string[] = []): Promise<Map<
   return out;
 }
 
+/**
+ * Platform-wide reconciliation.
+ *
+ * The per-account figures below only see unfunded money AT ITS POINT OF ENTRY.
+ * Once it's swapped into another asset or Ttipped to someone else it stops
+ * matching the deposit that created it, so per-account totals UNDERSTATE the
+ * hole — an account showing ₦500 of simulated deposit can be sitting on far
+ * more, because the rest arrived as a swap or a transfer.
+ *
+ * This works the other way round instead: everything users hold, versus
+ * everything that legitimately entered. The difference is the true size of the
+ * hole, no matter how the money moved after it was created.
+ */
+async function reconcile() {
+  const usd = async (amount: number, symbol: string) => (amount > 0 ? toUsd(amount, symbol) : 0);
+
+  const [balances, cards, realDeposits, grants, withdrawals] = await Promise.all([
+    prisma.balance.findMany({ select: { symbol: true, amount: true } }),
+    prisma.card.findMany({ select: { balanceUsd: true } }),
+    prisma.settlement.findMany({
+      where: { kind: { in: ["deposit", "buy"] }, status: "completed", provider: { in: REAL_PROVIDERS } },
+      select: { asset: true, amount: true },
+    }),
+    prisma.transaction.findMany({
+      where: { status: "completed", type: { in: GRANT_TYPES } },
+      select: { assetOut: true, amountOut: true },
+    }),
+    prisma.transaction.findMany({
+      where: { status: "completed", type: { in: ["withdraw_bank", "withdraw_wallet", "bill", "card_spend"] } },
+      select: { assetIn: true, amountIn: true },
+    }),
+  ]);
+
+  let heldUsd = 0;
+  for (const b of balances) heldUsd += await usd(Number(b.amount), b.symbol);
+  for (const c of cards) heldUsd += Number(c.balanceUsd);
+
+  let realFundedUsd = 0;
+  for (const d of realDeposits) realFundedUsd += await usd(Number(d.amount), d.asset);
+
+  let grantsUsd = 0;
+  for (const g of grants) grantsUsd += await usd(Number(g.amountOut ?? 0), g.assetOut ?? "NGN");
+
+  let withdrawnUsd = 0;
+  for (const w of withdrawals) withdrawnUsd += await usd(Number(w.amountIn ?? 0), w.assetIn ?? "USDT");
+
+  // What users should be holding if every naira of it was real.
+  const expectedUsd = realFundedUsd + grantsUsd - withdrawnUsd;
+
+  return {
+    heldUsd,
+    realFundedUsd,
+    grantsUsd,
+    withdrawnUsd,
+    expectedUsd,
+    unbackedUsd: Math.max(0, heldUsd - expectedUsd),
+    note:
+      "Held minus (real deposits + promos − withdrawals). This is the true hole: it counts unfunded money " +
+      "even after it was swapped into another asset or sent to another account, which the per-account list cannot see.",
+  };
+}
+
 async function report(userFilter?: string) {
   const users = await prisma.user.findMany({
     where: userFilter ? { OR: [{ email: userFilter }, { username: userFilter }, { id: userFilter }] } : undefined,
@@ -144,7 +206,7 @@ async function report(userFilter?: string) {
     rows.push({ userId: u.id, email: u.email, username: u.username, debits, recoverableUsd, goneUsd, sources });
   }
 
-  return { accounts: rows, totalRecoverableUsd, totalGoneUsd };
+  return { accounts: rows, totalRecoverableUsd, totalGoneUsd, reconciliation: await reconcile() };
 }
 
 export async function GET(req: Request) {

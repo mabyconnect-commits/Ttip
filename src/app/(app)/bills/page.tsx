@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import { apiGet, apiPost } from "@/lib/client";
 import { usePrices } from "@/lib/usePrices";
-import { BackHeader, GradientButton } from "@/components/ui";
+import { BackHeader, GradientButton, Sheet } from "@/components/ui";
 import { Icon } from "@/components/Icon";
 import { BILL_CATEGORIES, BILL_FIAT } from "@/lib/constants";
 import { pickFunding } from "@/lib/funding";
@@ -52,6 +52,8 @@ export default function BillsPage() {
   const [receipt, setReceipt] = useState<any>(null);
   const [resolvedName, setResolvedName] = useState<string | null>(null);
   const [validating, setValidating] = useState(false);
+  const [planSheet, setPlanSheet] = useState(false);
+  const [planQ, setPlanQ] = useState("");
 
   const funding = pickFunding(state.portfolio.assets);
   const fundBal = state.portfolio.assets.find((a) => a.symbol === funding)?.amount ?? 0;
@@ -190,32 +192,25 @@ export default function BillsPage() {
                 </div>
               )}
 
-              {/* fixed plans (data / tv / internet) — a two-column grid of small
-                  cards. A full-width row per plan made these lists scroll for
-                  screens on providers with dozens of bundles. */}
+              {/* fixed plans (data / tv / internet) — behind a dropdown. MTN
+                  alone has 30+ bundles, so even a two-column grid ran for
+                  screens and buried the phone-number field below it. */}
               {fixedItems.length > 0 && (
-                <div className="grid grid-cols-2 gap-2 mt-3">
-                  {fixedItems.map((it) => {
-                    const active = item?.itemCode === it.itemCode;
-                    return (
-                      <button
-                        key={it.itemCode}
-                        onClick={() => setItem(it)}
-                        title={it.name}
-                        className={`rounded-2xl px-3 py-3 border text-left flex flex-col justify-between min-h-[76px] active:scale-[.98] transition ${
-                          active ? "bg-brand-cyan/[.1] border-brand-cyan" : "bg-surface border-white/[.08]"
-                        }`}
-                      >
-                        <span className="text-[12.5px] font-medium text-white/85 leading-snug line-clamp-2">
-                          {planLabel(it.name)}
-                        </span>
-                        <span className={`font-grotesk font-bold text-[14px] mt-1.5 ${active ? "text-brand-cyan" : "text-white"}`}>
-                          {formatFiat(it.amount, fiat, { decimals: 0 })}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+                <>
+                  <div className="text-[12px] text-white/50 mt-4 mb-2">Plan</div>
+                  <button
+                    onClick={() => { setPlanSheet(true); setPlanQ(""); }}
+                    className="w-full bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] flex items-center justify-between active:scale-[.99]"
+                  >
+                    <span className={`text-[13.5px] truncate pr-2 ${item ? "text-white" : "text-white/40"}`}>
+                      {item ? planLabel(item.name) : `Choose a plan (${fixedItems.length})`}
+                    </span>
+                    <span className="flex items-center gap-2 shrink-0">
+                      {item && <b className="font-grotesk text-[13.5px]">{formatFiat(item.amount, fiat, { decimals: 0 })}</b>}
+                      <Icon name="chevronDown" size={16} className="text-white/40" />
+                    </span>
+                  </button>
+                </>
               )}
 
               {/* customer field */}
@@ -282,6 +277,36 @@ export default function BillsPage() {
           )}
         </div>
       )}
+
+      <Sheet open={planSheet} onClose={() => setPlanSheet(false)} title={`${provider?.provider ?? ""} plans`}>
+        <input
+          value={planQ}
+          onChange={(e) => setPlanQ(e.target.value)}
+          placeholder="Search plans…"
+          className="w-full bg-surface2 border border-white/[.08] rounded-xl px-4 h-[46px] outline-none text-[14px] focus:border-brand-cyan/50 mb-3"
+        />
+        <div className="grid grid-cols-2 gap-2 max-h-[55vh] overflow-y-auto no-scrollbar">
+          {fixedItems
+            .filter((it) => it.name.toLowerCase().includes(planQ.toLowerCase().trim()))
+            .map((it) => {
+              const active = item?.itemCode === it.itemCode;
+              return (
+                <button
+                  key={it.itemCode}
+                  onClick={() => { setItem(it); setPlanSheet(false); }}
+                  className={`rounded-2xl px-3 py-3 border text-left flex flex-col justify-between min-h-[76px] active:scale-[.98] ${
+                    active ? "bg-brand-cyan/[.1] border-brand-cyan" : "bg-surface border-white/[.08]"
+                  }`}
+                >
+                  <span className="text-[12.5px] font-medium text-white/85 leading-snug line-clamp-2">{planLabel(it.name)}</span>
+                  <span className={`font-grotesk font-bold text-[14px] mt-1.5 ${active ? "text-brand-cyan" : "text-white"}`}>
+                    {formatFiat(it.amount, fiat, { decimals: 0 })}
+                  </span>
+                </button>
+              );
+            })}
+        </div>
+      </Sheet>
 
       {receipt && (
         <Receipt

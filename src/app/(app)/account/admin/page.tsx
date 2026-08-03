@@ -30,10 +30,19 @@ interface Account {
   goneUsd: number;
   sources: string[];
 }
+interface Reconciliation {
+  heldUsd: number;
+  realFundedUsd: number;
+  grantsUsd: number;
+  withdrawnUsd: number;
+  expectedUsd: number;
+  unbackedUsd: number;
+}
 interface Report {
   accounts?: Account[];
   totalRecoverableUsd?: number;
   totalGoneUsd?: number;
+  reconciliation?: Reconciliation;
   error?: string;
 }
 interface DemoResult {
@@ -215,6 +224,36 @@ export default function AdminFundingPage() {
                   </div>
                 </div>
               </>
+            )}
+
+            <div className="font-grotesk font-semibold text-[14px] mt-6 mb-2">Ledger reconciliation</div>
+            {report?.reconciliation && (
+              <div className="rounded-2xl bg-surface border border-warn/30 p-4 mb-3">
+                <div className="flex justify-between items-baseline">
+                  <span className="font-grotesk font-semibold text-[13.5px]">Unbacked money on the platform</span>
+                  <span className="font-grotesk font-bold text-[17px] text-warn">
+                    {usd(report.reconciliation.unbackedUsd)}
+                  </span>
+                </div>
+                <div className="flex flex-col gap-1.5 mt-3 text-[12px]">
+                  {[
+                    ["Users hold", report.reconciliation.heldUsd],
+                    ["Real deposits in", report.reconciliation.realFundedUsd],
+                    ["Promos granted", report.reconciliation.grantsUsd],
+                    ["Withdrawn out", -report.reconciliation.withdrawnUsd],
+                  ].map(([label, v]) => (
+                    <div key={label as string} className="flex justify-between">
+                      <span className="text-white/50">{label as string}</span>
+                      <span className="font-grotesk font-semibold">{usd(v as number)}</span>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-white/45 text-[11px] mt-3 leading-[1.5]">
+                  This is the true size of the hole. The per-account list below only sees fake money where it first
+                  entered — once it&apos;s swapped into another asset or Ttipped to someone else it stops matching the
+                  deposit that made it, so the per-account totals read LOW. Trust this number for the total.
+                </p>
+              </div>
             )}
 
             <div className="font-grotesk font-semibold text-[14px] mt-6 mb-2">Unfunded balances</div>
