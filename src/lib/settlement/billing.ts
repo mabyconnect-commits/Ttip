@@ -2,6 +2,7 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { kindOf } from "../wallet";
+import { debitFloat } from "./treasury";
 import { billProvider } from "./config";
 import { sandboxBillPay } from "./sandbox";
 import { flutterwaveBillPay, flutterwaveBillStatus, flutterwaveValidateBill } from "./flutterwave";
@@ -146,6 +147,48 @@ export async function payBill(args: PayBillArgs): Promise<PayBillOutcome> {
 }
 
 /**
+ * Re-query bills still sitting on "pending" and finalize the ones the provider
+ * now reports as terminal. Flutterwave does not reliably webhook bill delivery,
+ * so without this a bill that settled after our one immediate re-query would
+ * stay "Pending" in the user's history forever.
+ *
+ * Deliberately conservative: a bill the provider has no answer for is LEFT
+ * pending rather than auto-refunded — refunding a bill that actually delivered
+ * would pay the user twice, out of the treasury. Those need a human.
+ * Idempotent (finalizeBill no-ops on non-pending) and safe to run often.
+ */
+export async function reconcilePendingBills(
+  limit = 25,
+  userId?: string,
+): Promise<{ checked: number; settled: number; failed: number }> {
+  const provider = billProvider();
+  // Sandbox settles inline, so there is nothing to poll.
+  if (provider !== "flutterwave") return { checked: 0, settled: 0, failed: 0 };
+
+  const pending = await prisma.settlement.findMany({
+    where: { kind: "bill", status: "pending", provider, ...(userId ? { userId } : {}) },
+    orderBy: { createdAt: "asc" },
+    take: limit,
+  });
+
+  let settled = 0;
+  let failed = 0;
+  for (const s of pending) {
+    const reference = s.reference ?? s.externalId;
+    if (!reference) continue;
+    const status = await billStatus(reference).catch(() => null);
+    if (!status || status === "pending") continue;
+
+    const res = await finalizeBill({ reference: s.reference ?? undefined, externalId: s.externalId }, status);
+    if (!res.updated) continue;
+    if (status === "completed") settled++;
+    else failed++;
+  }
+
+  return { checked: pending.length, settled, failed };
+}
+
+/**
  * Finalize a bill when the provider confirms it (webhook) or on a terminal
  * dispatch result. Marks the settlement + transaction completed/failed and, on
  * failure, refunds the debited crypto. Idempotent: acting on an already-finalized
@@ -175,6 +218,17 @@ export async function finalizeBill(
 
     if (txn) {
       await tx.transaction.update({ where: { id: txn.id }, data: { status } });
+    }
+
+    if (status === "completed") {
+      // The fiat has reached the biller — draw it down from the float. Done here
+      // (not at the call site) so a bill that settles later, via the webhook or
+      // the reconcile sweep, draws the float down exactly like an instant one.
+      // The `status !== "pending"` guard above makes this run at most once.
+      const raw = (settlement.raw as { amountFiat?: number; currency?: string } | null) ?? {};
+      if (raw.amountFiat && raw.amountFiat > 0 && raw.currency) {
+        await debitFloat(tx, raw.currency, raw.amountFiat);
+      }
     }
 
     if (status === "failed") {

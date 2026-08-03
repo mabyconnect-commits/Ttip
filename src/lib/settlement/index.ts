@@ -14,7 +14,7 @@ import type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
 
 export type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
 export { settlementMode, isLive, payoutProvider, billProvider, demoEnabled, settlementEnabled, settlementStatus } from "./config";
-export { payBill, finalizeBill, billStatus, validateBillCustomer } from "./billing";
+export { payBill, finalizeBill, billStatus, validateBillCustomer, reconcilePendingBills } from "./billing";
 export type { PayBillArgs, PayBillOutcome } from "./billing";
 export { getBillCatalog, getCategoryCatalog, findBillItem } from "./bill-catalog";
 export type { CategoryCatalog, ProviderGroup, BillItem } from "./bill-classify";

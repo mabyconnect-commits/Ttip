@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/withdrawals",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/bills",
+      "schedule": "* * * * *"
     }
   ]
 }

@@ -13,7 +13,10 @@ export interface UserSummary {
   freeSwapsLeft: number;
   referralCode: string;
   referralEarned: number;
+  /** Claimable cashback, already converted into `defaultFiat`. */
   cashback: number;
+  /** Claim threshold, in the same currency as `cashback`. */
+  cashbackMin: number;
   hasPin: boolean;
   kycStatus: string;
   kycTier: number;

@@ -3,6 +3,7 @@ import { buildPortfolio } from "./wallet";
 import { dayStr } from "./format";
 import { settlementStatus } from "./settlement/config";
 import { maybePayDepositBonus } from "./referral";
+import { cashbackMinClaim, cashbackRate } from "./cashback";
 
 const FREE_SWAPS_PER_DAY = 3;
 
@@ -23,6 +24,13 @@ export async function getAppState(userId: string) {
   // Free-swap allowance is per-day; show the full amount on a fresh day.
   const freeSwapsLeft = user.freeSwapDay === dayStr() ? user.freeSwapsLeft : FREE_SWAPS_PER_DAY;
 
+  // The cashback pot is stored in the base fiat; convert it — and the claim
+  // threshold — into the user's display currency at the same rate, so the
+  // progress bar and the claim gate stay in step with what the server will pay.
+  const cbRate = await cashbackRate(user.defaultFiat);
+  const cashback = Number(user.cashback) * cbRate;
+  const cashbackMin = cashbackMinClaim() * cbRate;
+
   return {
     user: {
       id: user.id,
@@ -39,7 +47,8 @@ export async function getAppState(userId: string) {
       freeSwapsLeft,
       referralCode: user.referralCode,
       referralEarned: Number(user.referralEarned),
-      cashback: Number(user.cashback),
+      cashback,
+      cashbackMin,
       hasPin: !!user.pinHash,
       kycStatus: user.kycStatus,
       kycTier: user.kycTier,

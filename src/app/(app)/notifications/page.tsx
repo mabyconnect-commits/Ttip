@@ -32,7 +32,9 @@ function title(t: Txn): string {
     case "swap": return `Swap settled`;
     case "withdraw_bank": return `Bank payout sent`;
     case "withdraw_wallet": return `Crypto sent`;
-    case "bill": return `${t.note ?? "Bill"} delivered`;
+    // Don't claim delivery until the provider has actually confirmed it —
+    // "… delivered" next to a Pending status is a contradiction.
+    case "bill": return `${t.note ?? "Bill"}${t.status === "completed" ? " delivered" : t.status === "failed" ? " failed" : " processing"}`;
     case "card_fund": return `Card funded`;
     case "buy": return `Bought ${t.assetOut ?? "crypto"}`;
     case "referral_bonus": return `Referral bonus · ${t.counterparty ?? ""}`;

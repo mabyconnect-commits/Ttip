@@ -7,7 +7,7 @@ import { getAppState } from "@/lib/serialize";
 import { convert } from "@/lib/prices";
 import { balanceOf } from "@/lib/wallet";
 import { BILL_CATEGORIES } from "@/lib/constants";
-import { payBill, ensureFloat, debitFloat, settlementEnabled, findBillItem } from "@/lib/settlement";
+import { payBill, ensureFloat, settlementEnabled, findBillItem } from "@/lib/settlement";
 
 const schema = z.object({
   category: z.string(),
@@ -84,15 +84,9 @@ export async function POST(req: Request) {
       throw new ApiError(`${base} — balance not charged.`, 502);
     }
 
-    // Draw the fiat down from the float once delivered, and reward points.
-    if (outcome.status === "completed") {
-      await prisma.$transaction(async (tx) => {
-        await debitFloat(tx, input.fiat, amountFiat);
-        await tx.user.update({ where: { id: userId }, data: { points: { increment: 20 } } });
-      });
-    } else {
-      await prisma.user.update({ where: { id: userId }, data: { points: { increment: 20 } } });
-    }
+    // The float draw-down lives in finalizeBill, so it happens exactly once
+    // whether the bill settled instantly or later via webhook/reconcile.
+    await prisma.user.update({ where: { id: userId }, data: { points: { increment: 20 } } });
 
     const state = await getAppState(userId);
     return ok({

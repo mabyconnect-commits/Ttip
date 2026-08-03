@@ -13,9 +13,12 @@ interface Row { id: string; type: string; amountOut: number | null; assetOut: st
 export default function CashbackPage() {
   const { state, refresh, toast } = useApp();
   const fiat = state.user.defaultFiat;
+  // Server-converted into `fiat` already — don't compare against the raw
+  // CASHBACK_MIN_CLAIM constant, which is denominated in the base fiat.
   const cashback = state.user.cashback ?? 0;
-  const pct = Math.min(100, (cashback / CASHBACK_MIN_CLAIM) * 100);
-  const canClaim = cashback >= CASHBACK_MIN_CLAIM;
+  const min = state.user.cashbackMin ?? CASHBACK_MIN_CLAIM;
+  const pct = min > 0 ? Math.min(100, (cashback / min) * 100) : 0;
+  const canClaim = cashback >= min;
   const pctLabel = (CASHBACK_PCT * 100).toFixed(2).replace(/\.?0+$/, "");
 
   const [history, setHistory] = useState<Row[]>([]);
@@ -60,8 +63,8 @@ export default function CashbackPage() {
               <div className="h-full rounded-full bg-good transition-all" style={{ width: `${pct}%` }} />
             </div>
             <div className="flex justify-between text-[11px] text-white/40 mt-1.5">
-              <span>{canClaim ? "Ready to claim" : `Claim at ${formatFiat(CASHBACK_MIN_CLAIM, fiat, { decimals: 0 })}`}</span>
-              <span>{formatFiat(cashback, fiat, { decimals: 0 })} / {formatFiat(CASHBACK_MIN_CLAIM, fiat, { decimals: 0 })}</span>
+              <span>{canClaim ? "Ready to claim" : `Claim at ${formatFiat(min, fiat, { decimals: 0 })}`}</span>
+              <span>{formatFiat(cashback, fiat, { decimals: 0 })} / {formatFiat(min, fiat, { decimals: 0 })}</span>
             </div>
           </div>
 
