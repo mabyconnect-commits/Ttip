@@ -21,6 +21,26 @@ export function chainName(id: number | string): string {
   return CHAIN_NAMES[n] ?? String(id);
 }
 
+// The chains most users actually withdraw/deposit on — pinned to the top of the
+// picker, in this order, before the rest fall back to alphabetical.
+const POPULAR_CHAINS = ["ethereum", "tron", "bnb chain", "bnb smart chain", "solana", "base", "polygon", "arbitrum", "optimism", "avalanche", "bitcoin"];
+
+/** Sort a chain list popular-first (in the order above), then alphabetically. */
+export function sortChainsByPopularity<T extends { name: string }>(chains: T[]): T[] {
+  const rank = (name: string) => {
+    const n = name.toLowerCase().trim();
+    const exact = POPULAR_CHAINS.indexOf(n);
+    if (exact !== -1) return exact; // exact popular match ranks highest
+    const starts = POPULAR_CHAINS.findIndex((p) => n.startsWith(p));
+    return starts === -1 ? Infinity : POPULAR_CHAINS.length + starts; // e.g. "Arbitrum Nova" after "Arbitrum"
+  };
+  return [...chains].sort((a, b) => {
+    const ra = rank(a.name);
+    const rb = rank(b.name);
+    return ra !== rb ? ra - rb : a.name.localeCompare(b.name);
+  });
+}
+
 // Map an asset's network id (see CRYPTO_ASSETS in constants) to the numeric chain
 // id Dextopus uses, so a withdrawal knows which chain to send on. Only the rails
 // Dextopus can settle are listed; an unmapped network → no Dextopus withdrawal.

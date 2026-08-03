@@ -9,6 +9,7 @@ import { QR } from "@/components/QR";
 import { Receipt } from "@/components/Receipt";
 import { Icon } from "@/components/Icon";
 import { formatFiat } from "@/lib/format";
+import { sortChainsByPopularity } from "@/lib/chains";
 import { useRouter } from "next/navigation";
 
 interface DepAsset {
@@ -355,8 +356,7 @@ export default function DepositPage() {
           className="w-full bg-surface border border-white/10 rounded-2xl px-4 h-[48px] outline-none text-[14px] focus:border-brand-cyan/50 mb-3"
         />
         <div className="flex flex-col gap-1 max-h-[55dvh] overflow-y-auto no-scrollbar">
-          {chains
-            .filter((c) => c.name.toLowerCase().includes(chainQ.toLowerCase()))
+          {sortChainsByPopularity(chains.filter((c) => c.name.toLowerCase().includes(chainQ.toLowerCase())))
             .map((c) => (
               <button key={c.chainId} onClick={() => pickChain(c)} className="flex items-center justify-between px-4 py-3.5 rounded-2xl bg-surface border border-white/[.06] active:scale-[.99]">
                 <span className="font-grotesk font-semibold text-[14px]">{c.name}</span>
