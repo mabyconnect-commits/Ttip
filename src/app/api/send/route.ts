@@ -14,6 +14,7 @@ import { chainIdForNetwork } from "@/lib/chains";
 import { quoteSell, transferFee } from "@/lib/pricing";
 import { referenceFiat } from "@/lib/rate";
 import { accrueCashback } from "@/lib/cashback";
+import { checkWithdrawalLimit } from "@/lib/kyc/limits";
 import { accrueReferralEarning } from "@/lib/referral";
 
 const schema = z.object({
@@ -59,7 +60,7 @@ export async function POST(req: Request) {
       throw new ApiError("Verify your identity (BVN) to withdraw. It takes about a minute under Account → Verify.", 403);
     }
     if (input.mode === "wallet") {
-      return handleWalletSend(userId, input);
+      return handleWalletSend(userId, user.kycTier, input);
     }
     return handleBankSend(userId, user, input);
   });
@@ -168,12 +169,18 @@ async function handleTtip(
   });
 }
 
-async function handleWalletSend(userId: string, input: z.infer<typeof schema>) {
+async function handleWalletSend(userId: string, kycTier: number, input: z.infer<typeof schema>) {
   const symbol = input.symbol;
   const amount = input.amount;
   if (!symbol || !amount) throw new ApiError("Enter an amount", 400);
   if (!isCrypto(symbol)) throw new ApiError("Only crypto can be sent to a wallet", 400);
   if (!input.address || input.address.length < 8) throw new ApiError("Enter a valid wallet address", 400);
+
+  // KYC tier limits apply to crypto leaving the platform too, valued in naira —
+  // otherwise the bank limit would just be routed around via a wallet send.
+  const sendNgn = await referenceFiat(amount, symbol, "NGN");
+  const walletLimit = await checkWithdrawalLimit(userId, kycTier, sendNgn, "NGN");
+  if (!walletLimit.ok) throw new ApiError(walletLimit.reason ?? "Withdrawal limit reached", 403);
 
   // Live sends: USDC on Solana goes out via the built-in treasury signer;
   // everything else goes cross-chain via Dextopus (treasury USDC → the user's
@@ -255,7 +262,7 @@ async function handleWalletSend(userId: string, input: z.infer<typeof schema>) {
 
 async function handleBankSend(
   userId: string,
-  user: { bankName: string | null },
+  user: { bankName: string | null; kycTier: number },
   input: z.infer<typeof schema>,
 ) {
   const symbol = input.symbol ?? "USDT";
@@ -291,6 +298,10 @@ async function handleBankSend(
   }
   const fiatAmount = grossFiat - fee;
   if (fiatAmount <= 0) throw new ApiError("Amount is too small to cover the transfer fee", 400);
+
+  // KYC tier limits — checked on the gross amount leaving the account.
+  const limit = await checkWithdrawalLimit(userId, user.kycTier, grossFiat, fiat);
+  if (!limit.ok) throw new ApiError(limit.reason ?? "Withdrawal limit reached", 403);
 
   const bankLabel = `${input.bankName ?? user.bankName ?? "Bank"} ••${accountNumber.slice(-4)}`;
   const reference = "pyt_" + crypto.randomUUID();

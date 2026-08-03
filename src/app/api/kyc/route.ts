@@ -6,6 +6,7 @@ import { handler, ok, unauthorized, ApiError } from "@/lib/api";
 import { getAppState } from "@/lib/serialize";
 import { verifyIdentity, kycEnabled } from "@/lib/kyc";
 import { hashBvn, maskBvn } from "@/lib/kyc/bvn";
+import { tierFor, withIdType } from "@/lib/kyc/tier";
 import { ensureNairaAccount } from "@/lib/settlement";
 
 const schema = z.object({
@@ -47,7 +48,12 @@ export async function POST(req: Request) {
     // dedicated naira account exists (activates it for users who verified before
     // this feature), using the BVN they re-entered.
     const existing = await prisma.user.findUnique({ where: { id: userId } });
-    if (existing?.kycStatus === "verified") {
+    // Short-circuit only when this exact document is already on file. Submitting
+    // a NEW document (a Tier-1 user adding a government ID) must run the real
+    // check so the tier can go up — otherwise "already verified" would cap
+    // everyone at whatever they first proved.
+    const alreadyOnFile = (existing?.kycIdTypes ?? []).includes(input.idType);
+    if (existing?.kycStatus === "verified" && alreadyOnFile) {
       // Backfill the BVN binding for accounts verified before this existed.
       if (bvnHash && !existing.bvnHash) {
         await prisma.user.update({ where: { id: userId }, data: { bvnHash, bvnLast4 } }).catch(() => {});
@@ -94,11 +100,16 @@ export async function POST(req: Request) {
     // caught by the constraint and rejected).
     let verifiedUser;
     try {
+      // The tier is derived from the documents actually verified — a BVN alone
+      // is Tier 1, not Tier 2. `Math.max(2, ...)` used to hand every verified
+      // user Tier 2 limits on the strength of a single BVN.
+      const idTypes = withIdType(existing?.kycIdTypes ?? [], input.idType);
       verifiedUser = await prisma.user.update({
         where: { id: userId },
         data: {
           kycStatus: "verified",
-          kycTier: Math.max(2, result.tier),
+          kycIdTypes: idTypes,
+          kycTier: tierFor(idTypes),
           verified: true,
           kycProvider: result.provider,
           kycRef: result.ref ?? null,

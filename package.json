@@ -17,6 +17,7 @@
     "db:reset": "prisma db push --force-reset && tsx prisma/seed.ts --force",
     "audit:funding": "tsx scripts/audit-funding.ts",
     "clawback": "tsx scripts/clawback-simulated.ts",
+    "backfill:kyc-tiers": "tsx scripts/backfill-kyc-tiers.ts",
     "cap:sync": "cap sync",
     "cap:android": "cap sync android && cap open android",
     "cap:ios": "cap sync ios && cap open ios",

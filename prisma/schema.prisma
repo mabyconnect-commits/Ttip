@@ -31,7 +31,12 @@ model User {
   cashback       Decimal  @default(0) @db.Decimal(18, 2) // earned cashback, claimable at the threshold
   pinHash        String?
   kycStatus      String   @default("unverified") // unverified | pending | verified
-  kycTier        Int      @default(1)
+  // Tier 0 until an identity is actually verified. Tier is DERIVED from
+  // kycIdTypes (see lib/constants KYC_TIERS), never granted on its own.
+  kycTier        Int      @default(0)
+  // Which id types this user has verified, e.g. ["bvn","nin"]. BVN alone is
+  // Tier 1; BVN + a government ID is Tier 2; + "address" is Tier 3.
+  kycIdTypes     String[] @default([])
   kycProvider    String? // which provider verified (dojah | sandbox | manual)
   kycRef         String? // provider reference / audit id for the identity check
   kycVerifiedAt  DateTime?

@@ -4,12 +4,13 @@ import { useApp } from "@/context/AppContext";
 import { useRouter } from "next/navigation";
 import { BackHeader } from "@/components/ui";
 import { Icon } from "@/components/Icon";
+import { KYC_TIERS } from "@/lib/constants";
 
-const TIERS = [
-  { tier: 1, name: "Starter", daily: "—", single: "—", req: "Email only — verify BVN to withdraw" },
-  { tier: 2, name: "Verified", daily: "₦5,000,000", single: "₦2,000,000", req: "BVN / NIN verified" },
-  { tier: 3, name: "Pro", daily: "₦50,000,000", single: "₦10,000,000", req: "BVN + government ID + address" },
-];
+// Straight from the shared ladder the server enforces, so the numbers shown
+// here can never drift from the ones actually applied. Tier 0 is the
+// pre-verification state and isn't shown as a rung to aim for.
+const TIERS = KYC_TIERS.filter((t) => t.tier > 0);
+const naira = (n: number) => "₦" + n.toLocaleString("en-US");
 
 export default function LimitsPage() {
   const { state } = useApp();
@@ -22,7 +23,11 @@ export default function LimitsPage() {
       <div className="flex-1 overflow-y-auto no-scrollbar pb-6">
         <p className="text-white/50 text-[13.5px] mt-1 mb-4">
           You&apos;re on <b className="text-white">Tier {current}</b>.{" "}
-          {current < 2 ? "Verify your BVN to activate withdrawals and unlock your limits." : "Verify more to raise your limits."}
+          {current < 1
+            ? "Verify your BVN to activate withdrawals and unlock your limits."
+            : current < 3
+              ? "Add another document to raise your limits."
+              : "You're on the highest tier."}
         </p>
         <div className="flex flex-col gap-3">
           {TIERS.map((t) => {
@@ -42,17 +47,17 @@ export default function LimitsPage() {
                   </div>
                 </div>
                 <div className="flex gap-6 mt-3 text-[12.5px]">
-                  <div><div className="text-white/40">Daily</div><div className="font-grotesk font-semibold mt-0.5">{t.daily}</div></div>
-                  <div><div className="text-white/40">Per transfer</div><div className="font-grotesk font-semibold mt-0.5">{t.single}</div></div>
+                  <div><div className="text-white/40">Daily</div><div className="font-grotesk font-semibold mt-0.5">{naira(t.dailyNgn)}</div></div>
+                  <div><div className="text-white/40">Per transfer</div><div className="font-grotesk font-semibold mt-0.5">{naira(t.perTransferNgn)}</div></div>
                 </div>
-                <div className="text-white/40 text-[11.5px] mt-2.5">Requires: {t.req}</div>
+                <div className="text-white/40 text-[11.5px] mt-2.5">Requires: {t.requires}</div>
               </div>
             );
           })}
         </div>
-        {current < 2 && (
+        {current < 3 && (
           <button onClick={() => router.push("/account/kyc")} className="w-full mt-4 bg-good text-ink h-[52px] rounded-2xl flex items-center justify-center font-grotesk font-semibold text-[15px]">
-            Verify your BVN
+            {current < 1 ? "Verify your BVN" : "Add a document to upgrade"}
           </button>
         )}
       </div>

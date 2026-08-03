@@ -94,18 +94,6 @@ export default function DepositPage() {
     toast("Copied to clipboard", "good");
   }
 
-  async function simulate() {
-    setLoading(true);
-    try {
-      const res: any = await action("/api/deposit", { symbol: sym, amount: sym === "BTC" ? 0.005 : sym === "ETH" ? 0.1 : 200, network: net?.network });
-      setReceipt(res.receipt);
-    } catch (e: any) {
-      toast(e.message, "bad");
-    } finally {
-      setLoading(false);
-    }
-  }
-
   async function activateNaira() {
     if (nairaBvn.length !== 11) return;
     setNairaBusy(true);
@@ -117,18 +105,6 @@ export default function DepositPage() {
       setNairaErr(e.message ?? "Couldn't open your account. Please try again.");
     } finally {
       setNairaBusy(false);
-    }
-  }
-
-  async function simulateNaira() {
-    setLoading(true);
-    try {
-      const res: any = await action("/api/deposit", { symbol: fiat, amount: 50000 });
-      setReceipt(res.receipt);
-    } catch (e: any) {
-      toast(e.message, "bad");
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -152,9 +128,6 @@ export default function DepositPage() {
                   ⚠️ Demo account for testing only — do not send real money here.
                 </div>
               </div>
-              <button onClick={simulateNaira} disabled={loading} className="w-full mt-3 rounded-2xl border border-dashed border-good/40 text-good py-3.5 font-grotesk font-semibold text-[14px] active:scale-[.99] disabled:opacity-50">
-                ▶ Simulate transfer +{fiat === "NGN" ? "₦50,000" : "50,000 " + fiat}
-              </button>
             </>
           ) : state.user.nairaAccount ? (
             <div className="bg-surface border border-white/[.08] rounded-[22px] p-5">
@@ -329,11 +302,6 @@ export default function DepositPage() {
             </div>
           )}
 
-          {showDemo && (
-            <button onClick={simulate} disabled={loading} className="w-full mt-3 mb-6 rounded-2xl border border-dashed border-good/40 text-good py-3.5 font-grotesk font-semibold text-[14px] active:scale-[.99] disabled:opacity-50">
-              ▶ Simulate incoming {sym === "BTC" ? "+0.005 BTC" : sym === "ETH" ? "+0.1 ETH" : "+200 " + sym}
-            </button>
-          )}
         </div>
       )}
 

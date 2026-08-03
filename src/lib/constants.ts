@@ -121,6 +121,43 @@ export const BILL_CATEGORIES = [
   { id: "internet", title: "Internet", icon: "🌐", amounts: [] },
 ] as const;
 
+/**
+ * KYC tiers — the single source of truth for both the limits screen and the
+ * server-side enforcement, so what a user is shown is exactly what is applied.
+ *
+ * The ladder is what each step of identity actually proves:
+ *   1  BVN — confirms the person is bank-verified. Regular starter limits.
+ *   2  BVN + any government ID (NIN, passport, driver's licence).
+ *   3  Tier 2 + proof of address.
+ *
+ * Limits are naira amounts; a payout in another currency is converted to naira
+ * before it's checked, so one ladder governs every currency.
+ */
+export interface KycTierDef {
+  tier: number;
+  name: string;
+  /** Max total withdrawn per rolling day, in NGN. 0 = cannot withdraw. */
+  dailyNgn: number;
+  /** Max single withdrawal, in NGN. 0 = cannot withdraw. */
+  perTransferNgn: number;
+  requires: string;
+}
+
+export const KYC_TIERS: KycTierDef[] = [
+  { tier: 0, name: "Unverified", dailyNgn: 0, perTransferNgn: 0, requires: "Email only — verify your BVN to withdraw" },
+  { tier: 1, name: "Starter", dailyNgn: 500_000, perTransferNgn: 100_000, requires: "BVN verified" },
+  { tier: 2, name: "Verified", dailyNgn: 5_000_000, perTransferNgn: 2_000_000, requires: "BVN + a government ID (NIN, passport or driver's licence)" },
+  { tier: 3, name: "Pro", dailyNgn: 50_000_000, perTransferNgn: 10_000_000, requires: "BVN + government ID + proof of address" },
+];
+
+/** The limits for a tier, clamped to the range we define. */
+export function kycTierDef(tier: number): KycTierDef {
+  return KYC_TIERS.find((t) => t.tier === tier) ?? KYC_TIERS[0];
+}
+
+/** ID types that count as a government ID for Tier 2 (BVN is separate). */
+export const GOVERNMENT_ID_TYPES = ["nin", "passport", "drivers_license"] as const;
+
 export const SWAP_FEE_PCT = 0.005; // 0.5% after free swaps used
 export const NETWORK_FEE_USDT = 1; // flat network fee on external sends (USDT-equivalent)
 
