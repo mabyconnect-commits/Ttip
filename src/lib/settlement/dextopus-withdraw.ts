@@ -139,6 +139,83 @@ export async function dextopusWithdraw(req: DxWithdrawRequest): Promise<DxWithdr
   return { status: "pending", providerRef: String(requestId ?? ""), fundingTx };
 }
 
+/**
+ * Dry-run a withdrawal to validate the whole route WITHOUT moving money: checks
+ * the destination asset is supported (Dextopus doesn't deliver native coins like
+ * SOL/ETH/BTC — only tokens), the recipient address is valid, and the amount
+ * clears any minimum. Call this before debiting the user so a bad request never
+ * touches their balance. Returns the expected output amount on success.
+ */
+export async function dextopusWithdrawPreview(req: DxWithdrawRequest): Promise<{ ok: boolean; amountOut?: number; message?: string }> {
+  const cfg = dextopusConfig();
+  if (!cfg || !dextopusWithdrawEnabled()) return { ok: false, message: "Withdrawals aren't available right now." };
+  if (cfg.settlementChainId == null || !cfg.settlementAsset || !cfg.settlementAddress) return { ok: false, message: "Withdrawal treasury isn't configured." };
+  const destinationChainId = req.chainId ?? chainIdForNetwork(req.network);
+  if (!destinationChainId) return { ok: false, message: `Unsupported network for ${req.asset}.` };
+
+  const [originAsset, destinationAsset] = await Promise.all([
+    resolveTokenAddress(cfg, cfg.settlementChainId, cfg.settlementAsset),
+    resolveTokenAddress(cfg, destinationChainId, req.asset),
+  ]);
+  if (!originAsset) return { ok: false, message: "Treasury asset couldn't be resolved." };
+  if (!destinationAsset) return { ok: false, message: `${req.asset} isn't available on the selected network.` };
+  const usdc = await toUsd(req.amount, req.asset);
+  if (!(usdc > 0)) return { ok: false, message: "Amount is too small." };
+
+  try {
+    const res = await fetch(`${cfg.baseUrl}/deposit/quote`, {
+      method: "POST",
+      headers: { "x-api-key": cfg.apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        originChainId: cfg.settlementChainId,
+        originAsset,
+        destinationChainId,
+        destinationAsset,
+        amount: Math.round(usdc * 10 ** USDC_DECIMALS).toString(),
+        recipient: req.address,
+        refundTo: cfg.settlementAddress,
+        dry: true,
+        metadata: { source: "ttip-withdrawal-preview" },
+      }),
+    });
+    const body = (await res.json().catch(() => ({}))) as any;
+    if (!res.ok || body?.success === false) {
+      return { ok: false, message: friendlyQuoteError(body?.message, req.asset) };
+    }
+    // amountOut is in the destination token's smallest units — convert to human.
+    const raw = Number(pick<number | string>(body, "amountOut") ?? 0);
+    const decimals = await tokenDecimals(cfg, destinationChainId, req.asset);
+    return { ok: true, amountOut: raw / 10 ** decimals };
+  } catch (e) {
+    return { ok: false, message: `Couldn't reach the withdrawal provider: ${String(e)}` };
+  }
+}
+
+/** Decimals for a token on a chain (from Dextopus's token list); defaults to 6. */
+async function tokenDecimals(cfg: NonNullable<ReturnType<typeof dextopusConfig>>, chainId: number, symbol: string): Promise<number> {
+  try {
+    const res = await fetch(`${cfg.baseUrl}/deposit/tokens?chainId=${chainId}`, { headers: { "x-api-key": cfg.apiKey } });
+    const body = (await res.json().catch(() => null)) as any;
+    const list = Array.isArray(body) ? body : (body?.tokens ?? body?.data);
+    const hit = (list ?? []).find((t: any) => String(t.symbol ?? "").toUpperCase() === symbol.toUpperCase());
+    const d = Number(hit?.decimals);
+    return Number.isFinite(d) && d > 0 ? d : 6;
+  } catch {
+    return 6;
+  }
+}
+
+/** Turn a raw Dextopus quote error into something a user can act on. */
+function friendlyQuoteError(message: string | undefined, asset: string): string {
+  const m = (message ?? "").toString();
+  if (/not supported on chain|native/i.test(m) && /0xEeee/i.test(m)) {
+    return `${asset} can't be withdrawn on this network — it's a native coin. Choose a token like USDC or USDT instead.`;
+  }
+  if (/recipient must be a valid/i.test(m)) return "That wallet address isn't valid for the selected network.";
+  if (/minimum|too small|too low/i.test(m)) return "Amount is below the withdrawal minimum for this asset/network.";
+  return m || "This withdrawal can't be processed on the selected network.";
+}
+
 export interface DxStatus {
   settled: boolean;
   failed: boolean;

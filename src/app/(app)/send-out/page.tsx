@@ -51,6 +51,9 @@ export default function SendOutPage() {
   const [tokenSheet, setTokenSheet] = useState(false);
   const [chainQ, setChainQ] = useState("");
   const [tokenQ, setTokenQ] = useState("");
+  const [previewOut, setPreviewOut] = useState<number | null>(null);
+  const [previewMsg, setPreviewMsg] = useState<string | null>(null);
+  const [previewing, setPreviewing] = useState(false);
 
   useEffect(() => {
     apiGet<{ chains: DxChain[] }>("/api/deposit/chains").then((d) => setChains(d.chains ?? [])).catch(() => {});
@@ -94,6 +97,28 @@ export default function SendOutPage() {
   const bal = state.portfolio.assets.find((a) => a.symbol === activeSym)?.amount ?? 0;
   const feeInAsset = activeSym ? convert(NETWORK_FEE_USDT, "USDT", activeSym) : 0;
   const maxSendable = Math.max(0, bal - feeInAsset); // Max must leave room for the fee
+
+  // Live preview of what actually arrives (real cross-chain + network fees),
+  // debounced. Only for wallet sends once a chain, token, address and amount exist.
+  useEffect(() => {
+    setPreviewOut(null); setPreviewMsg(null);
+    if (mode !== "wallet" || !selChain || !selToken || address.length < 8 || amt <= 0) return;
+    let cancelled = false;
+    setPreviewing(true);
+    const t = setTimeout(async () => {
+      try {
+        const r = await apiPost<{ ok: boolean; amountOut?: number; message?: string }>("/api/withdraw/preview", { symbol: walletSym, chainId: selChain.chainId, network: selChain.name, address, amount: amt });
+        if (cancelled) return;
+        if (r.ok && typeof r.amountOut === "number") { setPreviewOut(r.amountOut); setPreviewMsg(null); }
+        else { setPreviewOut(null); setPreviewMsg(r.message ?? "This withdrawal can't be processed."); }
+      } catch (e: any) {
+        if (!cancelled) { setPreviewOut(null); setPreviewMsg(null); }
+      } finally {
+        if (!cancelled) setPreviewing(false);
+      }
+    }, 650);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [mode, selChain, selToken, address, amt, walletSym]);
 
   async function submit() {
     if (amt <= 0) return toast("Enter an amount", "bad");
@@ -215,7 +240,17 @@ export default function SendOutPage() {
           {mode === "wallet" && selToken && (
             <>
               <div className="flex justify-between"><span>Network</span><b className="text-white font-grotesk">{selChain?.name}</b></div>
-              <div className="flex justify-between"><span>Withdrawal fee</span><b className="text-white font-grotesk">≈ {formatCrypto(feeInAsset, activeSym)} {activeSym}</b></div>
+              <div className="flex justify-between">
+                <span>Recipient gets</span>
+                {previewing ? (
+                  <b className="text-white/50 font-grotesk">checking…</b>
+                ) : previewOut != null ? (
+                  <b className="text-good font-grotesk">≈ {formatCrypto(previewOut, activeSym)} {activeSym}</b>
+                ) : (
+                  <b className="text-white/40 font-grotesk">enter address & amount</b>
+                )}
+              </div>
+              {previewMsg && <div className="text-[12px] text-bad leading-snug mt-0.5">{previewMsg}</div>}
             </>
           )}
           {mode === "bank" && amt > 0 && (() => {
