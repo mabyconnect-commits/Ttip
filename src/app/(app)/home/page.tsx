@@ -16,8 +16,11 @@ export default function HomePage() {
   const { user, portfolio } = state;
   const [fiatOpen, setFiatOpen] = useState(false);
 
-  const crypto = portfolio.assets.filter((a) => a.kind === "crypto" && a.amount > 0);
-  const shown = crypto.length ? crypto : portfolio.assets.filter((a) => a.kind === "crypto").slice(0, 3);
+  // Everything the user actually holds — crypto AND fiat (e.g. NGN) — so the
+  // list matches the total balance. Fall back to the primary crypto rails when
+  // the wallet is empty, so the screen isn't blank.
+  const held = portfolio.assets.filter((a) => a.amount > 0);
+  const shown = held.length ? held : portfolio.assets.filter((a) => a.kind === "crypto").slice(0, 3);
 
   async function setFiat(code: string) {
     setFiatOpen(false);
@@ -107,14 +110,16 @@ export default function HomePage() {
                 <div className="flex-1 text-left">
                   <div className="font-sans font-semibold text-[14px]">{a.name}</div>
                   <div className="font-sans text-[11.5px] text-white/40">
-                    {formatCrypto(a.amount, a.symbol)} {a.symbol}
+                    {a.kind === "fiat" ? formatFiat(a.amount, a.symbol, { decimals: 2 }) : `${formatCrypto(a.amount, a.symbol)} ${a.symbol}`}
                   </div>
                 </div>
                 <div className="text-right">
                   <div className="font-grotesk font-semibold text-[14px]">{formatFiat(a.fiatValue, portfolio.fiat, { decimals: 0 })}</div>
-                  <div className="font-sans font-medium text-[11px] tabular-nums" style={{ color: a.change24h >= 0 ? "#3DF5B0" : "#FF7A8A" }}>
-                    {a.change24h >= 0 ? "+" : "−"}{Math.abs(a.change24h).toFixed(1)}%
-                  </div>
+                  {a.kind === "crypto" && (
+                    <div className="font-sans font-medium text-[11px] tabular-nums" style={{ color: a.change24h >= 0 ? "#3DF5B0" : "#FF7A8A" }}>
+                      {a.change24h >= 0 ? "+" : "−"}{Math.abs(a.change24h).toFixed(1)}%
+                    </div>
+                  )}
                 </div>
               </button>
             ))}
