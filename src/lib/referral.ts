@@ -1,7 +1,6 @@
 import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "./db";
-import { kindOf } from "./wallet";
 import { toUsd } from "./prices";
 import { REFERRAL_EARN_PCT, DEPOSIT_BONUS_NGN, DEPOSIT_BONUS_MIN_USD, DEPOSIT_BONUS_HOLD_HOURS } from "./constants";
 
@@ -44,12 +43,11 @@ export async function accrueReferralEarning(
   const referrerId = downline.referredById;
   const fiat = ctx.fiat;
 
+  // Earnings accrue to a claimable referral pot (user.referralEarned). The user
+  // moves it to their spendable balance via "Withdraw to wallet" (/api/referrals
+  // /withdraw); a permanent referral_bonus transaction records the earning for
+  // history and the all-time leaderboard.
   await tx.user.update({ where: { id: referrerId }, data: { referralEarned: { increment: earn } } });
-  await tx.balance.upsert({
-    where: { userId_symbol: { userId: referrerId, symbol: fiat } },
-    create: { userId: referrerId, symbol: fiat, kind: kindOf(fiat), amount: new Prisma.Decimal(earn) },
-    update: { amount: { increment: earn } },
-  });
   await tx.transaction.create({
     data: {
       userId: referrerId,

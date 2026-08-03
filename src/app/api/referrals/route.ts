@@ -26,22 +26,25 @@ export async function GET() {
     ]);
 
     const now = Date.now();
-    const WEEK = 7 * 24 * 3600_000;
-    const MONTH = 30 * 24 * 3600_000;
-    let thisWeek = 0;
-    let thisMonth = 0;
-    for (const e of earnings) {
-      const age = now - e.createdAt.getTime();
-      const amt = Number(e.amountOut ?? 0);
-      if (age <= WEEK) thisWeek += amt;
-      if (age <= MONTH) thisMonth += amt;
-    }
+    const WEEK = new Date(now - 7 * 24 * 3600_000);
+    const MONTH = new Date(now - 30 * 24 * 3600_000);
+    const base_where = { userId, type: "referral_bonus", status: "completed" };
+    // All-time / windowed earnings from the permanent earning records, so the
+    // totals are exact regardless of how many rows there are.
+    const [allTime, week, month] = await Promise.all([
+      prisma.transaction.aggregate({ where: base_where, _sum: { amountOut: true } }),
+      prisma.transaction.aggregate({ where: { ...base_where, createdAt: { gte: WEEK } }, _sum: { amountOut: true } }),
+      prisma.transaction.aggregate({ where: { ...base_where, createdAt: { gte: MONTH } }, _sum: { amountOut: true } }),
+    ]);
+    const thisWeek = Number(week._sum.amountOut ?? 0);
+    const thisMonth = Number(month._sum.amountOut ?? 0);
 
     const base = baseUrl();
     return ok({
       code: user.referralCode,
       link: `${base}/join?ref=${user.referralCode}`,
-      earned: Number(user.referralEarned),
+      // Total earned = all-time; balance = the claimable, not-yet-withdrawn pot.
+      earned: Number(allTime._sum.amountOut ?? 0),
       balance: Number(user.referralEarned),
       count: referrals.length,
       earnPct: referralEarnPct(), // e.g. 0.25

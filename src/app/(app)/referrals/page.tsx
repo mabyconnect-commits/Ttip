@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import { apiGet } from "@/lib/client";
 import { BackHeader } from "@/components/ui";
@@ -24,15 +25,33 @@ interface RefData {
 }
 
 export default function ReferralsPage() {
-  const { state, toast } = useApp();
+  const { state, action, toast } = useApp();
+  const router = useRouter();
   const [data, setData] = useState<RefData | null>(null);
+  const [withdrawing, setWithdrawing] = useState(false);
   const fiat = state.user.defaultFiat;
   const pct = Math.round((data?.earnPct ?? 0.25) * 100);
   const bonus = data?.depositBonus ?? 500;
+  const balance = data?.balance ?? 0;
 
-  useEffect(() => {
+  function load() {
     apiGet<RefData>("/api/referrals").then(setData).catch(() => {});
-  }, []);
+  }
+  useEffect(load, []);
+
+  async function withdraw() {
+    if (balance <= 0) return toast("No referral earnings to withdraw yet", "info");
+    setWithdrawing(true);
+    try {
+      await action("/api/referrals/withdraw", {});
+      load();
+      toast("Referral earnings added to your balance 🎉", "good");
+    } catch (e: any) {
+      toast(e.message, "bad");
+    } finally {
+      setWithdrawing(false);
+    }
+  }
 
   function copy(text: string) {
     navigator.clipboard?.writeText(text);
@@ -69,7 +88,27 @@ export default function ReferralsPage() {
               </div>
             ))}
           </div>
+          <button
+            onClick={withdraw}
+            disabled={withdrawing || balance <= 0}
+            className="w-full mt-4 h-12 rounded-2xl bg-brand-cyan text-ink font-grotesk font-bold text-[14px] disabled:opacity-40 active:scale-[.99]"
+          >
+            {withdrawing ? "Withdrawing…" : "Withdraw to wallet"}
+          </button>
         </div>
+
+        {/* leaderboard */}
+        <button
+          onClick={() => router.push("/referrals/leaderboard")}
+          className="w-full mt-3 bg-surface border border-white/[.08] rounded-[22px] px-4 py-3.5 flex items-center gap-3 active:scale-[.99]"
+        >
+          <span className="w-10 h-10 rounded-full bg-warn/[.12] border border-warn/25 flex items-center justify-center text-warn shrink-0"><Icon name="activity" size={18} /></span>
+          <div className="flex-1 text-left">
+            <div className="font-grotesk font-semibold text-[15px]">Leaderboard</div>
+            <div className="text-white/45 text-[12px]">See where you rank among top referrers</div>
+          </div>
+          <Icon name="chevronRight" size={16} className="text-white/30" />
+        </button>
 
         <div className="grid grid-cols-2 gap-2.5 mt-3">
           <div className="bg-surface border border-white/[.06] rounded-[18px] p-4">
