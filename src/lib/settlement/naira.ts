@@ -18,7 +18,9 @@ import { flutterwaveCreateVirtualAccount } from "./flutterwave";
  * the account, or null if the provider isn't Flutterwave or creation failed.
  */
 export type NairaAccountResult =
-  | { ok: true; accountNumber: string; bankName: string }
+  /** `created` = the account was opened on THIS call, which is the only case
+   *  where Flutterwave actually validated the BVN against NIBSS. */
+  | { ok: true; created: boolean; accountNumber: string; bankName: string }
   | { ok: false; error: string };
 
 export async function ensureNairaAccount(
@@ -26,7 +28,13 @@ export async function ensureNairaAccount(
   opts: { bvn: string; name: string; email: string },
 ): Promise<NairaAccountResult> {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { nairaAccount: true, nairaBank: true } });
-  if (user?.nairaAccount) return { ok: true, accountNumber: user.nairaAccount, bankName: user.nairaBank ?? "" };
+  // NOTE `created`: an existing account is returned WITHOUT validating the BVN
+  // passed in — nothing was checked against NIBSS on this call. Callers using
+  // this as an identity check must require `created === true`, or any 11-digit
+  // number would "verify" a user who already has an account.
+  if (user?.nairaAccount) {
+    return { ok: true, created: false, accountNumber: user.nairaAccount, bankName: user.nairaBank ?? "" };
+  }
   if (collectionProvider() !== "flutterwave") {
     return { ok: false, error: "Naira accounts need the Flutterwave collection provider (set COLLECTION_PROVIDER=flutterwave)." };
   }
@@ -37,7 +45,7 @@ export async function ensureNairaAccount(
   const acct = await flutterwaveCreateVirtualAccount(opts.email, opts.bvn, opts.name, "dva_" + crypto.randomUUID());
   if ("error" in acct) return { ok: false, error: acct.error };
   await prisma.user.update({ where: { id: userId }, data: { nairaAccount: acct.accountNumber, nairaBank: acct.bankName } });
-  return { ok: true, accountNumber: acct.accountNumber, bankName: acct.bankName };
+  return { ok: true, created: true, accountNumber: acct.accountNumber, bankName: acct.bankName };
 }
 
 /**

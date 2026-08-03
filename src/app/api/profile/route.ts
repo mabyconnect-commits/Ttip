@@ -5,6 +5,7 @@ import { handler, ok, unauthorized } from "@/lib/api";
 import { getAppState } from "@/lib/serialize";
 import { timeAgo } from "@/lib/format";
 import { FIAT_BY_CODE } from "@/lib/constants";
+import { payoutCurrencySupported } from "@/lib/settlement/payout-country";
 import { baseUrl } from "@/lib/url";
 
 export const dynamic = "force-dynamic";
@@ -55,7 +56,13 @@ export async function PATCH(req: Request) {
     await prisma.user.update({
       where: { id: userId },
       data: {
-        defaultFiat: input.defaultFiat && FIAT_BY_CODE[input.defaultFiat] ? input.defaultFiat : undefined,
+        // Only currencies we can actually pay out in. The display currency is
+        // also the payout currency here, so letting someone switch to one we
+        // can't settle would strand their balance.
+        defaultFiat:
+          input.defaultFiat && FIAT_BY_CODE[input.defaultFiat] && payoutCurrencySupported(input.defaultFiat)
+            ? input.defaultFiat
+            : undefined,
         name: input.name,
         bankName: input.bankName,
         bankAccount: input.bankName && input.bankAccount ? `${input.bankName} ••${input.bankAccount.slice(-4)}` : undefined,

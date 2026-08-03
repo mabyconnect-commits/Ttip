@@ -35,11 +35,23 @@ try {
   process.exit(0); // don't fail the build; app will surface a clear runtime error
 }
 
-try {
-  console.log("[setup-db] Seeding demo data (idempotent)…");
-  run("npx tsx prisma/seed.ts");
-} catch (e) {
-  console.warn("[setup-db] Demo seed skipped:", e?.message ?? e);
+// SAFETY: the demo seed creates accounts that hold balances nobody paid for,
+// are `verified: true`, and share a well-known password. That is fine for a demo
+// deployment and unacceptable on a live one — anyone who guesses an address can
+// sign in and cash out real money. Never seed a live build unless someone very
+// deliberately asks for it.
+const live = process.env.SETTLEMENT_MODE === "live";
+const forceSeed = process.env.DEMO_SEED === "true";
+
+if (live && !forceSeed) {
+  console.log("[setup-db] SETTLEMENT_MODE=live — skipping demo seed (set DEMO_SEED=true to override).");
+} else {
+  try {
+    console.log("[setup-db] Seeding demo data (idempotent)…");
+    run("npx tsx prisma/seed.ts");
+  } catch (e) {
+    console.warn("[setup-db] Demo seed skipped:", e?.message ?? e);
+  }
 }
 
 process.exit(0);

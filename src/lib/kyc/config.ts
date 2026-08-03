@@ -26,9 +26,16 @@ export function isKycLive(): boolean {
   return kycMode() === "live";
 }
 
-/** Explicit opt-in for simulated (instant-approve) KYC on a test deployment. */
+/**
+ * Explicit opt-in for simulated (instant-approve) KYC on a test deployment.
+ *
+ * Hard-gated on NOT being live: sandboxVerify approves any well-formed 11-digit
+ * number without checking it against any government record, so leaving DEMO_MODE
+ * on in production would rubber-stamp invented IDs on real, withdrawable
+ * accounts. Real money and simulated identity must never coexist.
+ */
 export function demoKycEnabled(): boolean {
-  return process.env.DEMO_MODE === "true";
+  return process.env.DEMO_MODE === "true" && !isLive();
 }
 
 /**

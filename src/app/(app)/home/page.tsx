@@ -9,6 +9,7 @@ import { Avatar, Sheet } from "@/components/ui";
 import { Icon, type IconName } from "@/components/Icon";
 import { formatFiat, formatUsd, formatCrypto } from "@/lib/format";
 import { FIATS } from "@/lib/constants";
+import { payoutCurrencySupported } from "@/lib/settlement/payout-country";
 
 export default function HomePage() {
   const { state, action, toast } = useApp();
@@ -140,13 +141,28 @@ export default function HomePage() {
 
       <Sheet open={fiatOpen} onClose={() => setFiatOpen(false)} title="Display currency">
         <div className="flex flex-col gap-2">
-          {FIATS.map((f) => (
-            <button key={f.code} onClick={() => setFiat(f.code)} className="flex items-center gap-3 bg-surface border border-white/[.06] rounded-2xl px-4 py-3.5 active:scale-[.99]">
-              <span className="text-xl">{f.flag}</span>
-              <span className="flex-1 text-left font-medium text-[14px]">{f.name}</span>
-              {portfolio.fiat === f.code && <Icon name="check" size={16} className="text-good" strokeWidth={2.6} />}
-            </button>
-          ))}
+          {/* Supported first, then the ones we can't settle yet — shown but
+              disabled, so the list still reads as the full African roadmap. */}
+          {[...FIATS].sort((a, b) => Number(payoutCurrencySupported(b.code)) - Number(payoutCurrencySupported(a.code))).map((f) => {
+            const supported = payoutCurrencySupported(f.code);
+            return (
+              <button
+                key={f.code}
+                onClick={() => supported && setFiat(f.code)}
+                disabled={!supported}
+                className={`flex items-center gap-3 bg-surface border border-white/[.06] rounded-2xl px-4 py-3.5 ${supported ? "active:scale-[.99]" : "opacity-45 cursor-not-allowed"}`}
+              >
+                <span className="text-xl">{f.flag}</span>
+                <span className="flex-1 text-left font-medium text-[14px]">{f.name}</span>
+                {!supported && (
+                  <span className="text-[10px] uppercase tracking-wide text-white/45 border border-white/15 rounded-full px-2 py-[3px]">
+                    Coming soon
+                  </span>
+                )}
+                {supported && portfolio.fiat === f.code && <Icon name="check" size={16} className="text-good" strokeWidth={2.6} />}
+              </button>
+            );
+          })}
         </div>
       </Sheet>
     </>

@@ -52,7 +52,9 @@ export async function POST(req: Request) {
       if (bvnHash && !existing.bvnHash) {
         await prisma.user.update({ where: { id: userId }, data: { bvnHash, bvnLast4 } }).catch(() => {});
       }
-      if (!existing.nairaAccount && (input.idType === "bvn" || input.idType === "nin")) {
+      // BVN only — a dedicated account is opened against NIBSS with a BVN, so
+      // passing a NIN here would send the wrong number to the provider.
+      if (!existing.nairaAccount && input.idType === "bvn") {
         try {
           await ensureNairaAccount(userId, { bvn: input.idNumber.replace(/\D/g, ""), name: existing.name, email: existing.email });
         } catch {
@@ -113,7 +115,7 @@ export async function POST(req: Request) {
 
     // Provision a dedicated naira account now that we have a verified BVN.
     // Best-effort — never let account creation fail the verification.
-    if (input.idType === "bvn" || input.idType === "nin") {
+    if (input.idType === "bvn") {
       try {
         await ensureNairaAccount(userId, {
           bvn: input.idNumber.replace(/\D/g, ""),

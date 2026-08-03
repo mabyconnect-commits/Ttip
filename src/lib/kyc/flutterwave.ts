@@ -32,6 +32,21 @@ export async function flutterwaveVerify(req: KycRequest): Promise<KycResult> {
     return { status: "failed", tier: 1, provider: "flutterwave", reason: result.error };
   }
 
+  // Only a freshly OPENED account proves anything: that is the call where
+  // Flutterwave checked the BVN against NIBSS. If the user already had an
+  // account, ensureNairaAccount returned early and never looked at the number
+  // just submitted — treating that as "verified" let any 11 digits through,
+  // including a NIN typed into the BVN field. Send it to manual review instead.
+  if (!result.created) {
+    return {
+      status: "pending",
+      tier: 1,
+      provider: "flutterwave",
+      reason: "We couldn't automatically confirm that ID. Our team will review it shortly.",
+      matched: false,
+    };
+  }
+
   // BVN confirmed real + account provisioned → Tier 1.
   return { status: "verified", tier: 1, provider: "flutterwave", ref: result.accountNumber, matched: true };
 }

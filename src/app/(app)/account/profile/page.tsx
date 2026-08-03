@@ -8,6 +8,7 @@ import { Icon } from "@/components/Icon";
 import { BankPicker } from "@/components/BankPicker";
 import type { Bank } from "@/lib/banks";
 import { FIATS } from "@/lib/constants";
+import { payoutCurrencySupported } from "@/lib/settlement/payout-country";
 
 export default function EditProfilePage() {
   const { state, action, toast } = useApp();
@@ -59,16 +60,28 @@ export default function EditProfilePage() {
           <div>
             <span className="text-[12px] text-white/50 font-medium ml-1">Cash out currency</span>
             <div className="mt-1.5 grid grid-cols-5 gap-2">
-              {FIATS.map((f) => (
-                <button
-                  key={f.code}
-                  onClick={() => setFiat(f.code)}
-                  className={`h-[52px] rounded-2xl border flex flex-col items-center justify-center gap-0.5 ${fiat === f.code ? "border-brand-cyan bg-brand-cyan/10" : "border-white/10 bg-surface"}`}
-                >
-                  <span className="text-base leading-none">{f.flag}</span>
-                  <span className="text-[10px] text-white/60">{f.code}</span>
-                </button>
-              ))}
+              {FIATS.map((f) => {
+                // Currencies we can't settle a payout in aren't selectable yet.
+                const supported = payoutCurrencySupported(f.code);
+                return (
+                  <button
+                    key={f.code}
+                    onClick={() => supported && setFiat(f.code)}
+                    disabled={!supported}
+                    title={supported ? undefined : "Coming soon"}
+                    className={`h-[52px] rounded-2xl border flex flex-col items-center justify-center gap-0.5 ${
+                      !supported
+                        ? "border-white/10 bg-surface opacity-40 cursor-not-allowed"
+                        : fiat === f.code
+                          ? "border-brand-cyan bg-brand-cyan/10"
+                          : "border-white/10 bg-surface"
+                    }`}
+                  >
+                    <span className="text-base leading-none">{f.flag}</span>
+                    <span className="text-[10px] text-white/60">{f.code}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
