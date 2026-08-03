@@ -1,6 +1,6 @@
 import "server-only";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
-import { getOrCreateAssociatedTokenAccount, transfer } from "@solana/spl-token";
+import { getOrCreateAssociatedTokenAccount, getAssociatedTokenAddress, transfer } from "@solana/spl-token";
 import bs58 from "bs58";
 import { solanaConfig } from "./config";
 
@@ -63,8 +63,36 @@ export async function sendSolanaUsdc(opts: { toAddress: string; amount: number }
   if (fromAta.amount < amountRaw) throw new Error("Treasury USDC balance is too low for this withdrawal.");
 
   // Recipient's USDC account — create if missing (treasury pays rent).
-  const toAta = await getOrCreateAssociatedTokenAccount(conn, treasury, mint, to);
+  // allowOwnerOffCurve: provider deposit addresses can be off-curve (PDAs), which
+  // would otherwise throw TokenOwnerOffCurveError; a normal wallet is unaffected.
+  const toAta = await getOrCreateAssociatedTokenAccount(conn, treasury, mint, to, true);
 
   const signature = await transfer(conn, treasury, fromAta.address, toAta.address, treasury.publicKey, amountRaw);
   return { txHash: signature };
+}
+
+/**
+ * Read the treasury Solana wallet's SOL + USDC balances and the address the
+ * configured keypair actually controls — so an operator can confirm the signer
+ * matches the funded wallet. Returns null if Solana isn't configured.
+ */
+export async function treasurySolanaBalances(): Promise<{ address: string; sol: number; usdc: number } | null> {
+  const cfg = solanaConfig();
+  if (!cfg) return null;
+  try {
+    const conn = new Connection(cfg.rpcUrl, "confirmed");
+    const treasury = loadKeypair(cfg.secretKey);
+    const lamports = await conn.getBalance(treasury.publicKey);
+    let usdc = 0;
+    try {
+      const ata = await getAssociatedTokenAddress(new PublicKey(cfg.usdcMint), treasury.publicKey, true);
+      const bal = await conn.getTokenAccountBalance(ata);
+      usdc = Number(bal.value.uiAmount ?? 0);
+    } catch {
+      /* no USDC token account */
+    }
+    return { address: treasury.publicKey.toBase58(), sol: lamports / 1e9, usdc };
+  } catch {
+    return null;
+  }
 }

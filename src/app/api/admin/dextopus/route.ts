@@ -3,6 +3,7 @@ import { getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { dextopusConfig } from "@/lib/settlement/config";
 import { resolveTokenAddress } from "@/lib/settlement/dextopus";
+import { treasurySolanaBalances } from "@/lib/settlement/solana";
 import { chainIdForNetwork, explorerTxUrl } from "@/lib/chains";
 import { toUsd } from "@/lib/prices";
 
@@ -69,7 +70,7 @@ export async function GET(req: Request) {
     });
     const withdrawals = [];
     for (const s of pending) {
-      const raw = (s.raw ?? {}) as { dextopusRequestId?: string; fundingTx?: string };
+      const raw = (s.raw ?? {}) as { dextopusRequestId?: string; fundingTx?: string; fundingError?: string };
       const requestId = raw.dextopusRequestId;
       const ageMinutes = Math.round((Date.now() - s.createdAt.getTime()) / 60000);
       const status = requestId ? await call(`/deposit/status?depositRequestId=${encodeURIComponent(requestId)}`, { headers }) : null;
@@ -81,13 +82,14 @@ export async function GET(req: Request) {
         destination: s.address,
         fundingTx: raw.fundingTx ?? null,
         fundingTxUrl: raw.fundingTx ? explorerTxUrl(792703809, raw.fundingTx) : null,
+        fundingError: raw.fundingError ?? null, // why the treasury send failed, if it did
         ageMinutes,
         stuck: ageMinutes >= minutes,
         status,
-        diagnosis: interpretWithdrawal(requestId, status, ageMinutes, minutes),
+        diagnosis: interpretWithdrawal(requestId, status, ageMinutes, minutes, raw.fundingError),
       });
     }
-    return NextResponse.json({ pendingCount: pending.length, stuckThresholdMinutes: minutes, withdrawals });
+    return NextResponse.json({ pendingCount: pending.length, stuckThresholdMinutes: minutes, treasury: await treasurySolanaBalances(), withdrawals });
   }
 
   // ?dryRun=1&asset=USDT&network=tron&address=…&amount=2 → preview a withdrawal
@@ -214,7 +216,10 @@ export async function GET(req: Request) {
 }
 
 /** Plain-English read of why a pending withdrawal is where it is. */
-function interpretWithdrawal(requestId: string | undefined, statusResp: unknown, ageMinutes: number, minutes: number): string {
+function interpretWithdrawal(requestId: string | undefined, statusResp: unknown, ageMinutes: number, minutes: number, fundingError?: string): string {
+  if (fundingError) {
+    return `The treasury Solana send FAILED — Dextopus was never funded, so this can't deliver. Error: "${fundingError}". It will auto-refund the user on reconcile. Fix the underlying send (see error) before retrying.`;
+  }
   if (!requestId) {
     return "No Dextopus request id was recorded — the quote or the treasury funding never completed, so nothing was handed to Dextopus. Check the funding tx and the /api/send logs; this one won't auto-reconcile.";
   }
