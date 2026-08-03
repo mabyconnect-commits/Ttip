@@ -2,6 +2,7 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "./db";
 import { toUsd } from "./prices";
+import { REWARDS_BASE_FIAT, toRewardsBase } from "./rewards";
 import { REFERRAL_EARN_PCT, DEPOSIT_BONUS_NGN, DEPOSIT_BONUS_MIN_USD, DEPOSIT_BONUS_HOLD_HOURS } from "./constants";
 
 /**
@@ -10,7 +11,9 @@ import { REFERRAL_EARN_PCT, DEPOSIT_BONUS_NGN, DEPOSIT_BONUS_MIN_USD, DEPOSIT_BO
  * Two mechanics beyond the one-off signup bonus:
  *   1. A lifetime revenue share — the referrer earns REFERRAL_EARN_PCT of the
  *      platform revenue (fees + spread) on every transaction their referred
- *      users make. Credited in the same fiat the fee was charged in.
+ *      users make. The pot is denominated in REWARDS_BASE_FIAT (see
+ *      src/lib/rewards.ts), so revenue in any other fiat converts on the way in
+ *      and the pot converts on the way out.
  *   2. A first-deposit bonus for the referred user — DEPOSIT_BONUS_NGN, paid
  *      DEPOSIT_BONUS_HOLD_HOURS after their first deposit worth ≥ MIN_USD, only
  *      if they still hold at least that value (they didn't cash straight out).
@@ -38,10 +41,11 @@ export async function accrueReferralEarning(
   const downline = await tx.user.findUnique({ where: { id: downlineUserId }, select: { referredById: true, name: true } });
   if (!downline?.referredById) return;
 
-  const earn = revenueFiat * referralEarnPct();
-  if (!(earn > 0)) return;
+  // Normalise into the pot's base currency before it lands, so a pot built from
+  // mixed-currency revenue still adds up to one honest number.
+  const earn = (await toRewardsBase(revenueFiat, ctx.fiat)) * referralEarnPct();
+  if (!(earn > 0) || !Number.isFinite(earn)) return;
   const referrerId = downline.referredById;
-  const fiat = ctx.fiat;
 
   // Earnings accrue to a claimable referral pot (user.referralEarned). The user
   // moves it to their spendable balance via "Withdraw to wallet" (/api/referrals
@@ -53,7 +57,7 @@ export async function accrueReferralEarning(
       userId: referrerId,
       type: "referral_bonus",
       status: "completed",
-      assetOut: fiat,
+      assetOut: REWARDS_BASE_FIAT,
       amountOut: new Prisma.Decimal(earn),
       counterparty: downline.name,
       note: `Referral earning · ${ctx.source}`,

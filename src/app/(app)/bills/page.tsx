@@ -7,7 +7,7 @@ import { apiGet, apiPost } from "@/lib/client";
 import { usePrices } from "@/lib/usePrices";
 import { BackHeader, GradientButton } from "@/components/ui";
 import { Icon } from "@/components/Icon";
-import { BILL_CATEGORIES } from "@/lib/constants";
+import { BILL_CATEGORIES, BILL_FIAT } from "@/lib/constants";
 import { pickFunding } from "@/lib/funding";
 import { formatFiat, formatCrypto } from "@/lib/format";
 import { Receipt } from "@/components/Receipt";
@@ -20,7 +20,10 @@ export default function BillsPage() {
   const { state, action, toast } = useApp();
   const { convert } = usePrices();
   const router = useRouter();
-  const fiat = state.user.defaultFiat;
+  // Bills are priced by a naira catalog, so they're always shown and charged in
+  // BILL_FIAT — not the user's display currency. Formatting a ₦100 plan with the
+  // user's symbol would advertise "R100" for ₦100 of airtime.
+  const fiat = BILL_FIAT;
 
   const [cat, setCat] = useState<Category | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -102,7 +105,6 @@ export default function BillsPage() {
         billerCode: item.billerCode,
         itemCode: item.itemCode,
         account,
-        fiat,
         fiatAmount: variable ? amount : undefined,
         fundingSymbol: funding,
       });

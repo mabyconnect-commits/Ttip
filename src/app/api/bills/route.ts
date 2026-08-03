@@ -6,7 +6,7 @@ import { handler, ok, unauthorized, ApiError } from "@/lib/api";
 import { getAppState } from "@/lib/serialize";
 import { convert } from "@/lib/prices";
 import { balanceOf } from "@/lib/wallet";
-import { BILL_CATEGORIES } from "@/lib/constants";
+import { BILL_CATEGORIES, BILL_FIAT } from "@/lib/constants";
 import { payBill, ensureFloat, settlementEnabled, findBillItem } from "@/lib/settlement";
 
 const schema = z.object({
@@ -15,7 +15,6 @@ const schema = z.object({
   billerCode: z.string().min(2, "Choose a plan"),
   itemCode: z.string().min(2, "Choose a plan"),
   account: z.string().min(3, "Enter the account / phone number"),
-  fiat: z.string().default("NGN"),
   // For fixed-price plans the server uses the plan's price; for variable plans
   // (airtime, prepaid meters) the user supplies the amount.
   fiatAmount: z.number().positive("Enter an amount").optional(),
@@ -44,9 +43,14 @@ export async function POST(req: Request) {
     const amountFiat = item.variableAmount ? input.fiatAmount ?? 0 : item.amount;
     if (!(amountFiat > 0)) throw new ApiError("Enter an amount", 400);
 
+    // The catalog's plan prices and the biller itself are naira-denominated, so a
+    // bill is always priced in BILL_FIAT. Taking the user's display currency here
+    // would charge a ZAR user R100 for a ₦100 recharge — ~82x the real price.
+    const fiat = BILL_FIAT;
+
     // Crypto to debit = market value of the bill's face amount (matches the
     // "Pays from" figure shown to the user; no hidden markup).
-    const cost = await convert(amountFiat, input.fiat, input.fundingSymbol);
+    const cost = await convert(amountFiat, fiat, input.fundingSymbol);
     const bal = await balanceOf(userId, input.fundingSymbol);
     if (bal + 1e-12 < cost) throw new ApiError(`Not enough ${input.fundingSymbol} to pay this bill`, 400);
 
@@ -54,7 +58,7 @@ export async function POST(req: Request) {
 
     // Make sure the fiat float can cover the biller payment; if short, auto-sell
     // treasury crypto into the float so the bill still goes out now.
-    await ensureFloat(input.fiat, amountFiat);
+    await ensureFloat(fiat, amountFiat);
 
     // Atomic debit + pending settlement, then deliver the bill. Throws (balance
     // refunded) on failure; returns "completed" (instant biller / sandbox) or
@@ -73,7 +77,7 @@ export async function POST(req: Request) {
         fundingSymbol: input.fundingSymbol,
         cost,
         amountFiat,
-        currency: input.fiat,
+        currency: fiat,
         reference,
       });
     } catch (e: any) {
@@ -97,7 +101,7 @@ export async function POST(req: Request) {
         provider: input.provider,
         plan: item.name,
         account: input.account,
-        fiat: input.fiat,
+        fiat,
         fiatAmount: amountFiat,
         funding: input.fundingSymbol,
         cost,

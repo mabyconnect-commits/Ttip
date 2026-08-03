@@ -58,8 +58,12 @@ export interface Fiat {
 }
 
 // Naira is the primary market; the rest let Ttip expand across Africa. Every
-// currency here is priced live off the USD pivot (see getFiatRates) and works
-// end-to-end through swap, payout and pricing.
+// currency here is priced live off the USD pivot (see getFiatRates), so it is
+// safe to hold, display and swap.
+//
+// Bank PAYOUTS are a narrower set — see settlement/payout-country.ts. A currency
+// listed here is not automatically payable, and one that isn't mapped there is
+// refused at payout rather than being sent to the wrong country's banks.
 export const FIATS: Fiat[] = [
   { code: "NGN", name: "Nigerian Naira", symbol: "₦", flag: "🇳🇬", country: "Nigeria" },
   { code: "GHS", name: "Ghanaian Cedi", symbol: "₵", flag: "🇬🇭", country: "Ghana" },
@@ -140,6 +144,17 @@ export const COLLECTION_FEE_PCT = 0.015; // 1.5%
 // cashback balance, claimable once it reaches CASHBACK_MIN_CLAIM.
 export const CASHBACK_PCT = 0.0015; // 0.15%
 export const CASHBACK_MIN_CLAIM = 5000; // ₦5,000
+
+// The reward pots (user.cashback, user.referralEarned) and the reward
+// thresholds below are bare numbers with no currency column, so they are all
+// denominated in THIS currency no matter what the user is displaying. Anything
+// crossing the boundary must convert — see src/lib/rewards.ts. Changing this
+// requires migrating both pots.
+export const REWARDS_BASE_FIAT = "NGN";
+
+// The bill catalog (biller codes, plan prices, quick amounts) is Nigerian, so a
+// bill is always priced and paid in naira regardless of the display currency.
+export const BILL_FIAT = "NGN";
 
 // Referrals: a referrer earns this share of the platform revenue (fees + spread)
 // on every transaction their referred users make — an ongoing lifetime cut, not

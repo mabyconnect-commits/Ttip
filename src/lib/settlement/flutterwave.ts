@@ -3,6 +3,8 @@ import { ProxyAgent } from "undici";
 import type { PayoutRequest, PayoutResult, BillRequest, BillResult, BillValidation } from "./types";
 import { flutterwaveConfig, type FlutterwaveConfig } from "./config";
 import { mapBillStatus } from "./bill-status";
+import { payoutCountry } from "./payout-country";
+import { BILL_FIAT } from "../constants";
 
 /**
  * Flutterwave payout provider (naira-out and other African currencies) via the
@@ -78,30 +80,47 @@ function mapStatus(fw: string | undefined): PayoutResult["status"] {
   }
 }
 
-// Flutterwave wants a numeric bank code, not a name. Resolve + cache per process.
-let bankCodeCache: { at: number; byName: Record<string, string> } | null = null;
+// Flutterwave wants a numeric bank code, not a name. Resolve + cache per process,
+// keyed BY COUNTRY — a single shared cache would hand Nigerian bank codes to a
+// Ghanaian payout just because Nigeria was looked up first.
+const bankCodeCache = new Map<string, { at: number; byName: Record<string, string> }>();
 
 async function resolveBankCode(cfg: FlutterwaveConfig, currency: string, bankName?: string): Promise<string | undefined> {
   if (!bankName) return undefined;
-  const country = currency === "NGN" ? "NG" : currency === "GHS" ? "GH" : currency === "KES" ? "KE" : currency === "ZAR" ? "ZA" : "NG";
-  const fresh = bankCodeCache && Date.now() - bankCodeCache.at < 24 * 60 * 60 * 1000;
-  if (!fresh) {
+  const country = payoutCountry(currency);
+  if (!country) return undefined;
+
+  let entry = bankCodeCache.get(country);
+  if (!entry || Date.now() - entry.at >= 24 * 60 * 60 * 1000) {
     const res = await fwFetch(`${cfg.baseUrl}/banks/${country}`, {
       headers: { Authorization: `Bearer ${cfg.secretKey}` },
     });
     const json = (await res.json()) as { data?: { code: string; name: string }[] };
     const byName: Record<string, string> = {};
     for (const b of json.data ?? []) byName[b.name.toLowerCase()] = b.code;
-    bankCodeCache = { at: Date.now(), byName };
+    entry = { at: Date.now(), byName };
+    bankCodeCache.set(country, entry);
   }
+
   const key = bankName.toLowerCase();
-  const map = bankCodeCache!.byName;
+  const map = entry.byName;
   return map[key] ?? Object.entries(map).find(([n]) => n.includes(key) || key.includes(n))?.[1];
 }
 
 export async function flutterwavePayout(req: PayoutRequest): Promise<PayoutResult> {
   const cfg = flutterwaveConfig();
   if (!cfg) throw new Error("Flutterwave is not configured (FLUTTERWAVE_SECRET_KEY missing).");
+
+  // Refuse a currency we can't map to a country rather than defaulting to
+  // Nigeria and paying the wrong country's bank.
+  if (!payoutCountry(req.currency)) {
+    return {
+      provider: "flutterwave",
+      externalId: req.reference,
+      status: "failed",
+      message: `${req.currency} bank payouts aren't supported yet — your balance was not charged.`,
+    };
+  }
 
   const account_bank = req.bankCode ?? (await resolveBankCode(cfg, req.currency, req.bankName));
   if (!account_bank) {
@@ -152,7 +171,13 @@ export async function flutterwaveBillPay(req: BillRequest): Promise<BillResult> 
   if (!req.billerCode || !req.itemCode) {
     return { provider: "flutterwave", externalId: req.reference, status: "failed", message: "Missing biller/item code for this bill" };
   }
-  const country = req.currency === "GHS" ? "GH" : req.currency === "KES" ? "KE" : req.currency === "ZAR" ? "ZA" : "NG";
+  // The bill catalog we ship is Nigerian, so BILL_FIAT is the only currency the
+  // caller may send; anything else would pay an NG biller a foreign-denominated
+  // amount. Guard here too rather than trusting the caller.
+  if (req.currency !== BILL_FIAT) {
+    return { provider: "flutterwave", externalId: req.reference, status: "failed", message: `Bills can only be paid in ${BILL_FIAT}` };
+  }
+  const country = payoutCountry(req.currency) ?? "NG";
 
   let res: Response;
   try {

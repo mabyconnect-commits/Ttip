@@ -4,13 +4,14 @@ import { getUserId } from "@/lib/auth";
 import { handler, ok, unauthorized, ApiError } from "@/lib/api";
 import { getAppState } from "@/lib/serialize";
 import { adjust } from "@/lib/wallet";
-import { cashbackMinClaim, cashbackRate, CASHBACK_BASE_FIAT } from "@/lib/cashback";
+import { cashbackMinClaim } from "@/lib/cashback";
+import { rewardsRate, REWARDS_BASE_FIAT } from "@/lib/rewards";
 
 /**
  * Claim accrued cashback into the spendable balance. Only allowed once the
  * cashback balance reaches the threshold; the whole balance is claimed at once.
  *
- * The pot is denominated in CASHBACK_BASE_FIAT, so it is converted at the live
+ * The pot is denominated in REWARDS_BASE_FIAT, so it is converted at the live
  * rate into whatever fiat the user is on — a ₦6,908 pot claimed while on ZAR
  * credits the rand value of ₦6,908 (about R84), never R6,908.
  */
@@ -26,9 +27,9 @@ export async function POST() {
       throw new ApiError(`You can claim once your cashback reaches ${min.toLocaleString()}.`, 400);
     }
 
-    const fiat = user.defaultFiat || CASHBACK_BASE_FIAT;
+    const fiat = user.defaultFiat || REWARDS_BASE_FIAT;
     // Resolve the rate before opening the transaction (it may hit the FX feed).
-    const rate = await cashbackRate(fiat);
+    const rate = await rewardsRate(fiat);
     if (!(rate > 0)) {
       throw new ApiError("Exchange rates are unavailable right now — try again in a moment.", 503);
     }

@@ -12,6 +12,7 @@ export interface UserSummary {
   points: number;
   freeSwapsLeft: number;
   referralCode: string;
+  /** Claimable referral pot, in REWARDS_BASE_FIAT (not the display currency). */
   referralEarned: number;
   /** Claimable cashback, already converted into `defaultFiat`. */
   cashback: number;
