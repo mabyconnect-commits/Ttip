@@ -16,8 +16,26 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Release signing is driven by environment variables so no key or password
+    // is ever committed. CI sets them from repository secrets; locally you can
+    // export the same four and run `./gradlew bundleRelease`. With none of them
+    // set the block is skipped entirely and debug builds still work.
+    signingConfigs {
+        release {
+            def storeFilePath = System.getenv("TTIP_KEYSTORE")
+            if (storeFilePath) {
+                storeFile file(storeFilePath)
+                storePassword System.getenv("TTIP_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("TTIP_KEY_ALIAS")
+                keyPassword System.getenv("TTIP_KEY_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         release {
+            if (System.getenv("TTIP_KEYSTORE")) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

@@ -48,7 +48,31 @@ CAP_SERVER_URL=http://192.168.1.20:3000 npm run cap:sync
 
 ## Build & run
 
-### Android (any OS)
+### Android — in CI, no tooling needed (easiest)
+
+GitHub Actions builds the app for you. **Actions → "Android app" → Run
+workflow**, then download the `ttip-debug-apk` artifact and install it on a
+phone. Nothing to install locally, no Android Studio.
+
+For a Play-ready signed bundle, add these repository secrets (Settings →
+Secrets and variables → Actions) and run the workflow again — it then also
+produces `ttip-release` containing the `.aab` to upload:
+
+| Secret | What it is |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | your keystore, base64-encoded: `base64 -w0 ttip.jks` |
+| `ANDROID_KEYSTORE_PASSWORD` | keystore password |
+| `ANDROID_KEY_ALIAS` | key alias inside the keystore |
+| `ANDROID_KEY_PASSWORD` | key password |
+
+Create the keystore once and **keep it safe** — Play will not accept updates
+signed with a different key:
+```
+keytool -genkeypair -v -keystore ttip.jks -alias ttip \
+  -keyalg RSA -keysize 2048 -validity 10000
+```
+
+### Android (locally, with Android Studio)
 ```
 npm run cap:android        # opens Android Studio
 ```
