@@ -329,7 +329,13 @@ export async function flutterwaveCreateVirtualAccount(
     const detail = json.message || snippet || `no response body`;
     return { error: `Flutterwave (HTTP ${res.status}): ${detail}` };
   }
-  return { accountNumber: json.data.account_number, bankName: json.data.bank_name || "Wema Bank" };
+  // Use ONLY the bank Flutterwave actually reports. The old `|| "Wema Bank"`
+  // fallback invented a bank name: dedicated accounts are issued through
+  // whichever partner bank Flutterwave assigns (Wema, Providus, or a
+  // microfinance bank such as Orokam MFB), so guessing sent people hunting for
+  // a bank their transfer would never reach. An empty name is handled in the
+  // UI, which then tells the user to confirm by account name instead.
+  return { accountNumber: json.data.account_number, bankName: json.data.bank_name || "" };
 }
 
 /** Verify a Flutterwave webhook using the shared verif-hash header. */

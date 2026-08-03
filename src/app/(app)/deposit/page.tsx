@@ -132,10 +132,31 @@ export default function DepositPage() {
           ) : state.user.nairaAccount ? (
             <div className="bg-surface border border-white/[.08] rounded-[22px] p-5">
               <div className="text-[12px] text-white/45 mb-3">Transfer {fiat} to this account — it lands in your balance in seconds</div>
-              <Detail label="Bank" value={state.user.nairaBank || "Bank"} onCopy={copy} />
+              <Detail label="Bank" value={state.user.nairaBank || "See note below"} onCopy={copy} />
               <Detail label="Account number" value={state.user.nairaAccount} onCopy={copy} />
               <Detail label="Account name" value={`Ttip / ${state.user.name}`} onCopy={copy} />
-              <div className="mt-4 rounded-xl px-3.5 py-3 text-[12.5px] flex items-start gap-2 text-white/60 bg-good/[.06] border border-good/20">
+
+              {/* Dedicated accounts are issued through a partner bank — often a
+                  microfinance bank, not a name people recognise. Users were
+                  searching their bank app for "Flutterwave", finding nothing,
+                  and giving up. Tell them exactly what to do instead. */}
+              <div className="mt-4 rounded-xl px-3.5 py-3 text-[12.5px] flex items-start gap-2 text-white/70 bg-warn/[.07] border border-warn/25">
+                <Icon name="bank" size={14} className="text-warn mt-0.5 shrink-0" />
+                <span>
+                  {state.user.nairaBank ? (
+                    <>
+                      In your bank app, search for <b className="text-white">{state.user.nairaBank}</b> — it may be listed
+                      as a microfinance bank. Don&apos;t search for &quot;Ttip&quot; or &quot;Flutterwave&quot;.
+                    </>
+                  ) : (
+                    <>Type the account number into your bank app and pick whichever bank it resolves to.</>
+                  )}{" "}
+                  Before you send, check the name shows <b className="text-white">Ttip / {state.user.name}</b> — that
+                  confirms it&apos;s your account.
+                </span>
+              </div>
+
+              <div className="mt-2 rounded-xl px-3.5 py-3 text-[12.5px] flex items-start gap-2 text-white/60 bg-good/[.06] border border-good/20">
                 <Icon name="check" size={14} className="text-good mt-0.5 shrink-0" strokeWidth={2.6} />
                 <span>Your dedicated account. Money you send here becomes {fiat} you can swap to any crypto.</span>
               </div>
