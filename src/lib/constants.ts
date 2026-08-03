@@ -105,13 +105,16 @@ export const FALLBACK_USD_PRICE: Record<string, number> = {
   MATIC: 0.52, LTC: 92, DOT: 6.4, AVAX: 34, TON: 5.4,
 };
 
+// Consumer bill categories surfaced in the app. Providers and plans are loaded
+// dynamically from the biller catalog (Flutterwave live, static in demo), so only
+// the id/title/icon and the amount presets for variable-amount categories live
+// here. Airtime & electricity are variable-amount; data/tv/internet are plans.
 export const BILL_CATEGORIES = [
-  { id: "airtime", title: "Airtime", icon: "📞", providers: ["MTN", "Airtel", "Glo", "9mobile"], amounts: [500, 1000, 2000, 5000] },
-  { id: "data", title: "Data", icon: "📶", providers: ["MTN", "Airtel", "Glo", "9mobile"], amounts: [1000, 2500, 5000, 10000] },
-  { id: "electricity", title: "Electricity", icon: "💡", providers: ["EKEDC", "IKEDC", "AEDC", "PHED"], amounts: [2000, 5000, 10000, 20000] },
-  { id: "tv", title: "TV / Cable", icon: "📺", providers: ["DStv", "GOtv", "Startimes"], amounts: [2950, 5300, 8400, 24500] },
-  { id: "betting", title: "Betting", icon: "🎯", providers: ["Bet9ja", "SportyBet", "1xBet"], amounts: [1000, 2000, 5000, 10000] },
-  { id: "internet", title: "Internet", icon: "🌐", providers: ["Spectranet", "Smile", "Swift"], amounts: [5000, 10000, 15000, 20000] },
+  { id: "airtime", title: "Airtime", icon: "📞", amounts: [100, 200, 500, 1000] },
+  { id: "data", title: "Data", icon: "📶", amounts: [] },
+  { id: "electricity", title: "Electricity", icon: "💡", amounts: [1000, 2000, 5000, 10000] },
+  { id: "tv", title: "TV / Cable", icon: "📺", amounts: [] },
+  { id: "internet", title: "Internet", icon: "🌐", amounts: [] },
 ] as const;
 
 export const SWAP_FEE_PCT = 0.005; // 0.5% after free swaps used
@@ -132,3 +135,15 @@ export const COLLECTION_FEE_PCT = 0.015; // 1.5%
 // cashback balance, claimable once it reaches CASHBACK_MIN_CLAIM.
 export const CASHBACK_PCT = 0.0015; // 0.15%
 export const CASHBACK_MIN_CLAIM = 5000; // ₦5,000
+
+// Referrals: a referrer earns this share of the platform revenue (fees + spread)
+// on every transaction their referred users make — an ongoing lifetime cut, not
+// a one-off. Override with REFERRAL_EARN_PCT.
+export const REFERRAL_EARN_PCT = 0.25; // 25% of downline fees
+
+// First-deposit bonus: a referred user earns this once, HOLD hours after their
+// first deposit worth at least MIN_USD — but only if they still hold that value
+// (they kept it on Ttip rather than cashing straight out).
+export const DEPOSIT_BONUS_NGN = 500; // ₦500
+export const DEPOSIT_BONUS_MIN_USD = 10; // first $10+ deposit
+export const DEPOSIT_BONUS_HOLD_HOURS = 72; // must stay 72h

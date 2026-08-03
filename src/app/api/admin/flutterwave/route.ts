@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { flutterwaveConfig } from "@/lib/settlement/config";
-import { fwFetch } from "@/lib/settlement/flutterwave";
+import { fwFetch, flutterwaveBillCategories, proxyStatus } from "@/lib/settlement/flutterwave";
 
 export const dynamic = "force-dynamic";
 
@@ -29,17 +29,50 @@ async function isAdmin(userId: string): Promise<boolean> {
 
 /** Turn the raw provider responses into a one-line plain-English diagnosis. */
 function interpret(out: Record<string, any>): string {
+  const proxied = !!process.env.FLUTTERWAVE_PROXY_URL;
+  const egressIp: string | undefined = out.egressIp?.ip;
+  // Suffix that tells the operator the exact IP to whitelist and whether it's stable.
+  const ipHint = egressIp
+    ? proxied
+      ? ` Whitelist this static proxy IP on Flutterwave: ${egressIp}.`
+      : ` This request left from ${egressIp}, but with no proxy that IP rotates per call — whitelisting it won't hold.`
+    : "";
+
+  // Did the read endpoints work? If balance/fee return 200 (esp. through the
+  // proxy), the egress IP is reaching Flutterwave fine — so a transfer rejection
+  // is an account/permission issue, not the IP allowlist.
+  const readsOk = out.ngnBalance?.status === 200 || out.transferFeeCheck?.status === 200;
+
   const transfer = out.testTransfer?.body;
   const msg: string = (transfer?.message ?? "").toString();
   if (transfer) {
-    if (/ip whitelist/i.test(msg)) {
-      return "Flutterwave is blocking transfers until IP Whitelisting is set up. Vercel uses dynamic IPs, so route Flutterwave through a static-IP proxy (set FLUTTERWAVE_PROXY_URL) and whitelist that IP, or enable IP whitelisting on your Flutterwave dashboard.";
+    if (transfer?.status === "success" || out.testTransfer?.status === 200) return "Transfer accepted ✅ — payouts are working." + (egressIp ? ` (egress IP ${egressIp})` : "");
+    // Account not approved/enabled for Transfers. Flutterwave gates payouts
+    // behind compliance/go-live and returns "contact your account administrator
+    // / support" or "not permitted" even when the key, balance and fee reads all
+    // succeed — so this is NOT the IP allowlist. Only Flutterwave can lift it.
+    if (/account administrator|not permitted|not enabled|do(es)? not have (the )?permission|transfers? (are|is)? ?(not enabled|disabled)|kyc|compliance|go[- ]?live/i.test(msg)) {
+      return `Flutterwave rejected the transfer at the account level ("${msg}"). Your key, balance and fee reads all work${proxied ? " through the static-IP proxy" : ""}, so this is NOT the IP whitelist — the account isn't enabled for Transfers/Payouts. Contact Flutterwave support to enable Transfers (complete payout compliance / go-live).`;
+    }
+    // Explicit IP-allowlist rejection.
+    if (/ip.?whitelist/i.test(msg)) {
+      const base = proxied
+        ? "Flutterwave is rejecting the transfer on IP whitelisting. A static-IP proxy is configured — make sure ITS IP is the one whitelisted on your Flutterwave dashboard (Settings → API → IP Whitelist)."
+        : "Flutterwave is blocking transfers until IP Whitelisting is set up. Vercel uses dynamic IPs, so route Flutterwave through a static-IP proxy (set FLUTTERWAVE_PROXY_URL) and whitelist that IP — whitelisting a single observed Vercel IP won't hold because the next call egresses from a different address.";
+      return base + ipHint;
     }
     if (/insufficient/i.test(msg)) return "Payout balance is too low — top up your Flutterwave PAYOUT wallet (separate from collections).";
-    if (transfer?.status === "success" || out.testTransfer?.status === 200) return "Transfer accepted ✅ — payouts are working.";
+    // Generic "cannot be processed / contact support" with reads working is
+    // almost always an account-level block, not IP.
+    if (/cannot be processed|contact support/i.test(msg)) {
+      return readsOk
+        ? `Flutterwave rejected the transfer ("${msg}"). Balance and fee reads work${proxied ? " through the static-IP proxy" : ""}, so it's an account-level block, not the IP whitelist — confirm Transfers/Payouts is enabled and your compliance is approved with Flutterwave.`
+        : `Flutterwave rejected the transfer ("${msg}"), and reads are failing too — likely IP whitelisting or a bad key.${ipHint}`;
+    }
+    if (msg) return `Flutterwave rejected the transfer: "${msg}".` + (readsOk ? "" : ipHint);
   }
   const bal = out.ngnBalance?.body?.data?.available_balance;
-  if (typeof bal === "number") return `Balance/API reachable (₦${bal} available). Add &send=1&account=&bank=&amount= to test a real transfer and see any block.`;
+  if (typeof bal === "number") return `Balance/API reachable (₦${bal} available).${ipHint} Add &send=1&account=&bank=&amount= to test a real transfer and see any block.`;
   return "Could not read Flutterwave — check FLUTTERWAVE_SECRET_KEY.";
 }
 
@@ -65,6 +98,30 @@ export async function GET(req: Request) {
   }
 
   out.proxy = process.env.FLUTTERWAVE_PROXY_URL ? "configured (static-IP egress)" : "none (direct Vercel egress — dynamic IP)";
+  // configured === true but active === false means the proxy env is set but the
+  // dispatcher didn't load, so traffic is STILL going direct (Vercel dynamic IP).
+  out.proxyStatus = proxyStatus();
+
+  // 0. Egress IP as seen by an outside echo — routed through fwFetch, so it uses
+  //    the SAME path (static proxy or direct Vercel) that Flutterwave calls take.
+  //    This is the exact address to put on Flutterwave's IP whitelist.
+  try {
+    const r = await fwFetch("https://api.ipify.org?format=json", {});
+    const body = (await r.json().catch(() => null)) as { ip?: string } | null;
+    out.egressIp = { ip: body?.ip, note: process.env.FLUTTERWAVE_PROXY_URL ? "static (via proxy) — whitelist this" : "dynamic (rotates per call) — whitelisting won't stick without a proxy" };
+  } catch (e) {
+    out.egressIp = { error: String(e) };
+  }
+
+  // Optional: list bill categories so the operator can read the exact `type`
+  // codes to put in BILL_TYPE_MAP for airtime/data/power/cable.
+  if (url.searchParams.get("bills") === "1") {
+    try {
+      out.billCategories = await flutterwaveBillCategories();
+    } catch (e) {
+      out.billCategories = { error: String(e) };
+    }
+  }
 
   // 1. Available payout balance.
   await call("ngnBalance", "/balances/NGN", { headers: auth });
@@ -84,6 +141,30 @@ export async function GET(req: Request) {
         headers: { ...auth, "Content-Type": "application/json" },
         body: JSON.stringify({ account_bank: bank, account_number: account, amount, currency: "NGN", narration: "Ttip diagnostic", reference: "diag_" + Date.now(), debit_currency: "NGN" }),
       });
+    }
+  }
+
+  // 4. Optional: attempt a real bill payment to see the exact provider response.
+  //    e.g. ?bill=1&customer=09136214038&amount=100  (defaults to AIRTIME)
+  if (url.searchParams.get("bill") === "1") {
+    const customer = url.searchParams.get("customer");
+    const type = url.searchParams.get("type") || "AIRTIME"; // AIRTIME auto-detects the network
+    const amount = Number(url.searchParams.get("amount") || 100);
+    if (!customer) {
+      out.testBill = { skipped: "provide &customer=<phone/meter> (optional &type=AIRTIME&amount=100)" };
+    } else {
+      await call("testBill", "/bills", {
+        method: "POST",
+        headers: { ...auth, "Content-Type": "application/json" },
+        body: JSON.stringify({ country: "NG", customer, amount, recurrence: "ONCE", type, reference: "billdiag_" + Date.now() }),
+      });
+      const b = (out.testBill as { status?: number; body?: { status?: string; message?: string } }) ?? {};
+      out.billDiagnosis =
+        b.body?.status === "success"
+          ? `Bill accepted ✅ — "${b.body?.message ?? "success"}". Bill payments work.`
+          : /not enabled|not permitted|account administrator|contact support|cannot be processed/i.test(b.body?.message ?? "")
+            ? `Flutterwave blocked the bill at the account level ("${b.body?.message}"). Ask Flutterwave to enable Bill Payments on your account.`
+            : `Flutterwave rejected the bill: "${b.body?.message ?? `HTTP ${b.status}`}".`;
     }
   }
 

@@ -57,48 +57,14 @@ export async function POST(req: Request) {
       });
       await provisionAccount(tx, created.id, input.name, { seed: false });
 
-      // credit referrer if applicable
+      // Link the referral. No cash changes hands at signup — the referrer earns
+      // 25% of this user's fees over time, and this user earns the ₦500
+      // first-deposit bonus 72h after their first $10 deposit (see lib/referral.ts).
+      // Points are just a light welcome touch, not spendable naira.
       if (referrer) {
-        await tx.referral.create({ data: { referrerId: referrer.id, joinedName: input.name } });
-        await tx.user.update({
-          where: { id: referrer.id },
-          data: { referralEarned: { increment: 2000 }, points: { increment: 200 } },
-        });
-        await tx.balance.upsert({
-          where: { userId_symbol: { userId: referrer.id, symbol: "NGN" } },
-          create: { userId: referrer.id, symbol: "NGN", kind: "fiat", amount: 2000 },
-          update: { amount: { increment: 2000 } },
-        });
-        await tx.transaction.create({
-          data: {
-            userId: referrer.id,
-            type: "referral_bonus",
-            assetOut: "NGN",
-            amountOut: 2000,
-            counterparty: input.name,
-            note: "Referral bonus",
-            emoji: "👯",
-          },
-        });
-
-        // The joiner gets a ₦2,000 welcome bonus too ("give ₦2k, get ₦2k").
-        await tx.balance.upsert({
-          where: { userId_symbol: { userId: created.id, symbol: "NGN" } },
-          create: { userId: created.id, symbol: "NGN", kind: "fiat", amount: 2000 },
-          update: { amount: { increment: 2000 } },
-        });
+        await tx.referral.create({ data: { referrerId: referrer.id, joinedName: input.name, bonus: 0 } });
+        await tx.user.update({ where: { id: referrer.id }, data: { points: { increment: 200 } } });
         await tx.user.update({ where: { id: created.id }, data: { points: { increment: 100 } } });
-        await tx.transaction.create({
-          data: {
-            userId: created.id,
-            type: "referral_bonus",
-            assetOut: "NGN",
-            amountOut: 2000,
-            counterparty: "@" + referrer.username,
-            note: "Welcome bonus",
-            emoji: "🎁",
-          },
-        });
       }
       return created;
     });

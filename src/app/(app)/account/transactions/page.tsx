@@ -71,7 +71,7 @@ function label(type: string) {
     swap: "Swap", ttip_out: "Ttip sent", ttip_in: "Ttip received", deposit: "Deposit",
     withdraw_wallet: "Sent to wallet", withdraw_bank: "Bank payout", bill: "Bill payment",
     card_fund: "Card funding", card_spend: "Card spend", referral_bonus: "Referral bonus",
-    buy: "Crypto purchase", cashback: "Cashback",
+    buy: "Crypto purchase", cashback: "Cashback", deposit_bonus: "First deposit bonus",
   };
   return m[type] ?? type;
 }

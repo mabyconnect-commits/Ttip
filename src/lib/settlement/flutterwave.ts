@@ -1,6 +1,8 @@
 import "server-only";
-import type { PayoutRequest, PayoutResult } from "./types";
+import { ProxyAgent } from "undici";
+import type { PayoutRequest, PayoutResult, BillRequest, BillResult, BillValidation } from "./types";
 import { flutterwaveConfig, type FlutterwaveConfig } from "./config";
+import { mapBillStatus } from "./bill-status";
 
 /**
  * Flutterwave payout provider (naira-out and other African currencies) via the
@@ -26,22 +28,42 @@ interface FwTransferResponse {
  * then leaves from the same address. With no proxy configured, behaviour is
  * unchanged (direct fetch).
  */
-let dispatcherPromise: Promise<unknown> | undefined;
-async function fwDispatcher(): Promise<unknown> {
+// undici's ProxyAgent is statically imported (and undici is a direct dependency)
+// so it's bundled into the serverless function. The earlier dynamic
+// import("undici") silently failed to resolve at runtime on Vercel and fell back
+// to a DIRECT fetch — which is why Flutterwave kept seeing a non-whitelisted IP
+// even with FLUTTERWAVE_PROXY_URL set. Now the dispatcher is built up-front.
+let proxyDispatcher: ProxyAgent | null | undefined; // undefined = not initialised
+let proxyInitError: string | null = null;
+function fwDispatcher(): ProxyAgent | undefined {
   const url = process.env.FLUTTERWAVE_PROXY_URL;
   if (!url) return undefined;
-  if (!dispatcherPromise) {
-    const mod = "undici"; // non-literal specifier: loaded only when a proxy is set
-    dispatcherPromise = import(mod)
-      .then((u: any) => new u.ProxyAgent(url))
-      .catch(() => null);
+  if (proxyDispatcher === undefined) {
+    try {
+      proxyDispatcher = new ProxyAgent(url);
+    } catch (e) {
+      proxyDispatcher = null;
+      proxyInitError = String(e);
+    }
   }
-  return (await dispatcherPromise) ?? undefined;
+  return proxyDispatcher ?? undefined;
+}
+
+/**
+ * Whether the static-IP proxy is not just configured but actually usable — i.e.
+ * the dispatcher was built. `active:false` while `configured:true` means egress
+ * is still going direct (the exact failure we just fixed). Surfaced by the
+ * admin diagnostic so this can never silently regress.
+ */
+export function proxyStatus(): { configured: boolean; active: boolean; error: string | null } {
+  const configured = !!process.env.FLUTTERWAVE_PROXY_URL;
+  const active = configured && fwDispatcher() != null;
+  return { configured, active, error: proxyInitError };
 }
 
 /** fetch that routes through the static-IP proxy when one is configured. */
 export async function fwFetch(url: string, init: RequestInit = {}): Promise<Response> {
-  const dispatcher = await fwDispatcher();
+  const dispatcher = fwDispatcher();
   return fetch(url, (dispatcher ? { ...init, dispatcher } : init) as RequestInit);
 }
 
@@ -118,6 +140,107 @@ export async function flutterwavePayout(req: PayoutRequest): Promise<PayoutResul
 }
 
 /**
+ * Pay a bill (airtime, data, electricity, cable, …) via Flutterwave's Bill
+ * Payments API, using the specific biller item chosen by the user (biller_code +
+ * item_code). Debits the same Flutterwave wallet that funds payouts.
+ * Docs: https://developer.flutterwave.com/reference/create-a-bill-payment-for-a-biller
+ */
+export async function flutterwaveBillPay(req: BillRequest): Promise<BillResult> {
+  const cfg = flutterwaveConfig();
+  if (!cfg) throw new Error("Flutterwave is not configured (FLUTTERWAVE_SECRET_KEY missing).");
+
+  if (!req.billerCode || !req.itemCode) {
+    return { provider: "flutterwave", externalId: req.reference, status: "failed", message: "Missing biller/item code for this bill" };
+  }
+  const country = req.currency === "GHS" ? "GH" : req.currency === "KES" ? "KE" : req.currency === "ZAR" ? "ZA" : "NG";
+
+  let res: Response;
+  try {
+    res = await fwFetch(`${cfg.baseUrl}/billers/${encodeURIComponent(req.billerCode)}/items/${encodeURIComponent(req.itemCode)}/payment`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${cfg.secretKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        country,
+        customer: req.customer,
+        customer_id: req.customer,
+        amount: req.amountFiat,
+        reference: req.reference,
+      }),
+    });
+  } catch (e) {
+    return { provider: "flutterwave", externalId: req.reference, status: "failed", message: `Couldn't reach Flutterwave: ${String(e)}` };
+  }
+
+  const json = (await res.json().catch(() => ({}))) as { status?: string; message?: string; data?: any };
+  if (!res.ok || json.status !== "success") {
+    return { provider: "flutterwave", externalId: req.reference, status: "failed", message: json.message ?? `Bill payment failed (${res.status})`, raw: json };
+  }
+
+  // The create call accepted it; the delivery state may be terminal already
+  // (airtime is usually instant) or still processing. Re-query once so a fast
+  // biller completes now instead of leaving the user on "processing".
+  let status = mapBillStatus(json);
+  if (status === "pending") {
+    const requeried = await flutterwaveBillStatus(req.reference).catch(() => null);
+    if (requeried && requeried !== "pending") status = requeried;
+  }
+
+  return { provider: "flutterwave", externalId: String(json.data?.flw_ref ?? json.data?.tx_ref ?? req.reference), status, message: json.message, raw: json };
+}
+
+/**
+ * Re-query a bill's delivery status by our reference. Used to settle a bill that
+ * came back "processing", and by the reconcile path.
+ * Docs: https://developer.flutterwave.com/reference/get-a-bill-payment-status
+ */
+export async function flutterwaveBillStatus(reference: string): Promise<PayoutResult["status"] | null> {
+  const cfg = flutterwaveConfig();
+  if (!cfg) return null;
+  const res = await fwFetch(`${cfg.baseUrl}/bills/${encodeURIComponent(reference)}`, {
+    headers: { Authorization: `Bearer ${cfg.secretKey}` },
+  });
+  const json = (await res.json().catch(() => ({}))) as { status?: string; data?: any };
+  if (!res.ok || json.status !== "success") return null;
+  return mapBillStatus(json);
+}
+
+/**
+ * Validate a bill customer (e.g. resolve the name on an electricity meter or a
+ * cable smartcard) so the user can confirm before paying. Best-effort: returns
+ * { valid:false } when the biller can't be validated (e.g. airtime).
+ * Docs: https://developer.flutterwave.com/reference/validate-a-customer
+ */
+export async function flutterwaveValidateBill(billerCode: string, itemCode: string, customer: string): Promise<BillValidation> {
+  const cfg = flutterwaveConfig();
+  if (!cfg || !billerCode || !itemCode) return { valid: false };
+  try {
+    const res = await fwFetch(`${cfg.baseUrl}/bill-items/${encodeURIComponent(itemCode)}/validate?code=${encodeURIComponent(billerCode)}&customer=${encodeURIComponent(customer)}`, {
+      headers: { Authorization: `Bearer ${cfg.secretKey}` },
+    });
+    const json = (await res.json().catch(() => ({}))) as { status?: string; message?: string; data?: { name?: string; customer?: string } };
+    if (!res.ok || json.status !== "success") return { valid: false, message: json.message };
+    const name = json.data?.name;
+    return { valid: !!name, name: name || undefined };
+  } catch {
+    return { valid: false };
+  }
+}
+
+/**
+ * List Flutterwave bill categories for the current account — used by the admin
+ * diagnostic so the operator can read the exact `type`/biller codes to configure
+ * in BILL_TYPE_MAP. Docs: https://developer.flutterwave.com/reference/get-bill-categories
+ */
+export async function flutterwaveBillCategories(): Promise<unknown> {
+  const cfg = flutterwaveConfig();
+  if (!cfg) return null;
+  const res = await fwFetch(`${cfg.baseUrl}/bill-categories?country=NG`, {
+    headers: { Authorization: `Bearer ${cfg.secretKey}` },
+  });
+  return { status: res.status, body: await res.json().catch(() => null) };
+}
+
+/**
  * Resolve the account holder's name for a bank + account number, so the user can
  * confirm the recipient before sending. Returns null if it can't be resolved.
  * Docs: https://developer.flutterwave.com/reference/verify-bank-account
@@ -167,9 +290,19 @@ export async function flutterwaveCreateVirtualAccount(
   } catch (e) {
     return { error: `Couldn't reach Flutterwave: ${String(e)}` };
   }
-  const json = (await res.json().catch(() => ({}))) as { status?: string; message?: string; data?: { account_number?: string; bank_name?: string } };
+  // Capture the raw body first — a 502/HTML gateway error has no JSON message,
+  // and we want Flutterwave's exact words surfaced, not a bare status code.
+  const bodyText = await res.text().catch(() => "");
+  let json: { status?: string; message?: string; data?: { account_number?: string; bank_name?: string } } = {};
+  try {
+    json = JSON.parse(bodyText);
+  } catch {
+    /* non-JSON (e.g. an HTML 5xx gateway page) — fall back to the raw text */
+  }
   if (!res.ok || json.status !== "success" || !json.data?.account_number) {
-    return { error: json.message ?? `Virtual account creation failed (${res.status})` };
+    const snippet = bodyText.replace(/\s+/g, " ").trim().slice(0, 160);
+    const detail = json.message || snippet || `no response body`;
+    return { error: `Flutterwave (HTTP ${res.status}): ${detail}` };
   }
   return { accountNumber: json.data.account_number, bankName: json.data.bank_name || "Wema Bank" };
 }

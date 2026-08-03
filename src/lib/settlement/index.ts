@@ -13,11 +13,17 @@ import { chainName } from "../chains";
 import type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
 
 export type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
-export { settlementMode, isLive, payoutProvider, demoEnabled, settlementEnabled, settlementStatus } from "./config";
+export { settlementMode, isLive, payoutProvider, billProvider, demoEnabled, settlementEnabled, settlementStatus } from "./config";
+export { payBill, finalizeBill, billStatus, validateBillCustomer } from "./billing";
+export type { PayBillArgs, PayBillOutcome } from "./billing";
+export { getBillCatalog, getCategoryCatalog, findBillItem } from "./bill-catalog";
+export type { CategoryCatalog, ProviderGroup, BillItem } from "./bill-classify";
 export { parseDeposit, verifyDepositSignature, parseDextopusDeposit, verifyDextopusSignature } from "./webhook";
 export { ensureFloat, debitFloat, treasuryBalance, adjustTreasury } from "./treasury";
 export { cryptoWithdraw, finalizeWithdrawal } from "./withdrawal";
 export type { CryptoWithdrawRequest, CryptoWithdrawResult } from "./withdrawal";
+export { sendSolanaUsdc, solanaWithdrawSupported, isValidSolanaAddress, SOLANA_WITHDRAW_ASSETS } from "./solana";
+export { solanaConfig, maxCryptoWithdrawal } from "./config";
 export { createBuyOrder, finalizeBuy } from "./buy";
 export { ensureNairaAccount, creditNairaDeposit } from "./naira";
 export type { NairaAccountResult } from "./naira";

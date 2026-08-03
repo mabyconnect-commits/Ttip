@@ -79,6 +79,47 @@ export function depositProvider(): string {
   return process.env.DEPOSIT_PROVIDER?.toLowerCase() || (process.env.DEXTOPUS_API_KEY ? "dextopus" : "sandbox");
 }
 
+export type BillProvider = "sandbox" | "flutterwave";
+
+/**
+ * Which provider pays bills (airtime, data, power, cable). Sandbox in demo; in
+ * live it's Flutterwave, which exposes a Bill Payments API on the same account
+ * and wallet used for payouts. BILL_PROVIDER can force it explicitly.
+ */
+export function billProvider(): BillProvider {
+  if (!isLive()) return "sandbox";
+  const explicit = process.env.BILL_PROVIDER?.toLowerCase();
+  if (explicit === "flutterwave" || explicit === "sandbox") return explicit;
+  return "flutterwave";
+}
+
+/**
+ * Map an internal bill category to the `type` string Flutterwave expects on
+ * `POST /v3/bills`. Flutterwave identifies billers by a type that must match its
+ * biller list **for your account/country**, so these are overridable via the
+ * BILL_TYPE_MAP env var (JSON, e.g. {"data":"MOBILEDATANG"}). Confirm the exact
+ * strings for your account with GET /v3/bill-categories — the admin diagnostic
+ * at /api/admin/flutterwave?bills=1 lists them.
+ */
+const DEFAULT_BILL_TYPES: Record<string, string> = {
+  airtime: "AIRTIME",
+  data: "DATA_BUNDLE",
+  electricity: "ELECTRICITY_BILL",
+  tv: "CABLE_BILL",
+  internet: "INTERNET",
+  betting: "BETTING",
+};
+
+export function billType(category: string): string | null {
+  let override: Record<string, string> = {};
+  try {
+    override = JSON.parse(process.env.BILL_TYPE_MAP || "{}");
+  } catch {
+    override = {};
+  }
+  return override[category] ?? DEFAULT_BILL_TYPES[category] ?? null;
+}
+
 export interface MonnifyConfig {
   apiKey: string;
   secretKey: string;
@@ -156,6 +197,35 @@ export function flutterwaveConfig(): FlutterwaveConfig | null {
     webhookHash: process.env.FLUTTERWAVE_WEBHOOK_HASH || null,
     baseUrl: process.env.FLUTTERWAVE_BASE_URL || "https://api.flutterwave.com/v3",
   };
+}
+
+export interface SolanaConfig {
+  rpcUrl: string;
+  secretKey: string; // treasury keypair: base58 or JSON byte array
+  usdcMint: string;
+}
+
+/**
+ * Treasury Solana wallet for crypto withdrawals (USDC-SPL sends). Configured
+ * only when SOLANA_TREASURY_SECRET_KEY is present; without it, crypto
+ * withdrawals stay queued (never a false "sent"). Keep only a small hot float
+ * here + a little SOL for fees; the rest belongs in cold storage.
+ */
+export function solanaConfig(): SolanaConfig | null {
+  const secretKey = process.env.SOLANA_TREASURY_SECRET_KEY;
+  if (!secretKey) return null;
+  return {
+    rpcUrl: process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com",
+    secretKey,
+    // Canonical mainnet USDC mint.
+    usdcMint: process.env.SOLANA_USDC_MINT || "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  };
+}
+
+/** Per-withdrawal cap (in USDC) for the on-chain hot wallet. Default 2000. */
+export function maxCryptoWithdrawal(): number {
+  const v = Number(process.env.MAX_CRYPTO_WITHDRAWAL);
+  return Number.isFinite(v) && v > 0 ? v : 2000;
 }
 
 export interface PaystackConfig {

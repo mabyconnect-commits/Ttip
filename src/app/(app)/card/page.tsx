@@ -131,7 +131,7 @@ export default function CardPage() {
           <div className="flex gap-2 mt-3.5">
             <RewardTile icon="gift" label="Daily drop" onClick={claimDrop} />
             <RewardTile icon="grid" label="Quests" onClick={openQuests} />
-            <RewardTile icon="user" label="Invite = ₦2k" onClick={() => router.push("/referrals")} />
+            <RewardTile icon="user" label="Invite = 25%" onClick={() => router.push("/referrals")} />
           </div>
         </div>
 
