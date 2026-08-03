@@ -216,12 +216,20 @@ export default function SwapPage() {
       {receipt && (
         <Receipt
           onDone={() => { setReceipt(null); router.push("/home"); }}
-          title={`${formatCrypto(receipt.amountIn, receipt.fromSymbol)} ${receipt.fromSymbol} swapped`}
-          emoji="🔄"
-          lines={[
-            `You got ${isFiatSym(receipt.toSymbol) ? formatFiat(receipt.amountOut, receipt.toSymbol) : formatCrypto(receipt.amountOut, receipt.toSymbol) + " " + receipt.toSymbol}`,
-            `Rate 1 ${receipt.fromSymbol} = ${isFiatSym(receipt.toSymbol) ? formatFiat(receipt.rate, receipt.toSymbol) : formatCrypto(receipt.rate, receipt.toSymbol) + " " + receipt.toSymbol}`,
-            receipt.settledToBank ? `Paid to ${receipt.destination}` : `Added to your ${receipt.toSymbol} balance`,
+          badge="Swap"
+          title="Swapped"
+          amount={isFiatSym(receipt.toSymbol)
+            ? formatFiat(receipt.amountOut, receipt.toSymbol)
+            : `${formatCrypto(receipt.amountOut, receipt.toSymbol)} ${receipt.toSymbol}`}
+          fields={[
+            { label: "Type", value: "Swap" },
+            { label: "Account", value: state.user.name },
+            { label: "You sold", value: `${formatCrypto(receipt.amountIn, receipt.fromSymbol)} ${receipt.fromSymbol}` },
+            { label: "You got", value: isFiatSym(receipt.toSymbol)
+              ? formatFiat(receipt.amountOut, receipt.toSymbol)
+              : `${formatCrypto(receipt.amountOut, receipt.toSymbol)} ${receipt.toSymbol}` },
+            { label: "Rate", value: `1 ${receipt.fromSymbol} = ${isFiatSym(receipt.toSymbol) ? formatFiat(receipt.rate, receipt.toSymbol) : formatCrypto(receipt.rate, receipt.toSymbol) + " " + receipt.toSymbol}` },
+            { label: "Destination", value: receipt.settledToBank ? receipt.destination : `Your ${receipt.toSymbol} balance` },
           ]}
         />
       )}

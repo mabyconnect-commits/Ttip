@@ -311,13 +311,20 @@ export default function BillsPage() {
       {receipt && (
         <Receipt
           onDone={() => { setReceipt(null); router.push("/home"); }}
-          emoji={BILL_CATEGORIES.find((c) => c.title === receipt.category)?.icon ?? "📱"}
+          status={receipt.status === "pending" ? "pending" : "completed"}
+          badge={receipt.category}
           title={receipt.status === "pending" ? `${receipt.category} processing` : `${receipt.category} paid`}
-          lines={[
-            `${receipt.provider}${receipt.plan ? ` · ${receipt.plan}` : ""}`,
-            `${receipt.account}`,
-            `Paid ${formatCrypto(receipt.cost, receipt.funding)} ${receipt.funding}`,
-            ...(receipt.status === "pending" ? ["Delivery in progress — you'll be notified when it lands."] : []),
+          amount={formatFiat(receipt.fiatAmount, BILL_FIAT)}
+          reference={receipt.reference}
+          fields={[
+            { label: "Type", value: `${receipt.category} purchase` },
+            { label: "Paid by", value: state.user.name },
+            { label: "Provider", value: receipt.provider },
+            receipt.plan ? { label: "Plan", value: receipt.plan } : null,
+            { label: receipt.category === "Airtime" || receipt.category === "Data" ? "Phone number" : "Account / meter", value: receipt.account, mono: true },
+            { label: "Amount", value: formatFiat(receipt.fiatAmount, BILL_FIAT) },
+            { label: "Debited", value: `${formatCrypto(receipt.cost, receipt.funding)} ${receipt.funding}` },
+            resolvedName ? { label: "Account name", value: resolvedName } : null,
           ]}
         />
       )}

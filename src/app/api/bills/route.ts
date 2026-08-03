@@ -106,6 +106,7 @@ export async function POST(req: Request) {
         funding: input.fundingSymbol,
         cost,
         status: outcome.status, // "completed" (instant) or "pending" (processing)
+        reference, // shown on the receipt and quoted to support when tracing
       },
     });
   });

@@ -323,20 +323,31 @@ export default function SendOutPage() {
         <Receipt
           reference={receipt.reference}
           onDone={() => { setReceipt(null); router.push("/home"); }}
-          emoji={receipt.kind === "wallet" ? "🔗" : "🏦"}
-          title={receipt.kind === "wallet"
-            ? `${formatCrypto(receipt.amount, receipt.symbol)} ${receipt.symbol} ${receipt.status === "pending" ? "processing" : "sent"}`
-            : `${formatFiat(receipt.fiatAmount, receipt.fiat)} on the way`}
-          lines={receipt.kind === "wallet"
+          status={receipt.status === "pending" ? "pending" : "completed"}
+          badge={receipt.kind === "wallet" ? "Crypto Withdrawal" : "Bank Transfer"}
+          title={receipt.kind === "wallet" ? "Sent to wallet" : "Sent to bank"}
+          amount={receipt.kind === "wallet"
+            ? `${formatCrypto(receipt.amount, receipt.symbol)} ${receipt.symbol}`
+            : formatFiat(receipt.fiatAmount, receipt.fiat)}
+          fields={receipt.kind === "wallet"
             ? [
-                `To ${receipt.address.slice(0, 10)}…${receipt.address.slice(-6)}`,
-                `via ${receipt.network} · fee ${formatCrypto(receipt.fee, receipt.symbol)} ${receipt.symbol}`,
-                ...(receipt.status === "pending" ? ["On-chain confirmation in progress — you'll be notified when it lands."] : []),
+                { label: "Type", value: "Crypto withdrawal" },
+                { label: "Sent by", value: state.user.name },
+                { label: "Network", value: receipt.network },
+                { label: "Wallet address", value: receipt.address, mono: true },
+                { label: "Amount", value: `${formatCrypto(receipt.amount, receipt.symbol)} ${receipt.symbol}` },
+                { label: "Network fee", value: `${formatCrypto(receipt.fee, receipt.symbol)} ${receipt.symbol}` },
+                receipt.txHash ? { label: "Transaction hash", value: receipt.txHash, mono: true } : null,
               ]
             : [
-                `To ${receipt.bank}`,
-                `Debited ${formatCrypto(receipt.amount, receipt.symbol)} ${receipt.symbol}`,
-                ...(receipt.fee ? [`Transfer fee ${formatFiat(receipt.fee, receipt.fiat)}`] : []),
+                { label: "Type", value: "Bank Transfer" },
+                { label: "Sent by", value: state.user.name },
+                // The name the bank itself returned, so it matches the statement.
+                { label: "Sent to", value: resolvedName || accountName || "—" },
+                { label: "Receiver's account", value: bank ? `${bank.name} (${account})` : receipt.bank },
+                { label: "Amount", value: formatFiat(receipt.fiatAmount, receipt.fiat) },
+                receipt.fee ? { label: "Transfer fee", value: formatFiat(receipt.fee, receipt.fiat) } : null,
+                { label: "Debited", value: `${formatCrypto(receipt.amount, receipt.symbol)} ${receipt.symbol}` },
               ]}
         />
       )}

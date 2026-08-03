@@ -105,11 +105,15 @@ export default function BuyPage() {
       {receipt && (
         <Receipt
           onDone={() => { setReceipt(null); router.push("/home"); }}
-          emoji="🛒"
-          title={`${formatCrypto(receipt.amountAsset, receipt.symbol)} ${receipt.symbol} added`}
-          lines={[
-            `Paid ${formatFiat(receipt.fiatAmount, receipt.fiat)}`,
-            `Rate ${formatFiat(receipt.rate, receipt.fiat)} / ${receipt.symbol}`,
+          badge="Buy"
+          title="Crypto purchased"
+          amount={`${formatCrypto(receipt.amountAsset, receipt.symbol)} ${receipt.symbol}`}
+          fields={[
+            { label: "Type", value: "Crypto purchase" },
+            { label: "Account", value: state.user.name },
+            { label: "You bought", value: `${formatCrypto(receipt.amountAsset, receipt.symbol)} ${receipt.symbol}` },
+            { label: "You paid", value: formatFiat(receipt.fiatAmount, receipt.fiat) },
+            { label: "Rate", value: `${formatFiat(receipt.rate, receipt.fiat)} / ${receipt.symbol}` },
           ]}
         />
       )}

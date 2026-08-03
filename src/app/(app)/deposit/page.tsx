@@ -343,9 +343,16 @@ export default function DepositPage() {
       {receipt && (
         <Receipt
           onDone={() => { setReceipt(null); router.push("/home"); }}
-          emoji="📥"
-          title={`${receipt.symbol === fiat ? formatFiat(receipt.amount, fiat, { decimals: 0 }) : receipt.amount + " " + receipt.symbol} received`}
-          lines={[`Credited to your wallet`, receipt.network ? `via ${receipt.network}` : receipt.symbol === fiat ? "Bank transfer confirmed" : "Confirmed on-chain"]}
+          badge="Deposit"
+          title="Money received"
+          amount={receipt.symbol === fiat ? formatFiat(receipt.amount, fiat, { decimals: 0 }) : `${receipt.amount} ${receipt.symbol}`}
+          fields={[
+            { label: "Type", value: receipt.symbol === fiat ? "Bank Transfer" : "Crypto deposit" },
+            { label: "Credited to", value: state.user.name },
+            { label: "Amount", value: receipt.symbol === fiat ? formatFiat(receipt.amount, fiat, { decimals: 0 }) : `${receipt.amount} ${receipt.symbol}` },
+            receipt.network ? { label: "Network", value: receipt.network } : null,
+            { label: "Confirmation", value: receipt.network ? "Confirmed on-chain" : receipt.symbol === fiat ? "Bank transfer confirmed" : "Confirmed" },
+          ]}
         />
       )}
 

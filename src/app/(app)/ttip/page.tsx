@@ -187,12 +187,17 @@ export default function TtipPage() {
         <Receipt
           reference={receipt.reference}
           onDone={() => { setReceipt(null); router.push("/feed"); }}
-          emoji={receipt.emoji || "⚡"}
-          title={`${formatFiat(receipt.fiatAmount, receipt.fiat, { decimals: 0 })} sent`}
-          lines={[
-            `${receipt.delivered ? "Delivered to" : "Invite sent to"} ${receipt.recipient}`,
-            `Paid ${formatCrypto(receipt.cost, receipt.funding)} ${receipt.funding}`,
-            receipt.note ? `"${receipt.note}"` : null,
+          badge="Ttip"
+          title="Ttip sent"
+          amount={formatFiat(receipt.fiatAmount, receipt.fiat, { decimals: 0 })}
+          fields={[
+            { label: "Type", value: "Ttip transfer" },
+            { label: "Sent by", value: state.user.name },
+            { label: receipt.delivered ? "Sent to" : "Invite sent to", value: receipt.recipient },
+            { label: "Amount", value: formatFiat(receipt.fiatAmount, receipt.fiat, { decimals: 0 }) },
+            { label: "Debited", value: `${formatCrypto(receipt.cost, receipt.funding)} ${receipt.funding}` },
+            receipt.note ? { label: "Note", value: receipt.note } : null,
+            ...(receipt.delivered ? [] : [{ label: "Status note", value: "Held until they join Ttip with this handle." }]),
           ]}
         />
       )}
