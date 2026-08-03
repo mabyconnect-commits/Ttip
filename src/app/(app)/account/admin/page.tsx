@@ -43,6 +43,23 @@ interface DemoResult {
   error?: string;
 }
 
+interface Revenue {
+  window?: string;
+  fees?: {
+    bankTransfers: number;
+    swaps: number;
+    cryptoWithdrawals: number;
+    buySpread: number;
+    sellSpread: number;
+    cryptoDeposits: number;
+    total: number;
+  };
+  rewards?: { referralCommission: number; cashback: number; total: number };
+  netRevenue?: number;
+  volume?: number;
+  error?: string;
+}
+
 const usd = (n: number) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export default function AdminFundingPage() {
@@ -51,6 +68,8 @@ export default function AdminFundingPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [demo, setDemo] = useState<DemoResult | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [rev, setRev] = useState<Revenue | null>(null);
+  const [days, setDays] = useState<number | null>(null);
 
   async function load() {
     setLoading(true);
@@ -63,8 +82,19 @@ export default function AdminFundingPage() {
       setLoading(false);
     }
   }
+  async function loadRevenue(d: number | null) {
+    setRev(null);
+    try {
+      const r = await fetch(`/api/admin/revenue${d ? `?days=${d}` : ""}`, { cache: "no-store" });
+      setRev(r.ok ? await r.json() : { error: r.status === 404 ? "Not an admin account." : `Error ${r.status}` });
+    } catch {
+      setRev({ error: "Couldn't reach the server." });
+    }
+  }
+
   useEffect(() => {
     load();
+    loadRevenue(null);
   }, []);
 
   async function post(qs: string, key: string) {
@@ -102,6 +132,92 @@ export default function AdminFundingPage() {
           </div>
         ) : (
           <>
+            {/* revenue */}
+            <div className="font-grotesk font-semibold text-[14px] mt-2 mb-2">Platform revenue</div>
+            <div className="flex gap-2 mb-2">
+              {[
+                { label: "All time", v: null },
+                { label: "30d", v: 30 },
+                { label: "7d", v: 7 },
+              ].map((o) => (
+                <button
+                  key={o.label}
+                  onClick={() => { setDays(o.v); loadRevenue(o.v); }}
+                  className={`h-8 px-3.5 rounded-full border font-grotesk font-semibold text-[12px] ${
+                    days === o.v ? "bg-white text-[#07080D] border-white" : "border-white/14 text-white/65"
+                  }`}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+
+            {!rev ? (
+              <div className="rounded-2xl bg-surface border border-white/[.08] p-5 text-center text-white/40 text-[13px]">
+                Adding it up…
+              </div>
+            ) : rev.error ? (
+              <div className="rounded-2xl bg-surface border border-white/[.08] p-5 text-center text-white/60 text-[13px]">{rev.error}</div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="rounded-2xl bg-surface border border-good/25 p-4">
+                    <div className="text-white/45 text-[11.5px]">Net revenue</div>
+                    <div className="font-grotesk font-bold text-[19px] mt-1 text-good">{usd(rev.netRevenue ?? 0)}</div>
+                    <div className="text-white/35 text-[10.5px] mt-0.5">fees minus rewards paid</div>
+                  </div>
+                  <div className="rounded-2xl bg-surface border border-white/[.08] p-4">
+                    <div className="text-white/45 text-[11.5px]">Total volume</div>
+                    <div className="font-grotesk font-bold text-[19px] mt-1">{usd(rev.volume ?? 0)}</div>
+                    <div className="text-white/35 text-[10.5px] mt-0.5">value moved through Ttip</div>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl bg-surface border border-white/[.08] p-4 mt-2.5">
+                  <div className="flex justify-between items-baseline">
+                    <span className="font-grotesk font-semibold text-[13.5px]">Fees earned</span>
+                    <span className="font-grotesk font-bold text-[15px]">{usd(rev.fees?.total ?? 0)}</span>
+                  </div>
+                  <div className="flex flex-col gap-2 mt-3">
+                    {[
+                      ["Bank transfers", rev.fees?.bankTransfers ?? 0],
+                      ["Swaps", rev.fees?.swaps ?? 0],
+                      ["Crypto withdrawals", rev.fees?.cryptoWithdrawals ?? 0],
+                      ["Buy spread", rev.fees?.buySpread ?? 0],
+                      ["Sell spread", rev.fees?.sellSpread ?? 0],
+                    ].map(([label, v]) => (
+                      <div key={label as string} className="flex justify-between text-[12.5px]">
+                        <span className="text-white/55">{label as string}</span>
+                        <span className="font-grotesk font-semibold">{usd(v as number)}</span>
+                      </div>
+                    ))}
+                    <div className="flex justify-between text-[12.5px] pt-2 border-t border-white/[.06]">
+                      <span className="text-white/35">Crypto deposits</span>
+                      <span className="text-white/35">free — no fee charged</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl bg-surface border border-white/[.08] p-4 mt-2.5">
+                  <div className="flex justify-between items-baseline">
+                    <span className="font-grotesk font-semibold text-[13.5px]">Rewards paid out</span>
+                    <span className="font-grotesk font-bold text-[15px] text-bad">−{usd(rev.rewards?.total ?? 0)}</span>
+                  </div>
+                  <div className="flex flex-col gap-2 mt-3">
+                    <div className="flex justify-between text-[12.5px]">
+                      <span className="text-white/55">Referral commission</span>
+                      <span className="font-grotesk font-semibold">{usd(rev.rewards?.referralCommission ?? 0)}</span>
+                    </div>
+                    <div className="flex justify-between text-[12.5px]">
+                      <span className="text-white/55">Cashback</span>
+                      <span className="font-grotesk font-semibold">{usd(rev.rewards?.cashback ?? 0)}</span>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="font-grotesk font-semibold text-[14px] mt-6 mb-2">Unfunded balances</div>
             {/* totals */}
             <div className="grid grid-cols-2 gap-2.5 mt-2">
               <div className="rounded-2xl bg-surface border border-white/[.08] p-4">
