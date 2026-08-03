@@ -159,6 +159,47 @@ export async function GET(req: Request) {
   });
 }
 
+/**
+ * The demo accounts prisma/seed.ts created on every build. They hold balances
+ * nobody paid for, are marked `verified`, and share a published password, so
+ * they're a standing way in — zeroing the balance would leave the login open.
+ */
+const DEMO_EMAIL_SUFFIX = "@ttip.money";
+
+/**
+ * Delete the seeded demo accounts outright.
+ *
+ * Guarded hard, because deleting a user cascades to their balances, addresses,
+ * card and history and cannot be undone:
+ *   - the email must end in @ttip.money, AND
+ *   - the account must never have received money from a real provider.
+ * A real person who happens to use an @ttip.money address is therefore safe:
+ * one real settlement and the account is skipped.
+ */
+async function deleteDemoAccounts(apply: boolean) {
+  const candidates = await prisma.user.findMany({
+    where: { email: { endsWith: DEMO_EMAIL_SUFFIX } },
+    select: { id: true, email: true, username: true },
+  });
+
+  const deleted: string[] = [];
+  const skipped: { email: string; reason: string }[] = [];
+
+  for (const u of candidates) {
+    const realMoney = await prisma.settlement.count({
+      where: { userId: u.id, status: "completed", provider: { in: REAL_PROVIDERS } },
+    });
+    if (realMoney > 0) {
+      skipped.push({ email: u.email, reason: `has ${realMoney} real settlement(s) — this is a real account` });
+      continue;
+    }
+    deleted.push(u.email);
+    if (apply) await prisma.user.delete({ where: { id: u.id } });
+  }
+
+  return { deleted, skipped, applied: apply };
+}
+
 export async function POST(req: Request) {
   const userId = await getUserId();
   if (!userId || !(await isAdmin(userId))) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -167,9 +208,37 @@ export async function POST(req: Request) {
   const userFilter = params.get("user") ?? undefined;
   const apply = params.get("apply") === "1";
 
+  // Delete the seeded demo accounts. Separate from the clawback on purpose:
+  // real users' balances are never touched by this.
+  if (params.get("deleteDemo") === "1") {
+    const result = await deleteDemoAccounts(apply);
+    return NextResponse.json({
+      action: "deleteDemo",
+      mode: apply ? "applied" : "dry-run",
+      note: apply ? "Accounts deleted." : "Nothing was changed. Add &apply=1 to delete.",
+      ...result,
+    });
+  }
+
   const result = await report(userFilter);
   if (!apply) {
     return NextResponse.json({ mode: "dry-run", note: "Add ?apply=1 to actually debit.", ...result });
+  }
+
+  // A blanket debit would hit real people who did nothing wrong. Require either
+  // a named account (?user=) or an explicit ?all=1, so "apply to everyone" can
+  // never be the result of leaving a parameter off.
+  if (!userFilter && params.get("all") !== "1") {
+    return NextResponse.json(
+      {
+        error: "Refusing to debit every account at once.",
+        note:
+          "Pass &user=<email> to debit one account, or &all=1 if you really mean everyone. " +
+          "Real users' balances should normally be left alone.",
+        wouldAffect: result.accounts.map((a) => a.email),
+      },
+      { status: 400 },
+    );
   }
 
   let applied = 0;

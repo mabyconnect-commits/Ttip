@@ -40,11 +40,12 @@ try {
 // deployment and unacceptable on a live one — anyone who guesses an address can
 // sign in and cash out real money. Never seed a live build unless someone very
 // deliberately asks for it.
-const live = process.env.SETTLEMENT_MODE === "live";
-const forceSeed = process.env.DEMO_SEED === "true";
-
-if (live && !forceSeed) {
-  console.log("[setup-db] SETTLEMENT_MODE=live — skipping demo seed (set DEMO_SEED=true to override).");
+// Opt-IN, not opt-out. Gating on SETTLEMENT_MODE wasn't enough: any deployment
+// that hadn't set it still got four seeded accounts holding balances nobody
+// paid for, and those accounts are what the funding audit kept finding. Seeding
+// now happens only when someone explicitly asks for it.
+if (process.env.DEMO_SEED !== "true") {
+  console.log("[setup-db] Skipping demo seed (set DEMO_SEED=true to seed demo accounts).");
 } else {
   try {
     console.log("[setup-db] Seeding demo data (idempotent)…");
