@@ -35,6 +35,8 @@ model User {
   kycProvider    String? // which provider verified (dojah | sandbox | manual)
   kycRef         String? // provider reference / audit id for the identity check
   kycVerifiedAt  DateTime?
+  bvnHash        String?   @unique // HMAC of the verified BVN — one BVN per account (anti-reuse) + trace
+  bvnLast4       String?   // last 4 digits of the BVN, for support/display
   nairaAccount   String? // dedicated virtual account number for naira funding
   nairaBank      String? // the bank that hosts the dedicated account
   lastDropAt     DateTime?
