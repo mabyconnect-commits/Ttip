@@ -83,6 +83,12 @@ export async function POST(req: Request) {
       rate = q.rate;
       feePct = q.feePct;
       free = q.free;
+      // A crypto↔crypto swap is still a trade, so it earns cashback too — valued
+      // in the user's fiat. Platform revenue is the swap fee (0 on a free swap),
+      // which the referrer takes a share of.
+      fiatVolume = await convert(amount, fromSymbol, user.defaultFiat);
+      cashbackFiat = user.defaultFiat;
+      revenueFiat = fiatVolume * feePct;
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -94,17 +100,12 @@ export async function POST(req: Request) {
         await adjust(tx, userId, toSymbol, net);
       }
 
-      // Cashback on the naira volume of a crypto↔fiat swap (a buy or a sell).
+      // Cashback on the fiat volume of any swap (a buy, a sell, or a crypto swap).
       if (fiatVolume > 0 && cashbackFiat) {
-        await accrueCashback(tx, userId, fiatVolume, {
-          fiat: cashbackFiat,
-          source: cryptoFrom ? "swap sell" : "swap buy",
-        });
-        // Referrer's share of the spread on that swap.
-        await accrueReferralEarning(tx, userId, revenueFiat, {
-          fiat: cashbackFiat,
-          source: cryptoFrom ? "swap sell" : "swap buy",
-        });
+        const source = cryptoFrom && !cryptoTo ? "swap sell" : !cryptoFrom && cryptoTo ? "swap buy" : "swap";
+        await accrueCashback(tx, userId, fiatVolume, { fiat: cashbackFiat, source });
+        // Referrer's share of the platform revenue on that swap.
+        await accrueReferralEarning(tx, userId, revenueFiat, { fiat: cashbackFiat, source });
       }
 
       const updated = await tx.user.update({
