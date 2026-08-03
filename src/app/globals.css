@@ -2,17 +2,46 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Theming.
+ *
+ * The whole UI was written as white-on-dark: ~500 uses of `text-white/45`,
+ * `border-white/[.06]` and friends. Rewriting each one by hand would be a huge
+ * diff and a real chance of breaking a screen, so instead the foreground colour
+ * is a variable and those utilities became `text-fg/45`, `border-fg/[.06]`, …
+ * (see tailwind.config). In dark mode --fg is pure white, so every one of them
+ * compiles to exactly what it did before — the dark design is untouched. Light
+ * mode just flips the variables.
+ */
 :root {
   --grad: linear-gradient(90deg, #6d5bff, #2ac8ff 55%, #3df5b0);
   --grad-135: linear-gradient(135deg, #6d5bff, #2ac8ff 60%, #3df5b0);
+
+  /* dark (default) */
+  --fg: 255 255 255;
+  --bg: 7 8 13;
+  --surface: 13 15 23;
+  --surface2: 18 20 29;
+  --link: #2ac8ff;
+  --link-hover: #3df5b0;
+}
+
+:root[data-theme="light"] {
+  --fg: 12 14 22;
+  --bg: 247 248 250;
+  --surface: 255 255 255;
+  --surface2: 241 243 247;
+  /* Darkened so brand cyan/mint still pass contrast on a white card. */
+  --link: #0077b6;
+  --link-hover: #00916e;
 }
 
 html,
 body {
   margin: 0;
   padding: 0;
-  background: #07080d;
-  color: #fff;
+  background: rgb(var(--bg));
+  color: rgb(var(--fg));
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -22,11 +51,11 @@ body {
 }
 
 a {
-  color: #2ac8ff;
+  color: var(--link);
   text-decoration: none;
 }
 a:hover {
-  color: #3df5b0;
+  color: var(--link-hover);
 }
 
 input,
@@ -36,7 +65,7 @@ textarea {
 }
 input::placeholder,
 textarea::placeholder {
-  color: rgba(255, 255, 255, 0.35);
+  color: rgb(var(--fg) / 0.35);
 }
 
 /* hide number spinners */

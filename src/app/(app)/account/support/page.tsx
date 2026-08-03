@@ -18,11 +18,13 @@ export default function SupportPage() {
 function SupportInner() {
   const { toast } = useApp();
   const ref = useSearchParams().get("ref");
-  const channels: { icon: IconName; label: string; sub: string; href?: string; action?: () => void }[] = [
+  const channels: { icon: IconName; label: string; sub: string; href?: string; action?: () => void; soon?: boolean }[] = [
     { icon: "message", label: "Live chat", sub: "Typical reply in a few minutes", action: () => toast("Live chat coming soon — email us for now", "info") },
     { icon: "mail", label: "Email us", sub: COMPANY.supportEmail, href: `mailto:${COMPANY.supportEmail}` },
-    { icon: "phone", label: "WhatsApp", sub: "Chat on WhatsApp", href: "https://wa.me/2348000000000?text=Hi%20Ttip%20support" },
-    { icon: "x", label: "X / Twitter", sub: "@ttipmoney", href: "https://x.com/ttipmoney" },
+    // WhatsApp has no line yet — it pointed at a placeholder number, so it's
+    // shown as coming soon rather than sending people into a dead chat.
+    { icon: "phone", label: "WhatsApp", sub: "Coming soon", soon: true },
+    { icon: "x", label: "X / Twitter", sub: "@TtipAfrica", href: "https://x.com/TtipAfrica" },
   ];
   const faqs = [
     { q: "How long do bank payouts take?", a: "Most payouts settle in seconds. Bank downtime can add a few minutes." },
@@ -61,7 +63,13 @@ function SupportInner() {
         </div>
         <div className="grid grid-cols-2 gap-2.5">
           {channels.map((c) =>
-            c.href ? (
+            c.soon ? (
+              <div key={c.label} className="bg-surface border border-white/[.06] rounded-2xl p-4 opacity-50">
+                <span className="w-9 h-9 rounded-full bg-surface2 flex items-center justify-center text-white/80"><Icon name={c.icon} size={18} /></span>
+                <div className="font-medium text-[13.5px] mt-2.5">{c.label}</div>
+                <div className="text-white/40 text-[11px]">{c.sub}</div>
+              </div>
+            ) : c.href ? (
               <a key={c.label} href={c.href} target={c.href.startsWith("http") ? "_blank" : undefined} rel="noopener noreferrer" className="bg-surface border border-white/[.06] rounded-2xl p-4 active:scale-[.98]">
                 <span className="w-9 h-9 rounded-full bg-surface2 flex items-center justify-center text-white/80"><Icon name={c.icon} size={18} /></span>
                 <div className="font-medium text-[13.5px] mt-2.5">{c.label}</div>
