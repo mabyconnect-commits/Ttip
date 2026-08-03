@@ -48,8 +48,8 @@ export default function ProfilePage() {
             {user.verified && <Icon name="check" size={15} className="text-brand-cyan" strokeWidth={2.6} />}
           </div>
           <div className="font-sans font-medium text-[13px] text-white/45">{data?.link ?? `${COMPANY.domain}/u/${user.username}`}</div>
-          <div className="flex gap-[18px] font-sans text-[12px] text-white/50 mt-0.5">
-            <span><b className="text-white">{data?.friends ?? 0}</b> friends</span>
+          <div className="flex flex-wrap justify-center gap-x-[18px] gap-y-1 font-sans text-[12px] text-white/50 mt-0.5">
+            <span><b className="text-white">{data?.friends ?? 0}</b> verified friends</span>
             <span><b className="text-white">{user.streakDays}</b> streak</span>
             <span><b className="text-white">{user.points.toLocaleString()}</b> pts</span>
           </div>

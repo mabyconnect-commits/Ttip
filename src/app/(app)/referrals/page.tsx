@@ -15,6 +15,7 @@ interface RefData {
   earned: number;
   balance: number;
   count: number;
+  verifiedCount: number;
   earnPct: number;
   depositBonus: number;
   depositBonusMinUsd: number;
@@ -119,6 +120,9 @@ export default function ReferralsPage() {
           <div className="bg-surface border border-white/[.06] rounded-[18px] p-4">
             <div className="text-[11px] text-white/45">Friends joined</div>
             <div className="font-grotesk font-bold text-[22px] mt-1">{data?.count ?? 0}</div>
+            {/* Verified friends are the ones who can actually trade — so they're
+                the only ones who ever earn you anything. */}
+            <div className="text-[11px] text-good mt-0.5">{data?.verifiedCount ?? 0} verified</div>
           </div>
         </div>
 

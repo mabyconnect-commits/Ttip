@@ -15,7 +15,7 @@ export async function GET() {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) return unauthorized();
 
-    const [referrals, earnings] = await Promise.all([
+    const [referrals, earnings, count, verifiedCount] = await Promise.all([
       prisma.referral.findMany({ where: { referrerId: userId }, orderBy: { createdAt: "desc" }, take: 50 }),
       // Every referral earning credited to this user (signup bonus + fee share).
       prisma.transaction.findMany({
@@ -23,6 +23,12 @@ export async function GET() {
         orderBy: { createdAt: "desc" },
         take: 50,
       }),
+      // Counted off the users themselves, not the 50-row referral list above —
+      // someone with 60 referrals was being shown 50.
+      prisma.user.count({ where: { referredById: userId } }),
+      // The ones who finished KYC. These are the friends who can actually trade,
+      // so they're the ones who earn the referrer anything.
+      prisma.user.count({ where: { referredById: userId, kycStatus: "verified" } }),
     ]);
 
     const now = Date.now();
@@ -46,7 +52,8 @@ export async function GET() {
       // Total earned = all-time; balance = the claimable, not-yet-withdrawn pot.
       earned: Number(allTime._sum.amountOut ?? 0),
       balance: Number(user.referralEarned),
-      count: referrals.length,
+      count,
+      verifiedCount,
       earnPct: referralEarnPct(), // e.g. 0.25
       depositBonus: DEPOSIT_BONUS_NGN, // ₦ paid to a referral on their first deposit
       depositBonusMinUsd: DEPOSIT_BONUS_MIN_USD,

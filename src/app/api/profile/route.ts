@@ -17,7 +17,13 @@ export async function GET() {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) return unauthorized();
 
-    const friends = await prisma.user.count({ where: { id: { not: userId } } });
+    // Verified friends only, and a real number. This used to count every row in
+    // the users table and then add a flat 200 — a figure shown to users that was
+    // simply invented. A verified count is the one that means something anyway:
+    // those are the people who can actually send and receive.
+    const friends = await prisma.user.count({
+      where: { id: { not: userId }, kycStatus: "verified" },
+    });
     const tippers = await prisma.transaction.findMany({
       where: { userId, type: "ttip_in" },
       orderBy: { createdAt: "desc" },
@@ -28,7 +34,7 @@ export async function GET() {
     return ok({
       link: `${base.replace(/^https?:\/\//, "")}/u/${user.username}`.replace(/\/$/, ""),
       fullLink: `${base}/u/${user.username}`,
-      friends: friends + 200,
+      friends,
       recentTippers: tippers.map((t) => ({
         handle: t.counterparty ?? "",
         note: t.note,

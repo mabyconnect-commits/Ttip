@@ -130,7 +130,10 @@ export function Receipt({
         const file = new File([blob], name, { type: blob.type });
         if (navigator.canShare?.({ files: [file] })) {
           try {
-            await navigator.share({ files: [file], title: `${COMPANY.product} receipt` });
+            // FILES ONLY — no `text` or `title`. Given both, WhatsApp sends the
+            // text and silently drops the attachment, which is exactly how the
+            // "shareable receipt" kept arriving as a plain green message.
+            await navigator.share({ files: [file] });
             return;
           } catch (e: any) {
             // A dismissed sheet isn't a failure — don't then dump a download.
