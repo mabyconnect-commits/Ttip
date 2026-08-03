@@ -10,6 +10,7 @@ import { Receipt } from "@/components/Receipt";
 import { Icon } from "@/components/Icon";
 import { formatFiat } from "@/lib/format";
 import { sortChainsByPopularity } from "@/lib/chains";
+import { bankAliases } from "@/lib/bank-aliases";
 import { useRouter } from "next/navigation";
 
 interface DepAsset {
@@ -145,14 +146,27 @@ export default function DepositPage() {
                 <span>
                   {state.user.nairaBank ? (
                     <>
-                      In your bank app, search for <b className="text-white">{state.user.nairaBank}</b> — it may be listed
-                      as a microfinance bank. Don&apos;t search for &quot;Ttip&quot; or &quot;Flutterwave&quot;.
+                      In your bank app, search for <b className="text-white">{state.user.nairaBank}</b>.
+                      {bankAliases(state.user.nairaBank).length > 0 && (
+                        <>
+                          {" "}
+                          Some banks list it as{" "}
+                          {bankAliases(state.user.nairaBank).map((alt, i, arr) => (
+                            <span key={alt}>
+                              <b className="text-white">{alt}</b>
+                              {i < arr.length - 2 ? ", " : i === arr.length - 2 ? " or " : ""}
+                            </span>
+                          ))}{" "}
+                          — it&apos;s the same bank.
+                        </>
+                      )}{" "}
+                      Don&apos;t search for &quot;Ttip&quot;.
                     </>
                   ) : (
                     <>Type the account number into your bank app and pick whichever bank it resolves to.</>
                   )}{" "}
-                  Before you send, check the name shows <b className="text-white">Ttip / {state.user.name}</b> — that
-                  confirms it&apos;s your account.
+                  The account will come back as <b className="text-white">{state.user.name}</b> — some banks show
+                  &quot;Ttip /&quot; in front of it and some don&apos;t. Either is correct.
                 </span>
               </div>
 
