@@ -27,11 +27,15 @@ export function formatFiatCompact(amount: number, code: string): string {
   return code === "KES" ? `${sym} ${out}` : `${sym}${out}`;
 }
 
-/** Trim crypto amount to a sensible number of significant digits. */
+/**
+ * Trim an amount to a sensible number of significant digits and group the
+ * thousands — `1000` reads as `1,000`, not `1000`. Trailing zeros are still
+ * dropped, so `0.01820000` stays `0.0182`.
+ */
 export function formatCrypto(amount: number, symbol: string): string {
   if (amount === 0) return "0";
-  const decimals = symbol === "BTC" ? 6 : symbol === "ETH" ? 5 : amount < 1 ? 6 : 4;
-  return parseFloat(amount.toFixed(decimals)).toString();
+  const decimals = symbol === "BTC" ? 6 : symbol === "ETH" ? 5 : Math.abs(amount) < 1 ? 6 : 4;
+  return parseFloat(amount.toFixed(decimals)).toLocaleString("en-US", { maximumFractionDigits: decimals });
 }
 
 export function formatUsd(amount: number): string {

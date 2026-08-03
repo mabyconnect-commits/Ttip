@@ -28,6 +28,19 @@ test("formatCrypto trims trailing precision and handles zero", () => {
   assert.equal(formatCrypto(0.01820000, "BTC"), "0.0182");
 });
 
+test("formatCrypto groups thousands", () => {
+  // The swap receipt renders its amount through this, so "1000 NGN swapped"
+  // has to read as "1,000 NGN swapped".
+  assert.equal(formatCrypto(1000, "NGN"), "1,000");
+  assert.equal(formatCrypto(1234567.8912, "DOGE"), "1,234,567.8912");
+  assert.equal(formatCrypto(-2500, "USDT"), "-2,500");
+});
+
+test("formatCrypto keeps small amounts precise and ungrouped", () => {
+  assert.equal(formatCrypto(0.708232, "USDT"), "0.708232");
+  assert.equal(formatCrypto(0.000708, "USDT"), "0.000708");
+});
+
 test("formatUsd always shows two decimals", () => {
   assert.equal(formatUsd(1234.5), "$1,234.50");
 });
