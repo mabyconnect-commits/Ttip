@@ -2,8 +2,9 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { kindOf } from "../wallet";
-import { isLive, depositProvider } from "./config";
+import { isLive, depositProvider, dextopusWithdrawEnabled } from "./config";
 import { sendSolanaUsdc, solanaWithdrawSupported } from "./solana";
+import { dextopusWithdraw, dextopusWithdrawStatus } from "./dextopus-withdraw";
 
 /**
  * Crypto withdrawal (send crypto off-platform to an external wallet).
@@ -38,31 +39,51 @@ export interface CryptoWithdrawResult {
   provider: string;
   status: "pending" | "completed" | "failed";
   txHash?: string;
+  providerRef?: string; // provider's own request id, for status reconciliation
   message?: string;
 }
 
-/** Dispatch the actual send. Sandbox simulates; live queues for the treasury signer. */
+const isSolanaNetwork = (network?: string) => /sol/i.test(network ?? "");
+
+/**
+ * Dispatch the actual send. Sandbox simulates. Live:
+ *   - USDC on Solana → the built-in Solana treasury signer (instant), with
+ *     Dextopus as a fallback if the direct send fails.
+ *   - every other asset/chain → Dextopus (cross-chain: treasury USDC → user's
+ *     asset on their chain), which settles asynchronously (pending until confirmed).
+ */
 async function dispatchCryptoWithdraw(req: CryptoWithdrawRequest): Promise<CryptoWithdrawResult> {
   if (!isLive()) {
     // Simulated on-chain settlement for demos.
     const txHash = "sbx_" + req.reference.replace(/[^a-z0-9]/gi, "").slice(-16);
     return { provider: "sandbox", status: "completed", txHash };
   }
-  // Live: USDC on Solana is sent on-chain right now from the treasury wallet.
-  if (solanaWithdrawSupported(req.asset)) {
+
+  // Primary: USDC on Solana sent directly from the treasury wallet.
+  if (solanaWithdrawSupported(req.asset) && isSolanaNetwork(req.network)) {
     try {
       const { txHash } = await sendSolanaUsdc({ toAddress: req.address, amount: req.amount });
       return { provider: "solana", status: "completed", txHash };
     } catch (e) {
-      // Send failed (bad address, treasury short, RPC error) — mark failed so the
-      // pipeline refunds the user; never leave it silently pending.
-      return { provider: "solana", status: "failed", message: (e as Error).message };
+      const message = (e as Error).message;
+      // Fallback to Dextopus only for pre-broadcast failures (nothing sent yet);
+      // an ambiguous failure must not be retried on another rail (double-spend).
+      const preBroadcast = /too low|valid|configured|amount/i.test(message);
+      if (dextopusWithdrawEnabled() && preBroadcast) {
+        const dx = await dextopusWithdraw(req);
+        return { provider: "dextopus", status: dx.status, txHash: dx.fundingTx, providerRef: dx.providerRef, message: dx.message };
+      }
+      return { provider: "solana", status: "failed", message };
     }
   }
 
-  // Any other asset/chain has no in-process signer yet. Queue as pending; the
-  // treasury signer (or ops) broadcasts it and calls finalizeWithdrawal with the
-  // tx hash. Deliberately never auto-completed.
+  // Everything else → Dextopus cross-chain withdrawal.
+  if (dextopusWithdrawEnabled()) {
+    const dx = await dextopusWithdraw(req);
+    return { provider: "dextopus", status: dx.status, txHash: dx.fundingTx, providerRef: dx.providerRef, message: dx.message };
+  }
+
+  // No rail available — queue as pending for a manual signer; never auto-complete.
   return { provider: depositProvider(), status: "pending", message: "Queued for on-chain processing" };
 }
 
@@ -123,6 +144,20 @@ export async function cryptoWithdraw(req: CryptoWithdrawRequest): Promise<Crypto
     result = { provider: "sandbox", status: "failed", message: (e as Error).message };
   }
 
+  // 2b. A pending provider send (e.g. Dextopus) settles asynchronously — record its
+  //     provider + request id + funding tx so reconciliation can poll and finalize.
+  if (result.status === "pending" && (result.providerRef || result.txHash)) {
+    await prisma.settlement.updateMany({
+      where: { kind: "withdrawal", reference: req.reference },
+      data: { provider: result.provider, raw: { network: req.network, chainId: req.chainId, fee: req.fee, dextopusRequestId: result.providerRef, fundingTx: result.txHash } as Prisma.InputJsonValue },
+    });
+    const txn = await prisma.transaction.findFirst({ where: { userId: req.userId, type: "withdraw_wallet", meta: { path: ["reference"], equals: req.reference } } });
+    if (txn) {
+      const meta = { ...((txn.meta as Record<string, unknown>) ?? {}), provider: result.provider, dextopusRequestId: result.providerRef, ...(result.txHash ? { fundingTx: result.txHash } : {}) };
+      await prisma.transaction.update({ where: { id: txn.id }, data: { meta: meta as Prisma.InputJsonValue } });
+    }
+  }
+
   // 3. Reconcile terminal outcomes now; pending waits for finalizeWithdrawal.
   if (result.status === "completed" || result.status === "failed") {
     await finalizeWithdrawal({ reference: req.reference }, result.status, result.txHash);
@@ -180,4 +215,35 @@ export async function finalizeWithdrawal(
 
     return { updated: true, refunded: false };
   });
+}
+
+/**
+ * Reconcile pending Dextopus withdrawals: poll each one's execution status and
+ * finalize it (completed with the destination tx hash, or failed → refund).
+ * Safe to run on a schedule and lazily; finalizeWithdrawal is idempotent. Returns
+ * how many settled/failed this pass.
+ */
+export async function reconcilePendingWithdrawals(limit = 25): Promise<{ checked: number; settled: number; failed: number }> {
+  const pending = await prisma.settlement.findMany({
+    where: { kind: "withdrawal", status: "pending", provider: "dextopus" },
+    orderBy: { createdAt: "asc" },
+    take: limit,
+  });
+
+  let settled = 0;
+  let failed = 0;
+  for (const s of pending) {
+    const requestId = (s.raw as { dextopusRequestId?: string } | null)?.dextopusRequestId;
+    if (!requestId) continue;
+    const st = await dextopusWithdrawStatus(String(requestId)).catch(() => null);
+    if (!st) continue;
+    if (st.settled) {
+      await finalizeWithdrawal({ reference: s.reference ?? undefined, externalId: s.externalId }, "completed", st.destinationTxHash);
+      settled++;
+    } else if (st.failed) {
+      await finalizeWithdrawal({ reference: s.reference ?? undefined, externalId: s.externalId }, "failed");
+      failed++;
+    }
+  }
+  return { checked: pending.length, settled, failed };
 }
