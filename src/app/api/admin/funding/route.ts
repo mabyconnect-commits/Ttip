@@ -59,19 +59,43 @@ async function unfundedFor(userId: string, sources: string[] = []): Promise<Map<
     sources.push(`simulated ${s.kind} ${s.amount} ${s.asset} via ${s.provider} (${s.externalId})`);
   }
 
-  // The old simulator's fiat branch wrote a transaction and no settlement.
-  const fiatSims = await prisma.transaction.findMany({
+  // Fiat deposits need care: a REAL Flutterwave dedicated-account deposit and
+  // the old simulator both write a "deposit" transaction with counterparty
+  // "Bank transfer". Treating them alike flagged genuine money as fake — a real
+  // ₦2,250 deposit showed up as simulated, and debiting it would have taken a
+  // user's own money.
+  //
+  // The one reliable difference: a real deposit also writes a Settlement, the
+  // simulator never did. So per currency, only the excess of bank-transfer
+  // transactions OVER the real settlements backing them is simulated.
+  const bankTxns = await prisma.transaction.findMany({
     where: { userId, type: "deposit", status: "completed", counterparty: "Bank transfer" },
   });
-  for (const t of fiatSims) {
+  const realByAsset = new Map<string, number>();
+  for (const s of settlements) {
+    if (!REAL_PROVIDERS.includes(s.provider)) continue;
+    realByAsset.set(s.asset, (realByAsset.get(s.asset) ?? 0) + Number(s.amount));
+  }
+  const bankByAsset = new Map<string, number>();
+  for (const t of bankTxns) {
     const asset = t.assetOut ?? "NGN";
-    out.set(asset, (out.get(asset) ?? 0) + Number(t.amountOut ?? 0));
-    sources.push(`simulated bank deposit ${t.amountOut} ${asset} (no settlement row)`);
+    bankByAsset.set(asset, (bankByAsset.get(asset) ?? 0) + Number(t.amountOut ?? 0));
+  }
+  for (const [asset, credited] of bankByAsset) {
+    const backed = realByAsset.get(asset) ?? 0;
+    const unbacked = credited - backed;
+    if (unbacked > 1e-9) {
+      out.set(asset, (out.get(asset) ?? 0) + unbacked);
+      sources.push(
+        `${unbacked} ${asset} of bank deposits with no settlement behind them ` +
+          `(credited ${credited}, only ${backed} backed by a real provider)`,
+      );
+    }
   }
 
   // Balances with no deposit provenance at all (demo seed / manual edits), less
   // whatever promos legitimately explain.
-  if (settlements.length === 0 && fiatSims.length === 0) {
+  if (settlements.length === 0 && bankTxns.length === 0) {
     const [balances, grants] = await Promise.all([
       prisma.balance.findMany({ where: { userId } }),
       prisma.transaction.findMany({ where: { userId, status: "completed", type: { in: GRANT_TYPES } } }),

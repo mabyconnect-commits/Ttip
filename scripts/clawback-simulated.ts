@@ -62,13 +62,27 @@ async function main() {
       unfundedByAsset.set(s.asset, (unfundedByAsset.get(s.asset) ?? 0) + Number(s.amount));
     }
 
-    // The simulator's fiat branch leaves no settlement — match its transactions.
+    // A REAL Flutterwave dedicated-account deposit and the old simulator both
+    // write a "deposit" transaction with counterparty "Bank transfer". Only the
+    // real one also writes a Settlement, so per currency just the EXCESS of
+    // bank-transfer credits over real settlements is simulated. Without this,
+    // genuine deposits were flagged as fake and would have been debited.
     const fiatSims = await prisma.transaction.findMany({
       where: { userId: u.id, type: "deposit", status: "completed", counterparty: "Bank transfer" },
     });
+    const realByAsset = new Map<string, number>();
+    for (const s of settlements) {
+      if (!REAL_PROVIDERS.has(s.provider)) continue;
+      realByAsset.set(s.asset, (realByAsset.get(s.asset) ?? 0) + Number(s.amount));
+    }
+    const bankByAsset = new Map<string, number>();
     for (const t of fiatSims) {
       const asset = t.assetOut ?? "NGN";
-      unfundedByAsset.set(asset, (unfundedByAsset.get(asset) ?? 0) + Number(t.amountOut ?? 0));
+      bankByAsset.set(asset, (bankByAsset.get(asset) ?? 0) + Number(t.amountOut ?? 0));
+    }
+    for (const [asset, credited] of bankByAsset) {
+      const unbacked = credited - (realByAsset.get(asset) ?? 0);
+      if (unbacked > 1e-9) unfundedByAsset.set(asset, (unfundedByAsset.get(asset) ?? 0) + unbacked);
     }
 
     // Balances with no deposit provenance at all (demo seed / manual edits).
