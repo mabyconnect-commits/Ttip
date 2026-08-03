@@ -1,10 +1,26 @@
 "use client";
 
+import { useState } from "react";
+import { COMPANY } from "@/lib/company";
+
+/**
+ * Success screen for a completed money movement, with a shareable receipt.
+ *
+ * People who send money need proof to hand to whoever they sent it to. The
+ * Share button produces a plain-text receipt through the native share sheet
+ * (WhatsApp, SMS, anywhere), falling back to the clipboard on desktop, so the
+ * recipient gets something readable rather than a screenshot of a dark screen.
+ *
+ * `reference` is what makes the receipt useful — it's the string support needs
+ * to trace the payment — so it's shown and included whenever the caller has one.
+ */
 export function Receipt({
   title,
   lines,
   onDone,
   cta = "Tap anywhere to continue",
+  reference,
+  shareable = true,
 }: {
   title: string;
   /** Optional — legacy callers may still pass an emoji; it is intentionally ignored. */
@@ -12,9 +28,54 @@ export function Receipt({
   lines: (string | null | undefined | false)[];
   onDone: () => void;
   cta?: string;
+  /** Provider/our reference, shown and included in the shared receipt. */
+  reference?: string | null;
+  /** Set false for flows where a receipt makes no sense (e.g. a deposit address). */
+  shareable?: boolean;
 }) {
+  const [copied, setCopied] = useState(false);
   const detail = lines.filter(Boolean) as string[];
   const [primary, ...meta] = detail;
+
+  /** Plain text so it reads correctly in WhatsApp, SMS or email. */
+  function receiptText(): string {
+    const when = new Date().toLocaleString("en-GB", {
+      day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+    });
+    return [
+      `${COMPANY.product} receipt`,
+      "",
+      title,
+      ...detail,
+      "",
+      `Date: ${when}`,
+      reference ? `Reference: ${reference}` : null,
+      "",
+      `Sent with ${COMPANY.product} · ${COMPANY.domain}`,
+    ]
+      .filter((l) => l !== null)
+      .join("\n");
+  }
+
+  async function share() {
+    const text = receiptText();
+    // Native share sheet where available (every phone); clipboard on desktop.
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try {
+        await navigator.share({ title: `${COMPANY.product} receipt`, text });
+        return;
+      } catch {
+        /* user dismissed the sheet, or it's unavailable — fall through to copy */
+      }
+    }
+    try {
+      await navigator.clipboard?.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard blocked — nothing further we can do */
+    }
+  }
 
   return (
     <div
@@ -50,6 +111,10 @@ export function Receipt({
           <p className="mt-3.5 font-sans text-[15px] text-white/70 animate-rise">{primary}</p>
         )}
 
+        {reference && (
+          <div className="mt-4 text-[11px] text-white/30 font-mono animate-rise break-all px-4">Ref {reference}</div>
+        )}
+
         {meta.length > 0 && (
           <div className="mt-5 flex items-center gap-2.5 text-[12.5px] text-white/40 animate-rise">
             {meta.map((l, i) => (
@@ -61,6 +126,17 @@ export function Receipt({
           </div>
         )}
       </div>
+
+      {shareable && (
+        <div className="w-full px-8 pb-3 animate-rise" onClick={(e) => e.stopPropagation()}>
+          <button
+            onClick={share}
+            className="w-full h-[50px] rounded-2xl border border-white/15 text-white font-grotesk font-semibold text-[14px] flex items-center justify-center gap-2 active:scale-[.98]"
+          >
+            {copied ? "Receipt copied ✓" : "Share receipt"}
+          </button>
+        </div>
+      )}
 
       <div className="pb-12 animate-rise">
         <span className="font-grotesk text-[11px] font-semibold tracking-[2px] uppercase text-white/35">

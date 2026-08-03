@@ -93,6 +93,8 @@ async function handleTtip(
   if (bal + 1e-12 < cost) throw new ApiError(`Not enough ${funding} to cover this tip`, 400);
 
   const recipient = await prisma.user.findUnique({ where: { username: recipientHandle } });
+  // A reference the sender can quote on the shared receipt, and support can trace.
+  const ttipRef = "tip_" + crypto.randomUUID();
 
   const out = await prisma.$transaction(async (tx) => {
     await adjust(tx, userId, funding, -cost);
@@ -128,7 +130,7 @@ async function handleTtip(
         note: input.note,
         emoji: input.emoji ?? "⚡",
         status: recipient ? "completed" : "pending",
-        meta: { external: !recipient },
+        meta: { external: !recipient, reference: ttipRef },
       },
     });
 
@@ -157,6 +159,7 @@ async function handleTtip(
     ...state,
     receipt: {
       kind: "ttip",
+      reference: ttipRef,
       recipient: "@" + recipientHandle,
       fiat,
       fiatAmount,
@@ -254,6 +257,7 @@ async function handleWalletSend(userId: string, kycTier: number, input: z.infer<
       address: input.address,
       network,
       fee: feeInAsset,
+      reference,
       status: result.status, // "completed" (sandbox/solana) or "pending" (queued)
       txHash: result.txHash,
     },
@@ -403,6 +407,7 @@ async function handleBankSend(
       grossFiat,
       fee,
       bank: bankLabel,
+      reference, // shown on the receipt and quoted to support when tracing
       status: payoutStatus, // "completed" (sandbox) or "pending" (live, awaiting webhook)
     },
   });

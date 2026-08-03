@@ -321,6 +321,7 @@ export default function SendOutPage() {
 
       {receipt && (
         <Receipt
+          reference={receipt.reference}
           onDone={() => { setReceipt(null); router.push("/home"); }}
           emoji={receipt.kind === "wallet" ? "🔗" : "🏦"}
           title={receipt.kind === "wallet"

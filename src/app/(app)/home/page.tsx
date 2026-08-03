@@ -92,7 +92,9 @@ export default function HomePage() {
           <QuickAction icon="plus" label="Buy" onClick={() => router.push("/buy")} />
           <QuickAction icon="swap" label="Swap" onClick={() => router.push("/swap")} />
           <QuickAction icon="zap" label="Ttip" accent onClick={() => router.push("/ttip")} />
-          <QuickAction icon="card" label="Card" onClick={() => router.push("/card")} />
+          {/* Virtual cards aren't live yet — say so rather than opening a screen
+              that can't actually issue one. */}
+          <QuickAction icon="card" label="Card" soon onClick={() => toast("Virtual cards are coming soon", "info")} />
           <QuickAction icon="bills" label="Bills" onClick={() => router.push("/bills")} />
         </div>
 
@@ -169,11 +171,11 @@ export default function HomePage() {
   );
 }
 
-function QuickAction({ icon, label, onClick, accent }: { icon: IconName; label: string; onClick: () => void; accent?: boolean }) {
+function QuickAction({ icon, label, onClick, accent, soon }: { icon: IconName; label: string; onClick: () => void; accent?: boolean; soon?: boolean }) {
   return (
-    <button onClick={onClick} className="flex flex-col items-center gap-2 active:scale-95 transition">
+    <button onClick={onClick} className={`flex flex-col items-center gap-2 active:scale-95 transition ${soon ? "opacity-45" : ""}`}>
       <div
-        className="w-[56px] h-[56px] rounded-2xl flex items-center justify-center border"
+        className="w-[56px] h-[56px] rounded-2xl flex items-center justify-center border relative"
         style={
           accent
             ? { background: "rgba(61,245,176,.10)", borderColor: "rgba(61,245,176,.30)", color: "#3DF5B0" }
@@ -182,7 +184,7 @@ function QuickAction({ icon, label, onClick, accent }: { icon: IconName; label: 
       >
         <Icon name={icon} size={22} strokeWidth={1.9} />
       </div>
-      <span className="font-sans font-medium text-[11.5px] text-white/60">{label}</span>
+      <span className="font-sans font-medium text-[11.5px] text-white/60">{soon ? "Soon" : label}</span>
     </button>
   );
 }

@@ -185,6 +185,7 @@ export default function TtipPage() {
 
       {receipt && (
         <Receipt
+          reference={receipt.reference}
           onDone={() => { setReceipt(null); router.push("/feed"); }}
           emoji={receipt.emoji || "⚡"}
           title={`${formatFiat(receipt.fiatAmount, receipt.fiat, { decimals: 0 })} sent`}
