@@ -183,6 +183,20 @@ export function dextopusConfig(): DextopusConfig | null {
   };
 }
 
+/**
+ * Whether Dextopus is allowed to send crypto OUT (withdrawals). On by default
+ * once a Dextopus API key is present; set DEXTOPUS_WITHDRAW=false to disable and
+ * keep non-Solana withdrawals queued for a manual signer instead.
+ */
+export function dextopusWithdrawEnabled(): boolean {
+  return !!process.env.DEXTOPUS_API_KEY && (process.env.DEXTOPUS_WITHDRAW ?? "true").toLowerCase() !== "false";
+}
+
+/** The Dextopus endpoint path that initiates a withdrawal/payout (see their docs). */
+export function dextopusWithdrawPath(): string {
+  return process.env.DEXTOPUS_WITHDRAW_PATH || "/withdraw";
+}
+
 export interface FlutterwaveConfig {
   secretKey: string;
   webhookHash: string | null;
