@@ -1,9 +1,11 @@
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getUserId } from "@/lib/auth";
 import { handler, ok, unauthorized, ApiError } from "@/lib/api";
 import { getAppState } from "@/lib/serialize";
 import { verifyIdentity, kycEnabled } from "@/lib/kyc";
+import { hashBvn, maskBvn } from "@/lib/kyc/bvn";
 import { ensureNairaAccount } from "@/lib/settlement";
 
 const schema = z.object({
@@ -32,11 +34,24 @@ export async function POST(req: Request) {
 
     const input = schema.parse(await req.json());
 
+    // Bind the BVN to this account: a BVN can verify exactly ONE Ttip account.
+    // We store a keyed hash (never the raw number) so it's unique + traceable.
+    const bvnHash = input.idType === "bvn" ? hashBvn(input.idNumber) : null;
+    const bvnLast4 = input.idType === "bvn" ? maskBvn(input.idNumber) : null;
+    if (bvnHash) {
+      const taken = await prisma.user.findFirst({ where: { bvnHash, id: { not: userId } }, select: { id: true } });
+      if (taken) throw new ApiError("This BVN is already linked to another Ttip account. Each BVN can verify only one account.", 409);
+    }
+
     // Already verified? Don't re-charge the identity provider — just make sure the
     // dedicated naira account exists (activates it for users who verified before
     // this feature), using the BVN they re-entered.
     const existing = await prisma.user.findUnique({ where: { id: userId } });
     if (existing?.kycStatus === "verified") {
+      // Backfill the BVN binding for accounts verified before this existed.
+      if (bvnHash && !existing.bvnHash) {
+        await prisma.user.update({ where: { id: userId }, data: { bvnHash, bvnLast4 } }).catch(() => {});
+      }
       if (!existing.nairaAccount && (input.idType === "bvn" || input.idType === "nin")) {
         try {
           await ensureNairaAccount(userId, { bvn: input.idNumber.replace(/\D/g, ""), name: existing.name, email: existing.email });
@@ -73,18 +88,28 @@ export async function POST(req: Request) {
       return ok({ ...state, kyc: { status: "pending", message: result.reason } });
     }
 
-    // Verified.
-    const verifiedUser = await prisma.user.update({
-      where: { id: userId },
-      data: {
-        kycStatus: "verified",
-        kycTier: Math.max(2, result.tier),
-        verified: true,
-        kycProvider: result.provider,
-        kycRef: result.ref ?? null,
-        kycVerifiedAt: new Date(),
-      },
-    });
+    // Verified. Persist the BVN binding too (unique — a concurrent duplicate is
+    // caught by the constraint and rejected).
+    let verifiedUser;
+    try {
+      verifiedUser = await prisma.user.update({
+        where: { id: userId },
+        data: {
+          kycStatus: "verified",
+          kycTier: Math.max(2, result.tier),
+          verified: true,
+          kycProvider: result.provider,
+          kycRef: result.ref ?? null,
+          kycVerifiedAt: new Date(),
+          ...(bvnHash ? { bvnHash, bvnLast4 } : {}),
+        },
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+        throw new ApiError("This BVN is already linked to another Ttip account. Each BVN can verify only one account.", 409);
+      }
+      throw e;
+    }
 
     // Provision a dedicated naira account now that we have a verified BVN.
     // Best-effort — never let account creation fail the verification.
