@@ -7,7 +7,7 @@ import { handler, ok, unauthorized, ApiError } from "@/lib/api";
 import { getAppState } from "@/lib/serialize";
 import { convert, isCrypto } from "@/lib/prices";
 import { adjust, balanceOf } from "@/lib/wallet";
-import { NETWORK_FEE_USDT } from "@/lib/constants";
+import { WITHDRAW_FEE_USDT } from "@/lib/constants";
 import { dayStr, isYesterday } from "@/lib/format";
 import { payoutFiat, finalizePayout, payoutProvider, ensureFloat, debitFloat, cryptoWithdraw, settlementEnabled, demoEnabled, solanaWithdrawSupported, isValidSolanaAddress, maxCryptoWithdrawal, dextopusWithdrawEnabled, dextopusWithdrawPreview } from "@/lib/settlement";
 import { chainIdForNetwork } from "@/lib/chains";
@@ -211,7 +211,7 @@ async function handleWalletSend(userId: string, input: z.infer<typeof schema>) {
   }
 
   // network fee expressed in the sent asset
-  const feeInAsset = await convert(NETWORK_FEE_USDT, "USDT", symbol);
+  const feeInAsset = await convert(WITHDRAW_FEE_USDT, "USDT", symbol);
   const total = amount + feeInAsset;
   const bal = await balanceOf(userId, symbol);
   if (bal + 1e-12 < total) throw new ApiError(`Insufficient ${symbol} to cover amount + network fee`, 400);

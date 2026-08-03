@@ -7,7 +7,7 @@ import { apiGet, apiPost } from "@/lib/client";
 import { usePrices } from "@/lib/usePrices";
 import { BackHeader, Segmented, GradientButton, Sheet } from "@/components/ui";
 import { Icon } from "@/components/Icon";
-import { NETWORK_FEE_USDT } from "@/lib/constants";
+import { WITHDRAW_FEE_USDT } from "@/lib/constants";
 import { sortChainsByPopularity } from "@/lib/chains";
 import { transferFee } from "@/lib/pricing";
 import { formatFiat, formatCrypto } from "@/lib/format";
@@ -96,7 +96,7 @@ export default function SendOutPage() {
   const walletSym = selToken?.symbol ?? "";
   const activeSym = mode === "wallet" ? walletSym : sym;
   const bal = state.portfolio.assets.find((a) => a.symbol === activeSym)?.amount ?? 0;
-  const feeInAsset = activeSym ? convert(NETWORK_FEE_USDT, "USDT", activeSym) : 0;
+  const feeInAsset = activeSym ? convert(WITHDRAW_FEE_USDT, "USDT", activeSym) : 0;
   const maxSendable = Math.max(0, bal - feeInAsset); // Max must leave room for the fee
 
   // Live preview of what actually arrives (real cross-chain + network fees),
@@ -241,6 +241,7 @@ export default function SendOutPage() {
           {mode === "wallet" && selToken && (
             <>
               <div className="flex justify-between"><span>Network</span><b className="text-white font-grotesk">{selChain?.name}</b></div>
+              <div className="flex justify-between"><span>Ttip fee</span><b className="text-white font-grotesk">${WITHDRAW_FEE_USDT.toFixed(2)}</b></div>
               <div className="flex justify-between">
                 <span>Recipient gets</span>
                 {previewing ? (
