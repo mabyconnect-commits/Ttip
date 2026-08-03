@@ -3,11 +3,11 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
-import { apiPost } from "@/lib/client";
+import { apiGet, apiPost } from "@/lib/client";
 import { usePrices } from "@/lib/usePrices";
-import { BackHeader, Segmented, GradientButton } from "@/components/ui";
+import { BackHeader, Segmented, GradientButton, Sheet } from "@/components/ui";
 import { Icon } from "@/components/Icon";
-import { CRYPTO_ASSETS, FIATS, NETWORK_FEE_USDT } from "@/lib/constants";
+import { NETWORK_FEE_USDT } from "@/lib/constants";
 import { transferFee } from "@/lib/pricing";
 import { formatFiat, formatCrypto } from "@/lib/format";
 import { Receipt } from "@/components/Receipt";
@@ -16,14 +16,19 @@ import { QrScanner } from "@/components/QrScanner";
 import { TestModeBanner } from "@/components/TestModeBanner";
 import type { Bank } from "@/lib/banks";
 
-const SEND_ASSETS = ["USDT", "USDC", "BTC", "ETH", "SOL", "BNB", "XRP", "TRX"];
+// Assets sellable to a bank (crypto → fiat). Wallet sends use the full,
+// dynamic Dextopus chain/token list instead (see below).
+const BANK_ASSETS = ["USDT", "USDC", "BTC", "ETH", "SOL", "BNB", "XRP", "TRX"];
+
+interface DxChain { chainId: number; name: string }
+interface DxToken { symbol: string; name: string }
 
 export default function SendOutPage() {
   const { state, action, toast } = useApp();
   const { convert } = usePrices();
   const router = useRouter();
   const [mode, setMode] = useState<"bank" | "wallet">("bank");
-  const [sym, setSym] = useState("USDT");
+  const [sym, setSym] = useState("USDT"); // bank-mode asset
   const [amount, setAmount] = useState("");
   const [address, setAddress] = useState("");
   const [bank, setBank] = useState<Bank | null>(null);
@@ -35,18 +40,32 @@ export default function SendOutPage() {
   const [loading, setLoading] = useState(false);
   const [receipt, setReceipt] = useState<any>(null);
   const [scanOpen, setScanOpen] = useState(false);
-  const [netId, setNetId] = useState("");
 
-  // Default the network per asset. USDC withdrawals settle on Solana (our
-  // treasury asset), so prefer Solana; otherwise the asset's first network.
+  // Wallet-mode: pick any chain → any token Dextopus supports (like the deposit
+  // picker). Falls back to a hardcoded list when Dextopus isn't configured (demo).
+  const [chains, setChains] = useState<DxChain[]>([]);
+  const [tokens, setTokens] = useState<DxToken[]>([]);
+  const [selChain, setSelChain] = useState<DxChain | null>(null);
+  const [selToken, setSelToken] = useState<DxToken | null>(null);
+  const [chainSheet, setChainSheet] = useState(false);
+  const [tokenSheet, setTokenSheet] = useState(false);
+  const [chainQ, setChainQ] = useState("");
+  const [tokenQ, setTokenQ] = useState("");
+
   useEffect(() => {
-    const nets = CRYPTO_ASSETS.find((a) => a.symbol === sym)?.networks ?? [];
-    const preferred = sym === "USDC" ? nets.find((n) => n.id === "sol") : undefined;
-    setNetId((preferred ?? nets[0])?.id ?? "");
-  }, [sym]);
+    apiGet<{ chains: DxChain[] }>("/api/deposit/chains").then((d) => setChains(d.chains ?? [])).catch(() => {});
+  }, []);
 
-  // Auto-resolve the account holder's name once a bank + 10-digit NUBAN is set,
-  // so the user confirms the recipient before sending. Debounced.
+  async function pickChain(c: DxChain) {
+    setSelChain(c); setChainSheet(false); setChainQ("");
+    setSelToken(null); setTokens([]);
+    try {
+      const d = await apiGet<{ tokens: DxToken[] }>(`/api/deposit/tokens?chainId=${c.chainId}`);
+      setTokens(d.tokens ?? []);
+    } catch { setTokens([]); }
+  }
+
+  // Auto-resolve the bank account holder's name once a bank + 10-digit NUBAN is set.
   useEffect(() => {
     setResolvedName(null);
     if (mode !== "bank" || !bank || account.length !== 10) return;
@@ -67,12 +86,14 @@ export default function SendOutPage() {
 
   const verified = state.user.kycStatus === "verified";
   const amt = parseFloat(amount) || 0;
-  const asset = CRYPTO_ASSETS.find((a) => a.symbol === sym);
-  const networks = asset?.networks ?? [];
-  const selectedNet = networks.find((n) => n.id === netId) ?? networks[0];
-  const bal = state.portfolio.assets.find((a) => a.symbol === sym)?.amount ?? 0;
   const fiat = state.user.defaultFiat;
-  const feeInAsset = convert(NETWORK_FEE_USDT, "USDT", sym);
+
+  // The active asset + destination differ by mode.
+  const walletSym = selToken?.symbol ?? "";
+  const activeSym = mode === "wallet" ? walletSym : sym;
+  const bal = state.portfolio.assets.find((a) => a.symbol === activeSym)?.amount ?? 0;
+  const feeInAsset = activeSym ? convert(NETWORK_FEE_USDT, "USDT", activeSym) : 0;
+  const maxSendable = Math.max(0, bal - feeInAsset); // Max must leave room for the fee
 
   async function submit() {
     if (amt <= 0) return toast("Enter an amount", "bad");
@@ -81,8 +102,10 @@ export default function SendOutPage() {
     try {
       let body: any;
       if (mode === "wallet") {
+        if (!selChain || !selToken) { setLoading(false); return toast("Choose a network and asset", "bad"); }
         if (!address) { setLoading(false); return toast("Enter a wallet address", "bad"); }
-        body = { mode: "wallet", symbol: sym, amount: amt, address, network: selectedNet?.label };
+        if (amt + feeInAsset > bal + 1e-12) { setLoading(false); return toast(`Not enough ${walletSym} to cover amount + fee`, "bad"); }
+        body = { mode: "wallet", symbol: walletSym, amount: amt, address, network: selChain.name, chainId: selChain.chainId };
       } else {
         if (!bank) { setLoading(false); return toast("Choose a bank", "bad"); }
         if (!account) { setLoading(false); return toast("Enter an account number", "bad"); }
@@ -117,80 +140,82 @@ export default function SendOutPage() {
 
       <div className="flex-1 overflow-y-auto no-scrollbar pt-4">
         <TestModeBanner />
-        {/* asset chips */}
-        <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
-          {SEND_ASSETS.map((s) => (
-            <button key={s} onClick={() => setSym(s)} className={`h-10 px-4 rounded-[20px] shrink-0 border font-grotesk font-bold text-[13px] transition ${sym === s ? "bg-white text-[#07080D] border-white" : "border-white/14 text-white/70"}`}>
-              {s}
-            </button>
-          ))}
-        </div>
 
-        {mode === "wallet" && (
+        {mode === "bank" && (
           <>
-            <div className="bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] flex items-center gap-2 mt-3">
-              <span className="text-white/40"><Icon name="scan" size={17} /></span>
-              <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Wallet address or scan QR" className="flex-1 bg-transparent outline-none text-[14px]" />
-              <button onClick={() => setScanOpen(true)} className="text-brand-cyan text-[13px] font-semibold">Scan</button>
+            {/* asset chips (crypto to sell to fiat) */}
+            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
+              {BANK_ASSETS.map((s) => (
+                <button key={s} onClick={() => setSym(s)} className={`h-10 px-4 rounded-[20px] shrink-0 border font-grotesk font-bold text-[13px] transition ${sym === s ? "bg-white text-[#07080D] border-white" : "border-white/14 text-white/70"}`}>
+                  {s}
+                </button>
+              ))}
             </div>
-            {networks.length > 0 && (
-              <div className="mt-2.5">
-                <div className="text-[12px] text-white/45 mb-1.5 ml-1">Network</div>
-                <div className="flex gap-2 flex-wrap">
-                  {networks.map((n) => (
-                    <button
-                      key={n.id}
-                      onClick={() => setNetId(n.id)}
-                      className={`h-9 px-3.5 rounded-full border text-[12.5px] font-grotesk font-semibold transition ${selectedNet?.id === n.id ? "border-brand-cyan text-brand-cyan bg-brand-cyan/10" : "border-white/14 text-white/60"}`}
-                    >
-                      {n.label}
-                    </button>
-                  ))}
+
+            <div className="flex flex-col gap-2.5 mt-3">
+              <button onClick={() => setBankOpen(true)} className="bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] flex items-center justify-between text-[14px] active:scale-[.99]">
+                <span className={bank ? "text-white font-medium" : "text-white/35"}>{bank ? bank.name : "Choose bank"}</span>
+                <Icon name="chevronDown" size={15} className="text-white/40" />
+              </button>
+              <input value={account} onChange={(e) => setAccount(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" maxLength={10} placeholder="Account number" className="bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] outline-none text-[14px] focus:border-brand-cyan/50" />
+              {resolving ? (
+                <div className="bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] flex items-center gap-2 text-[13.5px] text-white/45">
+                  <span className="w-3.5 h-3.5 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" /> Checking account…
                 </div>
-              </div>
-            )}
+              ) : resolvedName ? (
+                <div className="bg-good/[.08] border border-good/25 rounded-2xl px-4 h-[52px] flex items-center gap-2.5">
+                  <Icon name="check" size={16} strokeWidth={2.6} className="text-good shrink-0" />
+                  <span className="text-[14px] font-medium text-white truncate">{resolvedName}</span>
+                </div>
+              ) : (
+                <input value={accountName} onChange={(e) => setAccountName(e.target.value)} placeholder="Account name (optional)" className="bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] outline-none text-[14px] focus:border-brand-cyan/50" />
+              )}
+            </div>
           </>
         )}
 
-        {mode === "bank" && (
-          <div className="flex flex-col gap-2.5 mt-3">
-            <button
-              onClick={() => setBankOpen(true)}
-              className="bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] flex items-center justify-between text-[14px] active:scale-[.99]"
-            >
-              <span className={bank ? "text-white font-medium" : "text-white/35"}>{bank ? bank.name : "Choose bank"}</span>
-              <Icon name="chevronDown" size={15} className="text-white/40" />
+        {mode === "wallet" && (
+          <>
+            {/* network + asset — any of Dextopus's 70+ chains and their tokens */}
+            <button onClick={() => setChainSheet(true)} className="w-full flex items-center justify-between bg-surface border border-white/[.08] rounded-2xl px-4 h-[54px] active:scale-[.99]">
+              <span className="text-[12px] text-white/40">Network</span>
+              <span className="flex items-center gap-2 font-grotesk font-semibold text-[14px]">
+                {selChain ? selChain.name : "Choose a chain"}
+                <Icon name="chevronDown" size={15} className="text-white/50" />
+              </span>
             </button>
-            <input value={account} onChange={(e) => setAccount(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" maxLength={10} placeholder="Account number" className="bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] outline-none text-[14px] focus:border-brand-cyan/50" />
-            {resolving ? (
-              <div className="bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] flex items-center gap-2 text-[13.5px] text-white/45">
-                <span className="w-3.5 h-3.5 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" /> Checking account…
-              </div>
-            ) : resolvedName ? (
-              <div className="bg-good/[.08] border border-good/25 rounded-2xl px-4 h-[52px] flex items-center gap-2.5">
-                <Icon name="check" size={16} strokeWidth={2.6} className="text-good shrink-0" />
-                <span className="text-[14px] font-medium text-white truncate">{resolvedName}</span>
-              </div>
-            ) : (
-              <input value={accountName} onChange={(e) => setAccountName(e.target.value)} placeholder="Account name (optional)" className="bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] outline-none text-[14px] focus:border-brand-cyan/50" />
-            )}
-          </div>
+            <button onClick={() => selChain && setTokenSheet(true)} disabled={!selChain} className="w-full flex items-center justify-between bg-surface border border-white/[.08] rounded-2xl px-4 h-[54px] mt-2.5 active:scale-[.99] disabled:opacity-40">
+              <span className="text-[12px] text-white/40">Asset</span>
+              <span className="flex items-center gap-2 font-grotesk font-semibold text-[14px]">
+                {selToken ? selToken.symbol : "Choose an asset"}
+                <Icon name="chevronDown" size={15} className="text-white/50" />
+              </span>
+            </button>
+
+            <div className="bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] flex items-center gap-2 mt-2.5">
+              <span className="text-white/40"><Icon name="scan" size={17} /></span>
+              <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder={selChain ? `${selChain.name} wallet address` : "Wallet address or scan QR"} className="flex-1 bg-transparent outline-none text-[14px]" />
+              <button onClick={() => setScanOpen(true)} className="text-brand-cyan text-[13px] font-semibold">Scan</button>
+            </div>
+          </>
         )}
 
         {/* amount */}
-        <div className="bg-surface border border-white/[.08] rounded-2xl px-4 py-4 mt-2.5 flex items-center justify-between">
-          <input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} inputMode="decimal" placeholder="Amount" className="bg-transparent outline-none text-[26px] font-grotesk font-bold w-full min-w-0" />
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="text-white/50 font-grotesk font-semibold">{sym}</span>
-            <button onClick={() => setAmount(String(bal))} className="text-brand-cyan font-bold text-[13px]">Max</button>
+        {(mode === "bank" || selToken) && (
+          <div className="bg-surface border border-white/[.08] rounded-2xl px-4 py-4 mt-2.5 flex items-center justify-between">
+            <input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} inputMode="decimal" placeholder="Amount" className="bg-transparent outline-none text-[26px] font-grotesk font-bold w-full min-w-0" />
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-white/50 font-grotesk font-semibold">{activeSym}</span>
+              <button onClick={() => setAmount(String(mode === "wallet" ? maxSendable : bal))} className="text-brand-cyan font-bold text-[13px]">Max</button>
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="flex flex-col gap-2 mt-4 px-1 text-[13px] text-white/55">
-          {mode === "wallet" && (
+          {mode === "wallet" && selToken && (
             <>
-              <div className="flex justify-between"><span>Network</span><b className="text-white font-grotesk">{selectedNet?.label}</b></div>
-              <div className="flex justify-between"><span>Withdrawal fee</span><b className="text-white font-grotesk">≈ {formatCrypto(feeInAsset, sym)} {sym}</b></div>
+              <div className="flex justify-between"><span>Network</span><b className="text-white font-grotesk">{selChain?.name}</b></div>
+              <div className="flex justify-between"><span>Withdrawal fee</span><b className="text-white font-grotesk">≈ {formatCrypto(feeInAsset, activeSym)} {activeSym}</b></div>
             </>
           )}
           {mode === "bank" && amt > 0 && (() => {
@@ -204,18 +229,51 @@ export default function SendOutPage() {
               </>
             );
           })()}
-          <div className="flex justify-between"><span>Balance</span><b className="text-white font-grotesk">{formatCrypto(bal, sym)} {sym}</b></div>
+          {(mode === "bank" || selToken) && (
+            <div className="flex justify-between"><span>Balance</span><b className="text-white font-grotesk">{formatCrypto(bal, activeSym)} {activeSym}</b></div>
+          )}
         </div>
       </div>
 
       <div className="pb-6 pt-2">
-        <GradientButton onClick={submit} loading={loading} disabled={amt <= 0}>
+        <GradientButton onClick={submit} loading={loading} disabled={amt <= 0 || (mode === "wallet" && !selToken)}>
           {mode === "bank" ? "Send to bank" : "Send to wallet"}
         </GradientButton>
       </div>
 
       <BankPicker open={bankOpen} onClose={() => setBankOpen(false)} onPick={(b) => setBank(b)} />
       <QrScanner open={scanOpen} onClose={() => setScanOpen(false)} onResult={(addr) => setAddress(addr)} />
+
+      {/* Network picker */}
+      <Sheet open={chainSheet} onClose={() => { setChainSheet(false); setChainQ(""); }} title="Choose a network">
+        <input value={chainQ} onChange={(e) => setChainQ(e.target.value)} placeholder={`Search ${chains.length || "70+"} chains`} autoFocus className="w-full bg-surface border border-white/10 rounded-2xl px-4 h-[48px] outline-none text-[14px] focus:border-brand-cyan/50 mb-3" />
+        <div className="flex flex-col gap-1 max-h-[55dvh] overflow-y-auto no-scrollbar">
+          {chains.filter((c) => c.name.toLowerCase().includes(chainQ.toLowerCase())).map((c) => (
+            <button key={c.chainId} onClick={() => pickChain(c)} className="flex items-center justify-between px-4 py-3.5 rounded-2xl bg-surface border border-white/[.06] active:scale-[.99]">
+              <span className="font-grotesk font-semibold text-[14px]">{c.name}</span>
+              {selChain?.chainId === c.chainId && <Icon name="check" size={16} className="text-good" strokeWidth={2.6} />}
+            </button>
+          ))}
+          {chains.length === 0 && <div className="text-center text-white/40 text-[13px] py-6">Loading chains…</div>}
+        </div>
+      </Sheet>
+
+      {/* Asset picker */}
+      <Sheet open={tokenSheet} onClose={() => { setTokenSheet(false); setTokenQ(""); }} title={`Choose an asset${selChain ? ` on ${selChain.name}` : ""}`}>
+        <input value={tokenQ} onChange={(e) => setTokenQ(e.target.value)} placeholder="Search assets" autoFocus className="w-full bg-surface border border-white/10 rounded-2xl px-4 h-[48px] outline-none text-[14px] focus:border-brand-cyan/50 mb-3" />
+        <div className="flex flex-col gap-1 max-h-[55dvh] overflow-y-auto no-scrollbar">
+          {tokens.filter((t) => t.symbol.toLowerCase().includes(tokenQ.toLowerCase()) || t.name.toLowerCase().includes(tokenQ.toLowerCase())).map((t) => (
+            <button key={t.symbol} onClick={() => { setSelToken(t); setTokenSheet(false); setTokenQ(""); }} className="flex items-center justify-between px-4 py-3.5 rounded-2xl bg-surface border border-white/[.06] active:scale-[.99]">
+              <span className="text-left">
+                <span className="font-grotesk font-semibold text-[14px] block">{t.symbol}</span>
+                <span className="text-[11.5px] text-white/40">{t.name}</span>
+              </span>
+              {selToken?.symbol === t.symbol && <Icon name="check" size={16} className="text-good" strokeWidth={2.6} />}
+            </button>
+          ))}
+          {tokens.length === 0 && <div className="text-center text-white/40 text-[13px] py-6">No assets on this chain.</div>}
+        </div>
+      </Sheet>
 
       {receipt && (
         <Receipt
