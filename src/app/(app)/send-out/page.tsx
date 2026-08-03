@@ -8,6 +8,7 @@ import { usePrices } from "@/lib/usePrices";
 import { BackHeader, Segmented, GradientButton, Sheet } from "@/components/ui";
 import { Icon } from "@/components/Icon";
 import { NETWORK_FEE_USDT } from "@/lib/constants";
+import { sortChainsByPopularity } from "@/lib/chains";
 import { transferFee } from "@/lib/pricing";
 import { formatFiat, formatCrypto } from "@/lib/format";
 import { Receipt } from "@/components/Receipt";
@@ -283,7 +284,7 @@ export default function SendOutPage() {
       <Sheet open={chainSheet} onClose={() => { setChainSheet(false); setChainQ(""); }} title="Choose a network">
         <input value={chainQ} onChange={(e) => setChainQ(e.target.value)} placeholder={`Search ${chains.length || "70+"} chains`} autoFocus className="w-full bg-surface border border-white/10 rounded-2xl px-4 h-[48px] outline-none text-[14px] focus:border-brand-cyan/50 mb-3" />
         <div className="flex flex-col gap-1 max-h-[55dvh] overflow-y-auto no-scrollbar">
-          {chains.filter((c) => c.name.toLowerCase().includes(chainQ.toLowerCase())).map((c) => (
+          {sortChainsByPopularity(chains.filter((c) => c.name.toLowerCase().includes(chainQ.toLowerCase()))).map((c) => (
             <button key={c.chainId} onClick={() => pickChain(c)} className="flex items-center justify-between px-4 py-3.5 rounded-2xl bg-surface border border-white/[.06] active:scale-[.99]">
               <span className="font-grotesk font-semibold text-[14px]">{c.name}</span>
               {selChain?.chainId === c.chainId && <Icon name="check" size={16} className="text-good" strokeWidth={2.6} />}
