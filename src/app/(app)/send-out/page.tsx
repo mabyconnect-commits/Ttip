@@ -35,6 +35,15 @@ export default function SendOutPage() {
   const [loading, setLoading] = useState(false);
   const [receipt, setReceipt] = useState<any>(null);
   const [scanOpen, setScanOpen] = useState(false);
+  const [netId, setNetId] = useState("");
+
+  // Default the network per asset. USDC withdrawals settle on Solana (our
+  // treasury asset), so prefer Solana; otherwise the asset's first network.
+  useEffect(() => {
+    const nets = CRYPTO_ASSETS.find((a) => a.symbol === sym)?.networks ?? [];
+    const preferred = sym === "USDC" ? nets.find((n) => n.id === "sol") : undefined;
+    setNetId((preferred ?? nets[0])?.id ?? "");
+  }, [sym]);
 
   // Auto-resolve the account holder's name once a bank + 10-digit NUBAN is set,
   // so the user confirms the recipient before sending. Debounced.
@@ -59,6 +68,8 @@ export default function SendOutPage() {
   const verified = state.user.kycStatus === "verified";
   const amt = parseFloat(amount) || 0;
   const asset = CRYPTO_ASSETS.find((a) => a.symbol === sym);
+  const networks = asset?.networks ?? [];
+  const selectedNet = networks.find((n) => n.id === netId) ?? networks[0];
   const bal = state.portfolio.assets.find((a) => a.symbol === sym)?.amount ?? 0;
   const fiat = state.user.defaultFiat;
   const feeInAsset = convert(NETWORK_FEE_USDT, "USDT", sym);
@@ -71,7 +82,7 @@ export default function SendOutPage() {
       let body: any;
       if (mode === "wallet") {
         if (!address) { setLoading(false); return toast("Enter a wallet address", "bad"); }
-        body = { mode: "wallet", symbol: sym, amount: amt, address, network: asset?.networks[0]?.label };
+        body = { mode: "wallet", symbol: sym, amount: amt, address, network: selectedNet?.label };
       } else {
         if (!bank) { setLoading(false); return toast("Choose a bank", "bad"); }
         if (!account) { setLoading(false); return toast("Enter an account number", "bad"); }
@@ -116,11 +127,29 @@ export default function SendOutPage() {
         </div>
 
         {mode === "wallet" && (
-          <div className="bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] flex items-center gap-2 mt-3">
-            <span className="text-white/40"><Icon name="scan" size={17} /></span>
-            <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Wallet address or scan QR" className="flex-1 bg-transparent outline-none text-[14px]" />
-            <button onClick={() => setScanOpen(true)} className="text-brand-cyan text-[13px] font-semibold">Scan</button>
-          </div>
+          <>
+            <div className="bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] flex items-center gap-2 mt-3">
+              <span className="text-white/40"><Icon name="scan" size={17} /></span>
+              <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Wallet address or scan QR" className="flex-1 bg-transparent outline-none text-[14px]" />
+              <button onClick={() => setScanOpen(true)} className="text-brand-cyan text-[13px] font-semibold">Scan</button>
+            </div>
+            {networks.length > 0 && (
+              <div className="mt-2.5">
+                <div className="text-[12px] text-white/45 mb-1.5 ml-1">Network</div>
+                <div className="flex gap-2 flex-wrap">
+                  {networks.map((n) => (
+                    <button
+                      key={n.id}
+                      onClick={() => setNetId(n.id)}
+                      className={`h-9 px-3.5 rounded-full border text-[12.5px] font-grotesk font-semibold transition ${selectedNet?.id === n.id ? "border-brand-cyan text-brand-cyan bg-brand-cyan/10" : "border-white/14 text-white/60"}`}
+                    >
+                      {n.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         {mode === "bank" && (
@@ -160,8 +189,8 @@ export default function SendOutPage() {
         <div className="flex flex-col gap-2 mt-4 px-1 text-[13px] text-white/55">
           {mode === "wallet" && (
             <>
-              <div className="flex justify-between"><span>Network</span><b className="text-white font-grotesk">{asset?.networks[0]?.label}</b></div>
-              <div className="flex justify-between"><span>Network fee</span><b className="text-white font-grotesk">≈ {formatCrypto(feeInAsset, sym)} {sym}</b></div>
+              <div className="flex justify-between"><span>Network</span><b className="text-white font-grotesk">{selectedNet?.label}</b></div>
+              <div className="flex justify-between"><span>Withdrawal fee</span><b className="text-white font-grotesk">≈ {formatCrypto(feeInAsset, sym)} {sym}</b></div>
             </>
           )}
           {mode === "bank" && amt > 0 && (() => {
