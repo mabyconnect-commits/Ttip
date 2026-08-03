@@ -120,6 +120,11 @@ export const BILL_CATEGORIES = [
 export const SWAP_FEE_PCT = 0.005; // 0.5% after free swaps used
 export const NETWORK_FEE_USDT = 1; // flat network fee on external sends (USDT-equivalent)
 
+// Ttip's flat platform fee on a crypto withdrawal — charged ON TOP of the real
+// on-chain/provider fee (which the provider already deducts and we show as
+// "recipient gets"). So the total a user pays is: actual network fee + this.
+export const WITHDRAW_FEE_USDT = 0.5; // $0.50 flat, nothing more
+
 // The spread Ttip keeps on crypto↔fiat conversion. The user is quoted the live
 // market/P2P reference rate minus this margin; the difference is platform
 // revenue. Keep it tight to stay competitive with Bybit P2P. Override per
