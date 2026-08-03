@@ -30,7 +30,7 @@ export default async function Landing() {
       {/* hero */}
       <section className="relative" style={{ background: "radial-gradient(110% 60% at 50% -10%,#141A2E 0%,transparent 60%)" }}>
         <div className="max-w-[1080px] mx-auto px-5 pt-16 pb-14 text-center flex flex-col items-center">
-          <span className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[.03] px-3.5 py-1.5 text-[12px] text-white/60 mb-7">
+          <span className="inline-flex items-center gap-2 text-[12px] text-white/60 mb-7">
             <span className="w-1.5 h-1.5 rounded-full bg-good" /> Crypto to cash, across Africa
           </span>
           <h1 className="font-grotesk font-bold text-[38px] sm:text-[54px] leading-[1.04] tracking-[-1.4px] max-w-[720px]">
