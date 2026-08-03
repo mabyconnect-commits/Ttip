@@ -20,8 +20,10 @@ export { getBillCatalog, getCategoryCatalog, findBillItem } from "./bill-catalog
 export type { CategoryCatalog, ProviderGroup, BillItem } from "./bill-classify";
 export { parseDeposit, verifyDepositSignature, parseDextopusDeposit, verifyDextopusSignature } from "./webhook";
 export { ensureFloat, debitFloat, treasuryBalance, adjustTreasury } from "./treasury";
-export { cryptoWithdraw, finalizeWithdrawal } from "./withdrawal";
+export { cryptoWithdraw, finalizeWithdrawal, reconcilePendingWithdrawals } from "./withdrawal";
 export type { CryptoWithdrawRequest, CryptoWithdrawResult } from "./withdrawal";
+export { dextopusWithdrawEnabled } from "./config";
+export { dextopusValidateAddress, chainTypeForChainId } from "./dextopus-withdraw";
 export { sendSolanaUsdc, solanaWithdrawSupported, isValidSolanaAddress, SOLANA_WITHDRAW_ASSETS } from "./solana";
 export { solanaConfig, maxCryptoWithdrawal } from "./config";
 export { createBuyOrder, finalizeBuy } from "./buy";

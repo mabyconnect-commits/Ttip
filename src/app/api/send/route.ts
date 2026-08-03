@@ -9,7 +9,8 @@ import { convert, isCrypto } from "@/lib/prices";
 import { adjust, balanceOf } from "@/lib/wallet";
 import { NETWORK_FEE_USDT } from "@/lib/constants";
 import { dayStr, isYesterday } from "@/lib/format";
-import { payoutFiat, finalizePayout, payoutProvider, ensureFloat, debitFloat, cryptoWithdraw, settlementEnabled, demoEnabled, solanaWithdrawSupported, isValidSolanaAddress, maxCryptoWithdrawal } from "@/lib/settlement";
+import { payoutFiat, finalizePayout, payoutProvider, ensureFloat, debitFloat, cryptoWithdraw, settlementEnabled, demoEnabled, solanaWithdrawSupported, isValidSolanaAddress, maxCryptoWithdrawal, dextopusWithdrawEnabled, dextopusValidateAddress, chainTypeForChainId } from "@/lib/settlement";
+import { chainIdForNetwork } from "@/lib/chains";
 import { quoteSell, transferFee } from "@/lib/pricing";
 import { referenceFiat } from "@/lib/rate";
 import { accrueCashback } from "@/lib/cashback";
@@ -173,26 +174,35 @@ async function handleWalletSend(userId: string, input: z.infer<typeof schema>) {
   if (!isCrypto(symbol)) throw new ApiError("Only crypto can be sent to a wallet", 400);
   if (!input.address || input.address.length < 8) throw new ApiError("Enter a valid wallet address", 400);
 
-  // Live on-chain sends are supported for assets with a treasury signer (USDC on
-  // Solana). Demo always simulates. Anything else fails closed so no funds get
-  // stuck as pending.
+  // Live sends: USDC on Solana goes out via the built-in treasury signer;
+  // everything else goes cross-chain via Dextopus (treasury USDC → the user's
+  // asset on their chain). Demo always simulates. If neither rail is available it
+  // fails closed so no funds get stuck as pending.
   const liveOnChain = !demoEnabled(); // settlementEnabled() already true here → live
   const isSolanaNet = /sol/i.test(input.network ?? "");
-  const onChainSupported = solanaWithdrawSupported(symbol) && isSolanaNet;
-  if (liveOnChain && !onChainSupported) {
-    const msg = symbol === "USDC"
-      ? "USDC withdrawals go out on Solana — select the Solana network."
-      : `${symbol} withdrawal isn't available yet. USDC on Solana is supported.`;
-    throw new ApiError(msg, 503);
+  const solanaDirect = solanaWithdrawSupported(symbol) && isSolanaNet;
+  const dexAvailable = dextopusWithdrawEnabled();
+  if (liveOnChain && !solanaDirect && !dexAvailable) {
+    throw new ApiError(`${symbol} withdrawal isn't available yet.`, 503);
   }
-  // For a real Solana send, validate the destination and enforce the hot-wallet cap.
+
   let network = input.network;
-  if (liveOnChain && onChainSupported) {
+  if (liveOnChain && solanaDirect) {
+    // Real Solana send: validate the destination and enforce the hot-wallet cap.
     if (!isValidSolanaAddress(input.address)) throw new ApiError("Enter a valid Solana address.", 400);
     if (amount > maxCryptoWithdrawal()) {
       throw new ApiError(`Max withdrawal is ${maxCryptoWithdrawal()} ${symbol} for now — contact support for larger amounts.`, 400);
     }
     network = "Solana";
+  } else if (liveOnChain && dexAvailable) {
+    // Dextopus cross-chain send: check the address format for its chain, and cap.
+    const chainId = chainIdForNetwork(input.network);
+    if (!chainId) throw new ApiError(`Choose a supported network for ${symbol}.`, 400);
+    if (amount > maxCryptoWithdrawal()) {
+      throw new ApiError(`Max withdrawal is ${maxCryptoWithdrawal()} ${symbol} for now — contact support for larger amounts.`, 400);
+    }
+    const check = await dextopusValidateAddress(chainTypeForChainId(chainId), input.address);
+    if (!check.valid) throw new ApiError(check.reason ? `Invalid address: ${check.reason}` : "Enter a valid destination wallet address.", 400);
   }
 
   // network fee expressed in the sent asset

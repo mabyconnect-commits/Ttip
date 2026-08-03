@@ -30,7 +30,15 @@ export async function POST(req: Request) {
       if (!verifyDextopusSignature(ts, raw, dextopusSig)) {
         return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
       }
-      const deposit = parseDextopusDeposit(JSON.parse(raw));
+      const payload = JSON.parse(raw);
+      // Safety: Ttip withdrawals reuse the deposit rails (treasury → Dextopus →
+      // user). Those events must NEVER credit a user — skip them here so a
+      // withdrawal can't also add balance. They finalize via status polling.
+      const meta = payload?.data?.metadata ?? payload?.metadata;
+      if (meta?.source === "ttip-withdrawal") {
+        return NextResponse.json({ ok: true, ignored: "withdrawal" });
+      }
+      const deposit = parseDextopusDeposit(payload);
       // Every Dextopus deposit cross-chain-settles to our treasury asset, so
       // credit the user in that symbol (the payload may carry a mint address).
       deposit.asset = (process.env.DEXTOPUS_SETTLEMENT_ASSET || deposit.asset).toUpperCase();

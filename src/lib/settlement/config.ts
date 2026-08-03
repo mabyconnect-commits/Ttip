@@ -192,9 +192,16 @@ export function dextopusWithdrawEnabled(): boolean {
   return !!process.env.DEXTOPUS_API_KEY && (process.env.DEXTOPUS_WITHDRAW ?? "true").toLowerCase() !== "false";
 }
 
-/** The Dextopus endpoint path that initiates a withdrawal/payout (see their docs). */
-export function dextopusWithdrawPath(): string {
-  return process.env.DEXTOPUS_WITHDRAW_PATH || "/withdraw";
+/**
+ * Optional partner-fee revenue on every Dextopus withdrawal. Opt-in: only sent
+ * when a fee wallet is configured, so a mis-set fee never blocks a withdrawal.
+ * Set DEXTOPUS_PARTNER_FEE_ADDRESS and DEXTOPUS_PARTNER_FEE_BPS (basis points).
+ */
+export function dextopusPartnerFees(): { address: string; feeBps: number }[] | null {
+  const address = process.env.DEXTOPUS_PARTNER_FEE_ADDRESS;
+  const bps = Number(process.env.DEXTOPUS_PARTNER_FEE_BPS);
+  if (!address || !Number.isFinite(bps) || bps <= 0) return null;
+  return [{ address, feeBps: Math.round(bps) }];
 }
 
 export interface FlutterwaveConfig {
