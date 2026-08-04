@@ -58,6 +58,7 @@ export function Assistant() {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<TransferDraft | null>(null);
   const [pinError, setPinError] = useState(false);
+  const [sending, setSending] = useState(false);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -201,7 +202,8 @@ export function Assistant() {
 
   /** Send the prepared transfer. The PIN is passed straight through, never kept. */
   async function confirmDraft(pin: string) {
-    if (!draft) return;
+    if (!draft || sending) return;
+    setSending(true);
     try {
       await action("/api/send", {
         mode: "bank",
@@ -221,6 +223,8 @@ export function Assistant() {
       if (/pin/i.test(e.message ?? "")) setPinError(true);
       else setDraft(null);
       toast(e.message, "bad");
+    } finally {
+      setSending(false);
     }
   }
 
@@ -231,6 +235,7 @@ export function Assistant() {
         onClose={() => setDraft(null)}
         onPin={confirmDraft}
         error={pinError}
+        busy={sending}
         title="Confirm this transfer"
         subtitle={draft ? `${draft.fiat} ${draft.amount.toLocaleString()} to ${draft.beneficiaryName}` : undefined}
       />

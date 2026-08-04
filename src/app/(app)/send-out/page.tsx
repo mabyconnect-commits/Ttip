@@ -48,6 +48,8 @@ export default function SendOutPage() {
   const [scanOpen, setScanOpen] = useState(false);
   const [pinOpen, setPinOpen] = useState(false);
   const [pinError, setPinError] = useState(false);
+  // One id per attempt. Re-taps reuse it, so the server refuses the duplicate.
+  const [attemptKey, setAttemptKey] = useState("");
 
   // Wallet-mode: pick any chain → any token Dextopus supports (like the deposit
   // picker). Falls back to a hardcoded list when Dextopus isn't configured (demo).
@@ -166,18 +168,24 @@ export default function SendOutPage() {
       if (!account) return toast("Enter an account number", "bad");
     }
     setPinError(false);
+    setAttemptKey(
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
     setPinOpen(true);
   }
 
   async function send(pin: string) {
+    if (loading) return; // a second tap must never start a second transfer
     setLoading(true);
     try {
       let body: any;
       if (mode === "wallet") {
         if (amt + feeInAsset > bal + 1e-12) { setLoading(false); return toast(`Not enough ${walletSym} to cover amount + fee`, "bad"); }
-        body = { mode: "wallet", symbol: walletSym, amount: amt, address, network: selChain!.name, chainId: selChain!.chainId, pin };
+        body = { mode: "wallet", symbol: walletSym, amount: amt, address, network: selChain!.name, chainId: selChain!.chainId, pin, idempotencyKey: attemptKey };
       } else {
-        body = { mode: "bank", symbol: sym, amount: amt, fiat, bankName: bank!.name, accountNumber: account, accountName: resolvedName ?? accountName, note: cleanNarration(note) || undefined, pin };
+        body = { mode: "bank", symbol: sym, amount: amt, fiat, bankName: bank!.name, accountNumber: account, accountName: resolvedName ?? accountName, note: cleanNarration(note) || undefined, pin, idempotencyKey: attemptKey };
       }
       const res: any = await action("/api/send", body);
       setPinOpen(false);
@@ -376,6 +384,7 @@ export default function SendOutPage() {
         onClose={() => setPinOpen(false)}
         onPin={(pin) => send(pin)}
         error={pinError}
+        busy={loading}
         subtitle={mode === "bank" ? `Sending ${formatFiat(convert(amt, sym, fiat), fiat)} to ${bank?.name ?? "your bank"}` : undefined}
       />
 

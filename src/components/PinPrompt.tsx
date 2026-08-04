@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Sheet } from "@/components/ui";
 import { PinPad } from "@/components/PinPad";
@@ -21,6 +21,7 @@ export function PinPrompt({
   title = "Confirm with your PIN",
   subtitle,
   error,
+  busy = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -30,10 +31,27 @@ export function PinPrompt({
   subtitle?: string;
   /** Set true to shake and clear — a rejected PIN. */
   error?: boolean;
+  /** True while the transfer is in flight. */
+  busy?: boolean;
 }) {
   const { state } = useApp();
   const router = useRouter();
   const [clearToken, setClearToken] = useState(0);
+  // Guards the gap between the last digit and `busy` arriving from the parent:
+  // without it a fast second tap fires onPin again before the parent re-renders.
+  const sending = useRef(false);
+
+  useEffect(() => {
+    if (!open) sending.current = false;
+  }, [open]);
+
+  // A rejected PIN clears the pad and re-arms it.
+  useEffect(() => {
+    if (error) {
+      sending.current = false;
+      setClearToken((t) => t + 1);
+    }
+  }, [error]);
 
   if (!state.user.hasPin) {
     return (
@@ -53,19 +71,30 @@ export function PinPrompt({
   }
 
   return (
-    <Sheet open={open} onClose={onClose} title={title}>
+    <Sheet open={open} onClose={busy ? () => {} : onClose} title={title}>
       {subtitle && <p className="text-white/55 text-[13px] mb-4 -mt-1">{subtitle}</p>}
-      <div className="py-2">
-        <PinPad
-          onComplete={(pin) => {
-            onPin(pin);
-            // Clear either way: a rejected PIN shouldn't stay on screen.
-            setTimeout(() => setClearToken((t) => t + 1), 250);
-          }}
-          clearToken={clearToken}
-          error={error}
-        />
-      </div>
+
+      {busy ? (
+        // Replace the pad entirely while it's in flight. Leaving it up invites
+        // a second entry, and a second entry used to mean a second transfer.
+        <div className="flex flex-col items-center justify-center gap-3 py-14">
+          <span className="w-8 h-8 rounded-full border-2 border-white/15 border-t-good animate-spin" />
+          <span className="font-grotesk font-semibold text-[14px]">Sending…</span>
+          <span className="text-white/40 text-[12px]">Don&apos;t close this — it only takes a moment.</span>
+        </div>
+      ) : (
+        <div className="py-2">
+          <PinPad
+            onComplete={(pin) => {
+              if (sending.current) return;
+              sending.current = true;
+              onPin(pin);
+            }}
+            clearToken={clearToken}
+            error={error}
+          />
+        </div>
+      )}
     </Sheet>
   );
 }

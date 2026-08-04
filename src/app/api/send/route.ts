@@ -38,6 +38,12 @@ const schema = z.object({
   // bank
   /** Transaction PIN — required for anything that leaves the platform. */
   pin: z.string().optional(),
+  /**
+   * One id per attempt, from the client. It becomes the payout reference, and
+   * `Settlement.externalId` is unique — so a second tap on the same attempt
+   * hits the constraint and rolls back instead of sending the money twice.
+   */
+  idempotencyKey: z.string().regex(/^[a-zA-Z0-9-]{8,64}$/).optional(),
   bankName: z.string().optional(),
   accountNumber: z.string().optional(),
   accountName: z.string().optional(),
@@ -235,7 +241,7 @@ async function handleWalletSend(userId: string, kycTier: number, input: z.infer<
   const bal = await balanceOf(userId, symbol);
   if (bal + 1e-12 < total) throw new ApiError(`Insufficient ${symbol} to cover amount + network fee`, 400);
 
-  const reference = "cwd_" + crypto.randomUUID();
+  const reference = "cwd_" + (input.idempotencyKey ?? crypto.randomUUID());
 
   // Real withdrawal pipeline: atomic debit + pending settlement, then send.
   // Sandbox settles instantly with a simulated tx hash; live queues the
@@ -358,7 +364,9 @@ async function handleBankSend(
   if (!limit.ok) throw new ApiError(limit.reason ?? "Withdrawal limit reached", 403);
 
   const bankLabel = `${input.bankName ?? user.bankName ?? "Bank"} ••${accountNumber.slice(-4)}`;
-  const reference = "pyt_" + crypto.randomUUID();
+  // Deterministic when the client supplies a key, so a repeated tap resolves to
+  // the same reference and the unique index refuses the duplicate.
+  const reference = "pyt_" + (input.idempotencyKey ?? crypto.randomUUID());
   const provider = payoutProvider();
 
   // Make sure the fiat float can cover this payout; if it's short, auto-sell
@@ -367,8 +375,9 @@ async function handleBankSend(
 
   // 1. Debit the crypto and record the payout as pending — one atomic step, so
   //    the money can never leave the wallet without a settlement row to match it.
-  await prisma.$transaction(async (tx) => {
-    for (const leg of plan.legs) await adjust(tx, userId, leg.symbol, -leg.take);
+  try {
+    await prisma.$transaction(async (tx) => {
+      for (const leg of plan.legs) await adjust(tx, userId, leg.symbol, -leg.take);
     const first = plan.legs[0];
     await tx.transaction.create({
       data: {
@@ -411,7 +420,16 @@ async function handleBankSend(
         raw: { spreadFiat, marketFiat } as Prisma.InputJsonValue,
       },
     });
-  });
+    });
+  } catch (e) {
+    // The unique index on externalId caught a repeat of this same attempt —
+    // someone tapped Send twice while the first was still in flight. Nothing was
+    // debited (the whole transaction rolled back), so say so plainly.
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      throw new ApiError("That transfer is already going through — check your history in a moment.", 409);
+    }
+    throw e;
+  }
 
   // 2. Ask the provider to move the fiat. Sandbox settles instantly; Flutterwave
   //    may return "pending" and confirm later via /api/webhooks/payout.
