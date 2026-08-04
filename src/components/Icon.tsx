@@ -9,7 +9,7 @@ export type IconName =
   | "plus" | "check" | "snowflake" | "scan" | "copy" | "share"
   | "chevronRight" | "chevronDown" | "grid" | "swapVertical" | "sun" | "moon" | "search"
   | "user" | "shield" | "list" | "bank" | "headset" | "gauge" | "logout" | "lock" | "edit" | "trash"
-  | "message" | "mail" | "phone" | "x" | "flag" | "telegram" | "mic";
+  | "message" | "mail" | "phone" | "x" | "flag" | "telegram" | "mic" | "eye" | "eyeOff";
 
 const P: Record<IconName, React.ReactNode> = {
   home: <path d="M3 10.5 12 3l9 7.5M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5" />,
@@ -144,6 +144,19 @@ const P: Record<IconName, React.ReactNode> = {
   // Telegram's paper plane, drawn as strokes so it inherits currentColor like
   // every other icon here rather than needing the brand blue.
   telegram: <path d="M21.5 4.2 2.8 11.4a.4.4 0 0 0 .03.75l4.6 1.44 1.72 5.2a.4.4 0 0 0 .7.13l2.5-2.72 4.7 3.45a.4.4 0 0 0 .63-.24l3.5-14.7a.4.4 0 0 0-.55-.46ZM7.6 13.5 18.4 6.8l-8.6 8.03-.06 3.3" />,
+  eye: (
+    <>
+      <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  eyeOff: (
+    <>
+      <path d="M10.7 6.2A8.9 8.9 0 0 1 12 6c6 0 9.5 6 9.5 6a17 17 0 0 1-2.9 3.5M6.4 7.7A17 17 0 0 0 2.5 12S6 18 12 18a9.4 9.4 0 0 0 3.9-.8" />
+      <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+      <path d="m3.5 3.5 17 17" />
+    </>
+  ),
 };
 
 export function Icon({

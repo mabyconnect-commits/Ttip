@@ -4,6 +4,7 @@ import "./globals.css";
 import { NativeBridge } from "@/components/NativeBridge";
 import { InstallPrompt } from "@/components/InstallPrompt";
 import { THEME_INIT_SCRIPT } from "@/components/ThemeToggle";
+import { PRIVACY_INIT_SCRIPT } from "@/components/PrivateBalance";
 
 const grotesk = Space_Grotesk({
   subsets: ["latin"],
@@ -51,6 +52,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Sets data-theme before the first paint. Applying it from a component
             would render the dark UI for a frame and then flash to light. */}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        {/* Hides balances before the first paint. Doing it from a component
+            would show the real figure for a frame — the exact glance someone
+            hides their balance to avoid. */}
+        <script dangerouslySetInnerHTML={{ __html: PRIVACY_INIT_SCRIPT }} />
       </head>
       <body className="font-sans">
         <NativeBridge />

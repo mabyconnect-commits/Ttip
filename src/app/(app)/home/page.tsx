@@ -12,6 +12,7 @@ import { formatFiat, formatUsd, formatCrypto } from "@/lib/format";
 import { FIATS } from "@/lib/constants";
 import { payoutCurrencySupported } from "@/lib/settlement/payout-country";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { Private, HideBalanceToggle } from "@/components/PrivateBalance";
 
 export default function HomePage() {
   const { state, action, toast } = useApp();
@@ -68,16 +69,25 @@ export default function HomePage() {
         <div className="mx-5 mt-4 rounded-3xl p-6 bg-surface border border-white/[.06]">
           <div className="flex justify-between items-center">
             <div className="font-sans text-[12px] text-white/40 tracking-[0.3px] uppercase">Total balance</div>
-            <button onClick={() => setFiatOpen(true)} className="flex items-center gap-1 font-grotesk font-semibold text-[12px] text-white/70 border border-white/10 rounded-full px-2.5 py-1 active:scale-95">
-              {portfolio.fiat}
-              <Icon name="chevronDown" size={13} />
-            </button>
+            <div className="flex items-center gap-1.5">
+              {/* Not everyone wants their balance on show — on a bus, or when
+                  the phone is being handed to someone. */}
+              <HideBalanceToggle />
+              <button onClick={() => setFiatOpen(true)} className="flex items-center gap-1 font-grotesk font-semibold text-[12px] text-white/70 border border-white/10 rounded-full px-2.5 py-1 active:scale-95">
+                {portfolio.fiat}
+                <Icon name="chevronDown" size={13} />
+              </button>
+            </div>
           </div>
           <div className="font-grotesk font-bold text-[42px] leading-none mt-4 tracking-[-1.5px] text-white">
-            {whole}
-            <span className="text-[22px] text-white/35">.{cents ?? "00"}</span>
+            <Private mask="••••••">
+              {whole}
+              <span className="text-[22px] text-white/35">.{cents ?? "00"}</span>
+            </Private>
           </div>
-          <div className="font-sans text-[12.5px] text-white/40 mt-2">≈ {formatUsd(portfolio.totalUsd)}</div>
+          <div className="font-sans text-[12.5px] text-white/40 mt-2">
+            ≈ <Private mask="•••••">{formatUsd(portfolio.totalUsd)}</Private>
+          </div>
         </div>
 
         {/* First-run steps. Renders nothing once the account is set up. */}
@@ -119,11 +129,17 @@ export default function HomePage() {
                 <div className="flex-1 text-left">
                   <div className="font-sans font-semibold text-[14px]">{a.name}</div>
                   <div className="font-sans text-[11.5px] text-white/40">
-                    {a.kind === "fiat" ? formatFiat(a.amount, a.symbol, { decimals: 2 }) : `${formatCrypto(a.amount, a.symbol)} ${a.symbol}`}
+                    {/* Hiding the total but leaving ₦315,381 on the row below
+                        would hide nothing at all. */}
+                    <Private mask="••••">
+                      {a.kind === "fiat" ? formatFiat(a.amount, a.symbol, { decimals: 2 }) : `${formatCrypto(a.amount, a.symbol)} ${a.symbol}`}
+                    </Private>
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="font-grotesk font-semibold text-[14px]">{formatFiat(a.fiatValue, portfolio.fiat, { decimals: 0 })}</div>
+                  <div className="font-grotesk font-semibold text-[14px]">
+                    <Private mask="••••">{formatFiat(a.fiatValue, portfolio.fiat, { decimals: 0 })}</Private>
+                  </div>
                   {a.kind === "crypto" && (
                     <div className="font-sans font-medium text-[11px] tabular-nums" style={{ color: a.change24h >= 0 ? "#3DF5B0" : "#FF7A8A" }}>
                       {a.change24h >= 0 ? "+" : "−"}{Math.abs(a.change24h).toFixed(1)}%

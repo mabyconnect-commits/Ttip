@@ -243,3 +243,16 @@ input[type="number"] {
 [data-theme="light"] .bg-white:not(.keep-white) { background-color: rgb(var(--fg)); }
 [data-theme="light"] .border-white:not(.keep-white) { border-color: rgb(var(--fg)); }
 [data-theme="light"] .text-\[\#07080D\] { color: rgb(var(--bg)); }
+
+/*
+ * Hidden balances.
+ *
+ * Both the figure and its mask are in the markup and CSS chooses between them,
+ * because the balance is server-rendered: hiding it from JavaScript would paint
+ * the real number first and blank it a frame later, which is exactly the glance
+ * this exists to prevent. The attribute is set before the first paint (see
+ * components/PrivateBalance.tsx), so the number never reaches the screen.
+ */
+.private-mask { display: none; }
+[data-private="1"] .private-real { display: none; }
+[data-private="1"] .private-mask { display: inline; letter-spacing: .08em; }

@@ -9,6 +9,7 @@ import { Ticker } from "@/components/Ticker";
 import { Avatar } from "@/components/ui";
 import { Icon, type IconName } from "@/components/Icon";
 import { formatFiat, formatUsd } from "@/lib/format";
+import { Private, HideBalanceToggle } from "@/components/PrivateBalance";
 
 interface Txn {
   id: string; type: string; direction: string; counterparty: string | null; note: string | null; emoji: string | null;
@@ -84,9 +85,17 @@ export default function Dashboard() {
             <div className="rounded-[22px] p-[22px] bg-surface border border-white/[.08]">
               <div className="flex justify-between items-start">
                 <div>
-                  <div className="font-sans text-[12px] text-white/50">Total balance</div>
-                  <div className="font-grotesk font-bold text-[42px] leading-[1.1] tracking-[-1.4px] mt-1.5">{formatFiat(portfolio.totalFiat, portfolio.fiat, { decimals: 0 })}</div>
-                  <div className="font-sans text-[12.5px] text-good mt-1.5">≈ {formatUsd(portfolio.totalUsd)}</div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="font-sans text-[12px] text-white/50">Total balance</div>
+                    {/* A desktop screen is the one most likely to be overlooked. */}
+                    <HideBalanceToggle />
+                  </div>
+                  <div className="font-grotesk font-bold text-[42px] leading-[1.1] tracking-[-1.4px] mt-1.5">
+                    <Private mask="••••••">{formatFiat(portfolio.totalFiat, portfolio.fiat, { decimals: 0 })}</Private>
+                  </div>
+                  <div className="font-sans text-[12.5px] text-good mt-1.5">
+                    ≈ <Private mask="•••••">{formatUsd(portfolio.totalUsd)}</Private>
+                  </div>
                 </div>
                 <div className="flex gap-2 font-grotesk font-semibold text-[11.5px]">
                   {["1D", "1W", "1M", "1Y"].map((r, i) => (
