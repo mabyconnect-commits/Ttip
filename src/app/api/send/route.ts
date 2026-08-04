@@ -241,7 +241,25 @@ async function handleWalletSend(userId: string, kycTier: number, input: z.infer<
   const bal = await balanceOf(userId, symbol);
   if (bal + 1e-12 < total) throw new ApiError(`Insufficient ${symbol} to cover amount + network fee`, 400);
 
-  const reference = "cwd_" + (input.idempotencyKey ?? crypto.randomUUID());
+  // Same protection as bank payouts — a crypto send is even less reversible.
+  const reference = "cwd_" + (input.idempotencyKey ?? autoKey(userId, input.address, amount, symbol, symbol));
+
+  const recentSend = await prisma.transaction.findFirst({
+    where: {
+      userId,
+      type: "withdraw_wallet",
+      status: { in: ["pending", "completed"] },
+      counterparty: input.address,
+      createdAt: { gte: new Date(Date.now() - DUPLICATE_WINDOW_MS) },
+    },
+    select: { amountIn: true },
+  });
+  if (recentSend && Math.abs(Number(recentSend.amountIn) - amount) < 1e-9) {
+    throw new ApiError(
+      "You just sent this exact amount to this address. Check your history before sending again.",
+      409,
+    );
+  }
 
   // Real withdrawal pipeline: atomic debit + pending settlement, then send.
   // Sandbox settles instantly with a simulated tx hash; live queues the
@@ -284,6 +302,26 @@ async function handleWalletSend(userId: string, kycTier: number, input: z.infer<
  * crypto, 1:1 for the payout currency itself. This is the number the amount
  * field showed them, so the plan and the screen agree.
  */
+/**
+ * How long two identical payouts are treated as the same tap. Long enough to
+ * cover a slow provider response, short enough that a genuine repeat isn't
+ * blocked for long.
+ */
+const DUPLICATE_WINDOW_MS = 90_000;
+
+/**
+ * A reference derived from the transfer itself, for clients that don't send an
+ * idempotency key. Bucketed by the minute so rapid repeats collide.
+ */
+function autoKey(userId: string, account: string, amount: number, symbol: string, fiat: string): string {
+  const bucket = Math.floor(Date.now() / 60_000);
+  return crypto
+    .createHash("sha256")
+    .update([userId, account, amount, symbol, fiat, bucket].join("|"))
+    .digest("hex")
+    .slice(0, 32);
+}
+
 async function sellValue(amount: number, symbol: string, fiat: string): Promise<number> {
   if (!(amount > 0)) return 0;
   if (symbol === fiat || !isCrypto(symbol)) {
@@ -364,9 +402,35 @@ async function handleBankSend(
   if (!limit.ok) throw new ApiError(limit.reason ?? "Withdrawal limit reached", 403);
 
   const bankLabel = `${input.bankName ?? user.bankName ?? "Bank"} ••${accountNumber.slice(-4)}`;
-  // Deterministic when the client supplies a key, so a repeated tap resolves to
-  // the same reference and the unique index refuses the duplicate.
-  const reference = "pyt_" + (input.idempotencyKey ?? crypto.randomUUID());
+  // A repeated tap must resolve to the SAME reference, so the unique index on
+  // Settlement.externalId refuses it inside the debit transaction.
+  //
+  // The client sends a per-attempt key — but a browser still running an older
+  // page sends nothing, and generating a random reference then meant three taps
+  // became three real payouts. So with no key we derive one from the transfer's
+  // own content in a short time bucket: same person, same account, same amount,
+  // same minute → same reference → the second one cannot be written.
+  const reference = "pyt_" + (input.idempotencyKey ?? autoKey(userId, accountNumber, amount, symbol, fiat));
+
+  // Belt to that braces, and the thing that catches a tap either side of a
+  // bucket boundary: an identical payout already in flight or just completed.
+  const recent = await prisma.transaction.findFirst({
+    where: {
+      userId,
+      type: "withdraw_bank",
+      status: { in: ["pending", "completed"] },
+      counterparty: bankLabel,
+      createdAt: { gte: new Date(Date.now() - DUPLICATE_WINDOW_MS) },
+      amountOut: { gt: 0 },
+    },
+    select: { id: true, amountOut: true, createdAt: true },
+  });
+  if (recent && Math.abs(Number(recent.amountOut) - fiatAmount) < 0.01) {
+    throw new ApiError(
+      "You just sent this exact amount to this account. Check your history before sending again.",
+      409,
+    );
+  }
   const provider = payoutProvider();
 
   // Make sure the fiat float can cover this payout; if it's short, auto-sell
@@ -449,8 +513,22 @@ async function handleBankSend(
     payoutStatus = result.status;
     providerMessage = result.message;
   } catch (e: any) {
-    payoutStatus = "failed";
+    // A THROW IS NOT A FAILURE. It means the request never came back — a
+    // timeout, a dropped connection, a DNS blip — and the provider may well
+    // have accepted and sent the money anyway.
+    //
+    // This used to mark the payout "failed", which refunded the balance and
+    // told the user nothing was charged. When the money HAD gone out, they were
+    // handed their balance back and naturally sent again. That is how one
+    // transfer became three.
+    //
+    // Unknown is now treated as PENDING: the debit stands, the settlement stays
+    // open, and the webhook (or the reconcile job) decides. A provider that
+    // genuinely rejects the transfer RETURNS status "failed" — that path still
+    // refunds immediately, as it should.
+    payoutStatus = "pending";
     providerMessage = e?.message;
+    console.error("[payout] no response from provider — holding as pending", reference, e);
   }
 
   // 3. Reconcile: a terminal result finalizes now (refunding on failure); a

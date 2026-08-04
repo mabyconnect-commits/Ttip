@@ -140,7 +140,13 @@ export async function payBill(args: PayBillArgs): Promise<PayBillOutcome> {
       reference: args.reference,
     });
   } catch (e) {
-    result = { provider, externalId: args.reference, status: "failed", message: (e as Error).message };
+    // Same rule as payouts: a thrown error means we never heard back, not that
+    // the biller rejected it. Calling that "failed" refunds the user for a
+    // recharge that may well have been delivered. Hold it pending and let the
+    // webhook or the reconcile job settle it. A biller that genuinely refuses
+    // RETURNS "failed", and that path still refunds.
+    result = { provider, externalId: args.reference, status: "pending", message: (e as Error).message };
+    console.error("[bill] no response from provider — holding as pending", args.reference, e);
   }
 
   // 3. Reconcile: terminal now (refund on failure); pending waits for the webhook.

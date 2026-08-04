@@ -141,7 +141,11 @@ export async function cryptoWithdraw(req: CryptoWithdrawRequest): Promise<Crypto
   try {
     result = await dispatchCryptoWithdraw(req);
   } catch (e) {
-    result = { provider: "sandbox", status: "failed", message: (e as Error).message };
+    // A crypto send that threw is the most dangerous of all to call "failed":
+    // the transaction may already be broadcast, and refunding would hand the
+    // user their balance back on top of coins that have left. Hold it pending.
+    result = { provider: "sandbox", status: "pending", message: (e as Error).message };
+    console.error("[withdrawal] no response from provider — holding as pending", req.reference, e);
   }
 
   // 2b. A pending provider send (e.g. Dextopus) settles asynchronously — record its
