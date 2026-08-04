@@ -49,6 +49,54 @@ export function imageMediaType(mime: string | undefined | null): ImageMediaType 
   return null;
 }
 
+/**
+ * Work out the format from the bytes themselves.
+ *
+ * A declared content-type is a claim, and a wrong one costs the user their
+ * photo: Telegram's file server hands photos back as application/octet-stream,
+ * so trusting the header meant a perfectly good JPEG was refused with "I
+ * couldn't open that image". Every one of these formats announces itself in its
+ * first few bytes, which no proxy can get wrong.
+ */
+export function sniffImageType(buf: Uint8Array): ImageMediaType | null {
+  if (buf.length < 12) return null;
+  const at = (i: number) => buf[i];
+
+  // JPEG: FF D8 FF
+  if (at(0) === 0xff && at(1) === 0xd8 && at(2) === 0xff) return "image/jpeg";
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (at(0) === 0x89 && at(1) === 0x50 && at(2) === 0x4e && at(3) === 0x47) return "image/png";
+  // GIF: "GIF8"
+  if (at(0) === 0x47 && at(1) === 0x49 && at(2) === 0x46 && at(3) === 0x38) return "image/gif";
+  // WEBP: "RIFF" .... "WEBP"
+  if (
+    at(0) === 0x52 && at(1) === 0x49 && at(2) === 0x46 && at(3) === 0x46 &&
+    at(8) === 0x57 && at(9) === 0x45 && at(10) === 0x42 && at(11) === 0x50
+  ) {
+    return "image/webp";
+  }
+  return null;
+}
+
+/**
+ * The format to send to the model: the bytes first, the declared type second.
+ * Returns null only when it genuinely isn't an image Claude can read — an
+ * iPhone HEIC, say, which the caller should name rather than shrug at.
+ */
+export function resolveImageType(buf: Uint8Array, declared?: string | null): ImageMediaType | null {
+  return sniffImageType(buf) ?? imageMediaType(declared);
+}
+
+/** True when the bytes are an iPhone HEIC/HEIF — worth naming in an error. */
+export function isHeic(buf: Uint8Array): boolean {
+  if (buf.length < 12) return false;
+  // "ftyp" at offset 4, then a heic/heif/mif1 brand.
+  const ftyp = String.fromCharCode(buf[4], buf[5], buf[6], buf[7]);
+  if (ftyp !== "ftyp") return false;
+  const brand = String.fromCharCode(buf[8], buf[9], buf[10], buf[11]).toLowerCase();
+  return ["heic", "heix", "hevc", "heim", "heis", "mif1", "msf1"].includes(brand);
+}
+
 const PROMPT = `You are reading a photograph for a Nigerian payments app. The user
 photographed someone's bank account details — a screenshot, a handwritten note, a
 shop sign, a printed invoice.

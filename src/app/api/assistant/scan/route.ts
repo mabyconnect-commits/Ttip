@@ -2,7 +2,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { getUserId } from "@/lib/auth";
 import { handler, ok, unauthorized, ApiError } from "@/lib/api";
-import { extractPaymentFromImage, imageMediaType } from "@/lib/assistant/vision";
+import { extractPaymentFromImage, resolveImageType, isHeic } from "@/lib/assistant/vision";
 import { parseAmount, parseBankName } from "@/lib/assistant/intent";
 import { NIGERIAN_BANKS } from "@/lib/banks";
 import { resolveAccountName } from "@/lib/settlement";
@@ -62,9 +62,17 @@ export async function POST(req: Request) {
       base64 = dataUrl[2];
     }
 
-    const mediaType = imageMediaType(mime);
+    // The bytes decide, not the declared type — a phone that mislabels its own
+    // photo shouldn't cost the user the picture.
+    const bytes = Buffer.from(base64, "base64");
+    const mediaType = resolveImageType(bytes, mime);
     if (!mediaType) {
-      throw new ApiError("That image format isn't supported. Send a JPEG or PNG.", 415);
+      throw new ApiError(
+        isHeic(bytes)
+          ? "That's an iPhone HEIC photo, which I can't read. In Settings → Camera → Formats pick \"Most Compatible\", or send a screenshot instead."
+          : "That image format isn't supported. Send a JPEG or PNG.",
+        415,
+      );
     }
 
     const found = await extractPaymentFromImage(base64, mediaType);

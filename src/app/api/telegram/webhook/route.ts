@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { sendMessage, sendTyping, deleteMessage, downloadFile, telegramEnabled, telegramWebhookSecret, telegramWelcome } from "@/lib/telegram";
 import { parseTransferIntent, parseBankName, parseAmount } from "@/lib/assistant/intent";
-import { extractPaymentFromImage, imageMediaType } from "@/lib/assistant/vision";
+import { extractPaymentFromImage, imageMediaType, resolveImageType, isHeic } from "@/lib/assistant/vision";
 import { speechEnabled, transcribe } from "@/lib/assistant/speech";
 import { prisma } from "@/lib/db";
 import { NIGERIAN_BANKS } from "@/lib/banks";
@@ -228,9 +228,22 @@ async function handleMedia(chatId: number, m: NonNullable<Update["message"]>): P
 
   await sendTyping(chatId);
   const file = await downloadFile(photoId);
-  const mediaType = imageMediaType(m.document?.mime_type ?? file?.mime ?? "image/jpeg");
-  if (!file || !mediaType) {
-    await sendMessage(chatId, "I couldn't open that image. Try again, or type the account number and bank.");
+  if (!file) {
+    await sendMessage(chatId, "I couldn't download that image. Send it again, or type the account number and bank.");
+    return "";
+  }
+
+  // The bytes decide, not the header. Telegram's file server serves photos as
+  // application/octet-stream, so trusting the declared type refused perfectly
+  // good JPEGs with "I couldn't open that image".
+  const mediaType = resolveImageType(file.buffer, m.document?.mime_type ?? file.mime);
+  if (!mediaType) {
+    await sendMessage(
+      chatId,
+      isHeic(file.buffer)
+        ? "That's an iPhone HEIC photo, which I can't read. In Settings → Camera → Formats pick \"Most Compatible\", or send it as a screenshot instead."
+        : "That file isn't an image I can read. Send a JPEG or PNG, or type the account number and bank.",
+    );
     return "";
   }
 

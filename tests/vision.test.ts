@@ -88,3 +88,35 @@ test("only image types Claude accepts are allowed through", () => {
   assert.equal(imageMediaType("application/pdf"), null);
   assert.equal(imageMediaType(undefined), null);
 });
+
+test("the bytes decide the format, not the declared type", async () => {
+  const { sniffImageType, resolveImageType, isHeic } = await import("../src/lib/assistant/vision");
+
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1]);
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d]);
+  const gif = new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0, 0, 0]);
+  const webp = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0x24, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]);
+
+  assert.equal(sniffImageType(jpeg), "image/jpeg");
+  assert.equal(sniffImageType(png), "image/png");
+  assert.equal(sniffImageType(gif), "image/gif");
+  assert.equal(sniffImageType(webp), "image/webp");
+
+  // THE BUG: Telegram's file server hands photos back as octet-stream, and
+  // trusting that header refused perfectly good JPEGs.
+  assert.equal(resolveImageType(jpeg, "application/octet-stream"), "image/jpeg");
+  assert.equal(resolveImageType(jpeg, undefined), "image/jpeg");
+  assert.equal(resolveImageType(jpeg, "text/html"), "image/jpeg");
+
+  // A header can still save us when the bytes are unrecognised but honest.
+  assert.equal(resolveImageType(new Uint8Array(12), "image/png"), "image/png");
+  // And genuine rubbish is still refused.
+  assert.equal(resolveImageType(new Uint8Array(12), "application/pdf"), null);
+  assert.equal(resolveImageType(new Uint8Array(2), undefined), null);
+
+  // An iPhone HEIC is named rather than shrugged at.
+  const heic = new Uint8Array([0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63]);
+  assert.equal(isHeic(heic), true);
+  assert.equal(resolveImageType(heic, "image/heic"), null);
+  assert.equal(isHeic(jpeg), false);
+});
