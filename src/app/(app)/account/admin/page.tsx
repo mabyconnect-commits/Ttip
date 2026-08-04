@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { BackHeader } from "@/components/ui";
 import { Icon } from "@/components/Icon";
 import { Campaigns } from "@/components/admin/Campaigns";
+import { UsersCard } from "@/components/admin/UsersCard";
 import { TelegramCard } from "@/components/admin/TelegramCard";
 
 /**
@@ -146,6 +147,8 @@ export default function AdminFundingPage() {
           </div>
         ) : (
           <>
+            <UsersCard />
+
             {/* revenue */}
             <div className="font-grotesk font-semibold text-[14px] mt-2 mb-2">Platform revenue</div>
             <div className="flex gap-2 mb-2">
