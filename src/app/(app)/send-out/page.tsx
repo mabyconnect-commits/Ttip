@@ -183,9 +183,12 @@ export default function SendOutPage() {
       setPinOpen(false);
       setReceipt(res.receipt);
     } catch (e: any) {
-      // A rejected PIN keeps the pad open so they can try again.
-      if (/pin/i.test(e.message ?? "")) setPinError(true);
-      else setPinOpen(false);
+      // A rejected PIN keeps the pad open so they can try again. If the server
+      // asked for a PIN we didn't send, show the pad instead of just a toast.
+      if (/pin/i.test(e.message ?? "")) {
+        setPinError(true);
+        setPinOpen(true);
+      } else setPinOpen(false);
       toast(e.message, "bad");
     } finally {
       setLoading(false);
@@ -198,6 +201,19 @@ export default function SendOutPage() {
       <div className="mt-1">
         <Segmented value={mode} onChange={setMode} options={[{ value: "bank", label: "To bank" }, { value: "wallet", label: "To wallet" }]} />
       </div>
+
+      {/* No PIN, no withdrawal — say so here rather than letting them fill in the
+          whole form and fail on the last tap. */}
+      {verified && !state.user.hasPin && (
+        <button onClick={() => router.push("/account/security")} className="mt-3 w-full rounded-2xl bg-surface border border-warn/25 px-4 py-3 flex items-center gap-3 text-left active:scale-[.99]">
+          <span className="w-8 h-8 rounded-full bg-warn/[.12] flex items-center justify-center text-warn shrink-0"><Icon name="lock" size={16} /></span>
+          <div className="flex-1 min-w-0">
+            <div className="font-medium text-[13px]">Set a transaction PIN to withdraw</div>
+            <div className="text-white/45 text-[11.5px]">Takes a minute · Account → Security</div>
+          </div>
+          <Icon name="chevronRight" size={15} className="text-white/30" />
+        </button>
+      )}
 
       {!verified && (
         <button onClick={() => router.push("/account/kyc")} className="mt-3 w-full rounded-2xl bg-surface border border-white/[.08] px-4 py-3 flex items-center gap-3 text-left active:scale-[.99]">

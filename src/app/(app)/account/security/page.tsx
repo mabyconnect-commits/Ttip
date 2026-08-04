@@ -70,6 +70,7 @@ export default function SecurityPage() {
   }
 
   async function removePin() {
+    if (!confirm("Remove your PIN? You won't be able to withdraw until you set a new one.")) return;
     await fetch("/api/pin", { method: "DELETE" });
     await refresh();
     toast("App-lock PIN removed", "info");
@@ -81,17 +82,32 @@ export default function SecurityPage() {
       <div className="flex-1 overflow-y-auto no-scrollbar pb-6">
         <div className="mt-2 bg-surface border border-white/[.06] rounded-[18px] overflow-hidden">
           <Row icon="lock" label="Password" sub="Change your account password" onClick={() => setPwOpen(true)} />
+          {/* One PIN does both jobs. It was labelled "app-lock PIN", so someone
+              looking for a withdrawal PIN never found it. */}
           <Row
             icon="grid"
-            label={hasPin ? "Change app-lock PIN" : "Set app-lock PIN"}
-            sub={hasPin ? "4-digit PIN required to open the app" : "Add a 4-digit PIN to lock the app"}
+            label={hasPin ? "Change transaction PIN" : "Set transaction PIN"}
+            sub={hasPin ? "Required for withdrawals and to open the app" : "Required before you can withdraw"}
             onClick={openPin}
             border
           />
           {hasPin && (
-            <Row icon="trash" label="Remove PIN" sub="Turn off the app lock" onClick={removePin} border danger />
+            <Row icon="trash" label="Remove PIN" sub="Withdrawals will be blocked" onClick={removePin} border danger />
           )}
         </div>
+
+        {!hasPin && (
+          <button
+            onClick={openPin}
+            className="mt-3 w-full rounded-2xl px-4 py-3.5 flex items-start gap-2.5 text-left bg-warn/[.08] border border-warn/25 active:scale-[.99]"
+          >
+            <Icon name="shield" size={15} className="text-warn mt-0.5 shrink-0" />
+            <span className="text-[12.5px] text-white/75 leading-[1.5]">
+              <b className="text-white">You can&apos;t withdraw yet.</b> Set a 4-digit transaction PIN — it&apos;s
+              what stops anyone who picks up your unlocked phone from emptying your account.
+            </span>
+          </button>
+        )}
 
         <div className="mt-4 rounded-2xl px-4 py-3 flex items-start gap-2.5 text-[12px] text-white/50 bg-surface border border-white/[.06]">
           <Icon name="lock" size={14} className="text-white/40 mt-0.5 shrink-0" />
