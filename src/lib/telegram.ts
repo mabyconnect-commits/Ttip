@@ -221,6 +221,9 @@ export function telegramWelcome(name?: string | null): string {
       `• Type it: *"send ₦5,000 to 9077984753 Opay"*\n` +
       `• Photograph the account and add *"send ₦5,000 to this"*\n` +
       `• Say it: hold the mic and speak\n\n` +
+      `**Send crypto**\n` +
+      `Paste a wallet address, or send a photo of its QR code, then tell me how much — ` +
+      `typed or spoken. I'll show you the address in full before anything moves.\n\n` +
       `I confirm the account name with the bank, then you reply with your PIN — and I delete your ` +
       `PIN from this chat the second I read it.\n\n` +
       `**Ask me anything**\n` +

@@ -63,6 +63,44 @@ export interface DraftInput {
   bankName: string;
 }
 
+/** A crypto send: an address on a network, and an asset to send. */
+export interface CryptoDraftInput {
+  userId: string;
+  chatId: number | string;
+  amount?: number | null;
+  asset: string;
+  network: string;
+  address: string;
+}
+
+/**
+ * Store a pending crypto send.
+ *
+ * No name lookup — a chain has nobody to ask who owns an address. That absence
+ * is the whole reason the confirmation shows the address in full and says so
+ * out loud: on a bank transfer the bank vouches for the destination, and here
+ * nothing does.
+ */
+export async function createCryptoDraft(input: CryptoDraftInput) {
+  const chatId = String(input.chatId);
+  const data = {
+    userId: input.userId,
+    kind: "crypto",
+    amount: input.amount ?? null,
+    fiat: input.asset,
+    asset: input.asset,
+    network: input.network,
+    address: input.address,
+    accountNumber: null,
+    bankName: null,
+    accountName: null,
+    resolvedName: null,
+    attempts: 0,
+    expiresAt: new Date(Date.now() + DRAFT_TTL_MS),
+  };
+  await prisma.telegramDraft.upsert({ where: { chatId }, create: { chatId, ...data }, update: data });
+}
+
 /** Looks the account up at the bank, then stores it as the chat's live draft. */
 export async function createDraft(input: DraftInput) {
   const resolved = await resolveAccountName(input.bankName, input.accountNumber, input.fiat).catch(() => null);
@@ -70,6 +108,10 @@ export async function createDraft(input: DraftInput) {
 
   const data = {
     userId: input.userId,
+    kind: "bank",
+    asset: null,
+    network: null,
+    address: null,
     amount: input.amount ?? null,
     fiat: input.fiat,
     accountNumber: input.accountNumber,
@@ -121,13 +163,18 @@ export async function setDraftAmount(chatId: number | string, amount: number) {
 
 /** The confirmation text shown before the PIN is asked for. */
 export function draftPrompt(d: {
+  kind?: string;
   amount: unknown;
   fiat: string;
-  accountNumber: string;
-  bankName: string;
-  accountName: string;
+  accountNumber: string | null;
+  bankName: string | null;
+  accountName: string | null;
   resolvedName: string | null;
+  asset?: string | null;
+  network?: string | null;
+  address?: string | null;
 }): string {
+  if (d.kind === "crypto") return cryptoPrompt(d);
   const amount = Number(d.amount);
   const fee = transferFee(amount, d.fiat);
   const money = (n: number) => `${d.fiat === "NGN" ? "₦" : d.fiat + " "}${n.toLocaleString("en-US")}`;
@@ -142,6 +189,32 @@ export function draftPrompt(d: {
     `${d.accountNumber} · ${d.bankName}\n` +
     (fee !== null ? `Fee: ${money(fee)} (taken from your balance, they get the full ${money(amount)})\n` : "") +
     `\nReply with your **transaction PIN** to send it. I delete your PIN from this chat the second I read it.\n` +
+    `Send /cancel to drop it.`
+  );
+}
+
+/**
+ * The crypto confirmation.
+ *
+ * The full address, never shortened. On a bank transfer the bank tells us whose
+ * account it is and the user checks a name; on a chain there is no such answer,
+ * so the only thing they can check is the string itself — and they cannot check
+ * what we have hidden behind an ellipsis.
+ */
+function cryptoPrompt(d: {
+  amount: unknown;
+  asset?: string | null;
+  network?: string | null;
+  address?: string | null;
+}): string {
+  const amount = Number(d.amount);
+  return (
+    `**Sending ${amount} ${d.asset}**\n` +
+    `Network: **${d.network}**\n` +
+    `To:\n\`${d.address}\`\n\n` +
+    `⚠️ Check every character. A crypto transfer cannot be reversed, and nobody ` +
+    `can tell me who owns this address.\n\n` +
+    `Reply with your **transaction PIN** to send it. I delete your PIN from this chat the second I read it.\n` +
     `Send /cancel to drop it.`
   );
 }
@@ -161,11 +234,15 @@ export async function sendDraft(
   draft: {
     id: string;
     userId: string;
+    kind?: string;
     amount: unknown;
     fiat: string;
-    accountNumber: string;
-    bankName: string;
-    accountName: string;
+    accountNumber: string | null;
+    bankName: string | null;
+    accountName: string | null;
+    asset?: string | null;
+    network?: string | null;
+    address?: string | null;
   },
   pin: string,
 ): Promise<SendOutcome> {
@@ -173,7 +250,9 @@ export async function sendDraft(
   const money = (n: number) => `${draft.fiat === "NGN" ? "₦" : draft.fiat + " "}${n.toLocaleString("en-US")}`;
 
   const cap = telegramMaxTransfer();
-  if (cap !== null && draft.fiat === "NGN" && amount > cap) {
+  // The cap is a naira ceiling; a crypto amount is not naira, so it is governed
+  // by the app's own crypto withdrawal limit rather than this one.
+  if (draft.kind !== "crypto" && cap !== null && draft.fiat === "NGN" && amount > cap) {
     return {
       ok: false,
       wrongPin: false,
@@ -206,20 +285,33 @@ export async function sendDraft(
         "Content-Type": "application/json",
         Cookie: `${SESSION_COOKIE}=${token}`,
       },
-      body: JSON.stringify({
-        mode: "bank",
-        fiat: draft.fiat,
-        symbol: draft.fiat,
-        amount,
-        bankName: draft.bankName,
-        accountNumber: draft.accountNumber,
-        accountName: draft.accountName,
-        note: "Sent from Telegram",
-        pin,
-        // Derived from the draft id, so a retried webhook delivery — Telegram
-        // retries anything that isn't a 200 — cannot send the money twice.
-        idempotencyKey: `tg-${draft.id}`,
-      }),
+      body: JSON.stringify(
+        draft.kind === "crypto"
+          ? {
+              mode: "wallet",
+              symbol: draft.asset,
+              amount,
+              address: draft.address,
+              network: draft.network,
+              pin,
+              idempotencyKey: `tg-${draft.id}`,
+            }
+          : {
+              mode: "bank",
+              fiat: draft.fiat,
+              symbol: draft.fiat,
+              amount,
+              bankName: draft.bankName,
+              accountNumber: draft.accountNumber,
+              accountName: draft.accountName,
+              note: "Sent from Telegram",
+              pin,
+              // Derived from the draft id, so a retried webhook delivery —
+              // Telegram retries anything that isn't a 200 — cannot send the
+              // money twice.
+              idempotencyKey: `tg-${draft.id}`,
+            },
+      ),
     });
   } catch (e) {
     // A throw is NOT a failure: the request may have reached the payout
@@ -235,7 +327,13 @@ export async function sendDraft(
   }
 
   if (res.ok) {
-    return { ok: true, message: `Sent ✅ ${money(amount)} to ${draft.accountName}.` };
+    return {
+      ok: true,
+      message:
+        draft.kind === "crypto"
+          ? `Sent ✅ ${amount} ${draft.asset} on ${draft.network}. It can take a few minutes to confirm on-chain.`
+          : `Sent ✅ ${money(amount)} to ${draft.accountName}.`,
+    };
   }
 
   const body = (await res.json().catch(() => ({}))) as { error?: string };

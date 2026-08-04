@@ -146,11 +146,18 @@ model TelegramDraft {
   /// Null while we still need to be told how much. A photo of an account gives
   /// us the recipient but rarely the amount, and the user supplies that in the
   /// next message — which they should not have to repeat the account for.
+  /// "bank" | "crypto" — the two things a chat can send.
+  kind          String   @default("bank")
   amount        Decimal? @db.Decimal(18, 2)
   fiat          String
-  accountNumber String
-  bankName      String
-  accountName   String
+  /// Bank fields. Null on a crypto draft.
+  accountNumber String?
+  bankName      String?
+  accountName   String?
+  /// Crypto fields. Null on a bank draft.
+  asset         String?
+  network       String?
+  address       String?
   /// Null when the bank could not confirm the name — the prompt says so.
   resolvedName  String?
   /// Wrong-PIN attempts. The draft dies after a few, so a chat can't be used

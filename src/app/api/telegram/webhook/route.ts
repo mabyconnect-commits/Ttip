@@ -3,7 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { sendMessage, sendTyping, deleteMessage, downloadFile, sendPhoto, telegramEnabled, telegramWebhookSecret, telegramWelcome } from "@/lib/telegram";
 import { renderReceiptPng } from "@/lib/receipt-svg";
 import { transferFee } from "@/lib/pricing";
-import { parseTransferIntent, parseBankName, parseAmount } from "@/lib/assistant/intent";
+import { parseTransferIntent, parseBankName, parseAmount, parseAccountNumber } from "@/lib/assistant/intent";
 import { extractPaymentFromImage, imageMediaType, resolveImageType, isHeic } from "@/lib/assistant/vision";
 import { speechEnabled, transcribe } from "@/lib/assistant/speech";
 import { prisma } from "@/lib/db";
@@ -17,7 +17,10 @@ import {
   bumpAttempts,
   MAX_PIN_ATTEMPTS,
   setDraftAmount,
+  createCryptoDraft,
 } from "@/lib/telegram-transfer";
+import { parseCryptoAddress, FAMILY_ASSETS, FAMILY_NETWORK, shortAddress, type ChainFamily } from "@/lib/assistant/crypto-address";
+import { decodeQr } from "@/lib/assistant/qr";
 import { answerFaq } from "@/lib/assistant/faq";
 import { assistantRules, ttipKnowledge } from "@/lib/assistant/knowledge";
 import { cleanAssistantText } from "@/lib/assistant/sanitize";
@@ -107,8 +110,11 @@ async function reply(question: string, userId: string | null, ctx: FaqCtx): Prom
                 `If they want to send but left something out, ask for the missing piece: the amount, the ` +
                 `account number, or the bank. Do not tell them transfers are unavailable here, and never ` +
                 `quote an account number or amount you were not given.\n` +
-                `Swaps, bill payments and crypto withdrawals are still app-only — point those to ` +
-                `${COMPANY.domain}.\n` +
+                `Crypto sends work here too: the user pastes a wallet address or sends a photo of ` +
+                `a QR code, and says how much. Never read, repeat or complete a wallet address ` +
+                `yourself — a decoder and a parser handle those, and a single wrong character ` +
+                `loses the money with nobody to call.\n` +
+                `Swaps and bill payments are still app-only — point those to ${COMPANY.domain}.\n` +
                 `Never ask for a password, BVN or OTP; you never need them. Only ever ask for a PIN as the ` +
                 `final step of a transfer the parser has already set up.\n\n` +
                 `## Formatting\n` +
@@ -250,6 +256,30 @@ async function handleMedia(chatId: number, m: NonNullable<Update["message"]>): P
     return "";
   }
 
+  // A QR first. A decoder either returns the exact payload or fails, because a
+  // QR carries its own checksum — whereas a model looking at one is guessing,
+  // and a guessed crypto address is money gone with nobody to call.
+  const qr = await decodeQr(file.buffer);
+  if (qr) {
+    const addr = parseCryptoAddress(qr);
+    if (addr) {
+      await handleCryptoAddress(chatId, linked.id, addr.address, addr.family, `${caption} ${qr}`);
+      return "";
+    }
+    // A QR that isn't a wallet address may still be a bank account written out.
+    const fromQr = parseAccountNumber(qr);
+    if (fromQr) {
+      const bank = parseBankName(`${caption} ${qr}`, NIGERIAN_BANKS.map((b) => b.name));
+      const amt = parseAmount(caption);
+      if (bank) {
+        await createDraft({ userId: linked.id, chatId, amount: amt, fiat: "NGN", accountNumber: fromQr, bankName: bank });
+        const d = await liveDraft(chatId);
+        if (d) await sendMessage(chatId, amt ? draftPrompt(d) : `Got it — **${fromQr}** at **${bank}**.\n\nHow much should I send?`);
+        return "";
+      }
+    }
+  }
+
   const found = await extractPaymentFromImage(file.buffer.toString("base64"), mediaType);
   if (!found.accountNumber) {
     await sendMessage(
@@ -322,7 +352,74 @@ async function matchBeneficiary(userId: string, text: string) {
   return hits.length === 1 ? hits[0] : null;
 }
 
+/**
+ * A wallet address in the message — pasted, or decoded from a QR.
+ *
+ * Crypto has no recall and no name to check, so this asks about anything it
+ * isn't sure of rather than choosing for the user: which asset, if they hold
+ * more than one on that chain, and how much.
+ */
+async function handleCryptoAddress(
+  chatId: number,
+  userId: string,
+  address: string,
+  family: ChainFamily,
+  text: string,
+): Promise<boolean> {
+  const network = FAMILY_NETWORK[family];
+
+  // Only assets they actually hold on that chain — offering to send something
+  // with a zero balance wastes a step and reads as a bug.
+  const balances = await prisma.balance.findMany({
+    where: { userId, kind: "crypto", symbol: { in: FAMILY_ASSETS[family] } },
+    select: { symbol: true, amount: true },
+  });
+  const held = balances.filter((b) => Number(b.amount) > 0).map((b) => b.symbol);
+
+  if (!held.length) {
+    await sendMessage(
+      chatId,
+      `That's a **${network}** address, but you don't hold anything on ${network} to send. ` +
+        `Swap into ${FAMILY_ASSETS[family][0]} in the app first.`,
+    );
+    return true;
+  }
+
+  // A named asset wins; otherwise only pick when there's nothing to pick between.
+  const named = held.find((sym) => new RegExp(`(^|\\W)${sym}(\\W|$)`, "i").test(text));
+  const asset = named ?? (held.length === 1 ? held[0] : null);
+  if (!asset) {
+    await sendMessage(
+      chatId,
+      `That's a **${network}** address — \`${shortAddress(address)}\`.\n\n` +
+        `Which do you want to send: ${held.join(", ")}?`,
+    );
+    // Remembered without an asset would be ambiguous, so nothing is stored yet.
+    return true;
+  }
+
+  const amount = parseAmount(text);
+  await createCryptoDraft({ userId, chatId, amount, asset, network, address });
+
+  if (!amount) {
+    await sendMessage(
+      chatId,
+      `**${asset}** on **${network}**, to:\n\`${address}\`\n\nHow much ${asset} should I send?`,
+    );
+    return true;
+  }
+  const draft = await liveDraft(chatId);
+  if (draft) await sendMessage(chatId, draftPrompt(draft));
+  return true;
+}
+
 async function handleTransferIntent(chatId: number, userId: string, text: string): Promise<boolean> {
+  // A wallet address anywhere in the message routes to the crypto path. Checked
+  // before the naira parser, because a NUBAN can't look like a chain address but
+  // a chain address contains digits a money parser would happily misread.
+  const crypto = parseCryptoAddress(text);
+  if (crypto) return handleCryptoAddress(chatId, userId, crypto.address, crypto.family, text);
+
   // A recipient we're already holding — from a photo, or from a request that
   // named the account but not the amount. Answering "1,200" should finish it,
   // not start the conversation again.
@@ -470,19 +567,31 @@ async function sendReceipt(
       `${draft.fiat === "NGN" ? "₦" : draft.fiat + " "}${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     const fee = transferFee(amount, draft.fiat);
 
+    const crypto = draft.kind === "crypto";
+    const when = new Date().toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
+
     const png = await renderReceiptPng({
-      amount: money(amount),
-      kind: "Bank transfer",
-      status: "Completed",
+      amount: crypto ? `${amount} ${draft.asset}` : money(amount),
+      kind: crypto ? `${draft.network} transfer` : "Bank transfer",
+      // A chain confirms in its own time, so claiming "completed" the instant
+      // we hand it over would be a promise we can't keep.
+      status: crypto ? "Sent" : "Completed",
       reference: `TG-${draft.id.slice(-10).toUpperCase()}`,
-      rows: [
-        { label: "To", value: draft.accountName },
-        { label: "Account", value: draft.accountNumber },
-        { label: "Bank", value: draft.bankName },
-        { label: "Amount", value: money(amount) },
-        ...(fee !== null ? [{ label: "Fee", value: money(fee) }] : []),
-        { label: "Date", value: new Date().toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }) },
-      ],
+      rows: crypto
+        ? [
+            { label: "Asset", value: `${amount} ${draft.asset ?? ""}`.trim() },
+            { label: "Network", value: draft.network ?? "" },
+            { label: "To", value: draft.address ?? "" },
+            { label: "Date", value: when },
+          ]
+        : [
+            { label: "To", value: draft.accountName ?? "" },
+            { label: "Account", value: draft.accountNumber ?? "" },
+            { label: "Bank", value: draft.bankName ?? "" },
+            { label: "Amount", value: money(amount) },
+            ...(fee !== null ? [{ label: "Fee", value: money(fee) }] : []),
+            { label: "Date", value: when },
+          ],
     });
     if (png) await sendPhoto(chatId, png, "Receipt — forward this to whoever you paid.");
   } catch (e) {
