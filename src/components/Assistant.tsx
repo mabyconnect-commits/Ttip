@@ -5,7 +5,16 @@ import { Icon } from "@/components/Icon";
 import { COMPANY } from "@/lib/company";
 import { PinPrompt } from "@/components/PinPrompt";
 import { useApp } from "@/context/AppContext";
-import { listen, speechSupported, speechErrorMessage, type Listener } from "@/lib/speech-input";
+import {
+  listen,
+  speechSupported,
+  speechErrorMessage,
+  record,
+  recordingSupported,
+  transcribeBlob,
+  type Listener,
+  type Recording,
+} from "@/lib/speech-input";
 
 /**
  * Ada — the floating in-app assistant.
@@ -89,8 +98,12 @@ export function Assistant() {
   const [listening, setListening] = useState(false);
   const [canSpeak, setCanSpeak] = useState(false);
   const listener = useRef<Listener | null>(null);
+  const recorder = useRef<Recording | null>(null);
+  const heard = useRef("");
+  const [transcribing, setTranscribing] = useState(false);
 
-  useEffect(() => setCanSpeak(speechSupported()), []);
+  // Either route is enough to offer the button.
+  useEffect(() => setCanSpeak(speechSupported() || recordingSupported()), []);
 
   // Restore the thread so closing the panel mid-conversation doesn't lose it.
   useEffect(() => {
@@ -188,38 +201,81 @@ export function Assistant() {
    * A misheard amount has to be visible and editable BEFORE the PIN, not
    * discovered after the money has gone.
    */
-  const toggleListening = useCallback(() => {
-    if (listener.current) {
-      listener.current.stop();
+  const toggleListening = useCallback(async () => {
+    // ---- stop ----
+    if (listening) {
+      listener.current?.stop();
       listener.current = null;
+      const rec = recorder.current;
+      recorder.current = null;
       setListening(false);
+
+      // Give the recogniser a moment to deliver its last result before
+      // deciding it produced nothing.
+      await new Promise((r) => setTimeout(r, 350));
+      const blob = rec ? await rec.stop() : null;
+
+      if (heard.current.trim()) {
+        inputRef.current?.focus();
+        return; // the browser heard it; nothing to upload
+      }
+      if (!blob) {
+        toast("I didn't catch anything — try again, or type it.", "bad");
+        return;
+      }
+
+      // The browser's recogniser gave us nothing. Send the recording instead.
+      setTranscribing(true);
+      const res = await transcribeBlob(blob);
+      setTranscribing(false);
+      if (res.text) {
+        setInput(res.text.slice(0, 2000));
+        inputRef.current?.focus();
+      } else {
+        toast(res.error ?? "I couldn't make that out.", "bad");
+      }
       return;
     }
-    const l = listen({
-      onPartial: (t) => setInput(t.slice(0, 2000)),
-      onFinal: (t) => {
+
+    // ---- start ----
+    heard.current = "";
+
+    // Record in parallel. It costs nothing when the recogniser works, and it's
+    // the difference between working and not when it silently doesn't.
+    recorder.current = await record();
+
+    listener.current = listen({
+      onPartial: (t) => {
+        heard.current = t;
         setInput(t.slice(0, 2000));
-        inputRef.current?.focus();
       },
-      onError: (reason) => toast(speechErrorMessage(reason), "bad"),
+      onFinal: (t) => {
+        heard.current = t;
+        setInput(t.slice(0, 2000));
+      },
+      // Only worth surfacing when there's no recording to fall back on.
+      onError: (reason) => {
+        if (!recorder.current) toast(speechErrorMessage(reason), "bad");
+      },
       onEnd: () => {
         listener.current = null;
-        setListening(false);
       },
     });
-    if (!l) {
-      toast("This browser can't do voice input — type it instead.", "bad");
+
+    if (!listener.current && !recorder.current) {
+      toast("I couldn't reach your microphone — check the permission, or type it.", "bad");
       return;
     }
-    listener.current = l;
     setListening(true);
-  }, [toast]);
+  }, [listening, toast]);
 
   // Never leave the microphone running when the panel closes.
   useEffect(() => {
-    if (!open && listener.current) {
-      listener.current.cancel();
+    if (!open && (listener.current || recorder.current)) {
+      listener.current?.cancel();
       listener.current = null;
+      recorder.current?.cancel();
+      recorder.current = null;
       setListening(false);
     }
   }, [open]);
@@ -539,7 +595,13 @@ export function Assistant() {
               {listening && (
                 <div className="flex items-center justify-center gap-2 pb-2 text-[12px] text-good">
                   <span className="w-2 h-2 rounded-full bg-good animate-pulse" />
-                  Listening… tap the mic to stop
+                  Listening… tap the mic when you&apos;re done
+                </div>
+              )}
+              {transcribing && (
+                <div className="flex items-center justify-center gap-2 pb-2 text-[12px] text-white/55">
+                  <span className="w-3 h-3 rounded-full border-2 border-white/20 border-t-good animate-spin" />
+                  Reading that back…
                 </div>
               )}
               <div className="flex items-end gap-2">
@@ -580,10 +642,13 @@ export function Assistant() {
                 />
                 {/* Speak instead of typing. Falls back to the send button on
                     browsers with no speech recognition. */}
-                {canSpeak && !input.trim() ? (
+                {/* While listening, the mic must stay — it's the stop button. It used to
+                    swap to Send the moment speech put text in the box, leaving no way
+                    to stop except closing the chat. */}
+                {canSpeak && (listening || !input.trim()) ? (
                   <button
                     onClick={toggleListening}
-                    disabled={busy || scanning}
+                    disabled={busy || scanning || transcribing}
                     aria-label={listening ? "Stop listening" : "Speak to Ada"}
                     className={`w-[46px] h-[46px] rounded-2xl flex items-center justify-center shrink-0 disabled:opacity-35 active:scale-95 ${
                       listening ? "bg-bad text-white" : "bg-surface border border-white/[.08] text-white/70"
