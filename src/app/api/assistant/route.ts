@@ -125,23 +125,45 @@ export async function POST(req: Request) {
     const context = await buildUserContext(userId);
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
-    const stream = client.messages.stream({
-      model: MODEL,
-      max_tokens: MAX_TOKENS,
-      // Adaptive lets the model spend nothing on "what's my limit?" and think
-      // properly on "my transfer is pending and the money left my bank".
-      thinking: { type: "adaptive" },
-      system: [
-        {
-          type: "text",
-          text: `${assistantRules()}\n\n${ttipKnowledge()}`,
-          // Identical on every request, so it's worth caching.
-          cache_control: { type: "ephemeral" },
-        },
-        { type: "text", text: context },
-      ],
-      messages: messages.map((m) => ({ role: m.role, content: m.content })),
-    });
+    const turns = messages.map((m) => ({ role: m.role, content: m.content }));
+    const system = [
+      {
+        type: "text" as const,
+        text: `${assistantRules()}\n\n${ttipKnowledge()}`,
+        // Identical on every request, so it's worth caching.
+        cache_control: { type: "ephemeral" as const },
+      },
+      { type: "text" as const, text: context },
+    ];
+
+    // Adaptive lets the model spend nothing on "what's my limit?" and think
+    // properly on "my transfer is pending and the money left my bank" — but it
+    // is not accepted by every model, so a rejected request is retried without
+    // it rather than failing the whole conversation.
+    const openStream = (thinking: boolean) =>
+      client.messages.stream({
+        model: MODEL,
+        max_tokens: MAX_TOKENS,
+        ...(thinking ? { thinking: { type: "adaptive" as const } } : {}),
+        system,
+        messages: turns,
+      });
+
+    /** The built-in answer, used whenever the model can't be reached. */
+    const fallback = async () => {
+      const u = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { name: true, kycTier: true, kycStatus: true, nairaAccount: true, nairaBank: true },
+      });
+      return answerFaq(question, {
+        name: u?.name,
+        tier: u?.kycTier ?? 0,
+        kycStatus: u?.kycStatus,
+        nairaAccount: u?.nairaAccount,
+        nairaBank: u?.nairaBank,
+        bankAliases: bankAliases(u?.nairaBank),
+      });
+    };
 
     const encoder = new TextEncoder();
 
@@ -154,7 +176,9 @@ export async function POST(req: Request) {
         let sent = 0; // how much of the CLEANED text the client already has
         let stopReason: string | null = null;
 
-        try {
+        /** Drain one attempt. Returns false if it failed before emitting text. */
+        const run = async (thinking: boolean): Promise<boolean> => {
+          const stream = openStream(thinking);
           for await (const event of stream) {
             if (event.type === "message_delta") {
               stopReason = event.delta.stop_reason ?? stopReason;
@@ -173,6 +197,20 @@ export async function POST(req: Request) {
               send({ t: "delta", text: clean.slice(sent) });
               sent = clean.length;
             }
+          }
+          return true;
+        };
+
+        try {
+          try {
+            await run(true);
+          } catch (err) {
+            // Nothing reached the user yet, so a second attempt is safe. The
+            // usual cause is the model rejecting `thinking`.
+            if (sent > 0) throw err;
+            console.error("[assistant] retrying without adaptive thinking", err);
+            raw = "";
+            await run(false);
           }
 
           const final = cleanAssistantText(raw, false);
@@ -194,11 +232,24 @@ export async function POST(req: Request) {
             send({ t: "done", escalate: final.escalate });
           }
         } catch (err) {
-          console.error("[assistant] stream failed", err);
-          send({
-            t: "error",
-            message: "I lost that one — say it again? If it keeps happening, email support.",
-          });
+          // The model is unreachable — misconfigured key, rate limit, outage.
+          // Answer from the built-in knowledge rather than showing an error;
+          // the user asked a real question and deserves a real reply.
+          console.error("[assistant] model unavailable, using built-in answers", err);
+          try {
+            const a = await fallback();
+            if (sent === 0) {
+              send({ t: "delta", text: a.text });
+              send({ t: "done", escalate: a.escalate });
+            } else {
+              send({ t: "done", escalate: true });
+            }
+          } catch {
+            send({
+              t: "error",
+              message: "I lost that one — say it again? If it keeps happening, email support.",
+            });
+          }
         } finally {
           controller.close();
         }
