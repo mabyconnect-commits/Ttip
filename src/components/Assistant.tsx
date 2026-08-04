@@ -370,25 +370,6 @@ export function Assistant() {
 
   return (
     <>
-      <PinPrompt
-        open={!!draft}
-        onClose={() => setDraft(null)}
-        onPin={confirmDraft}
-        error={pinError}
-        busy={sending}
-        // The chat panel below is z-70; without this the pad opens behind it
-        // and the confirm card looks like it ignored the tap.
-        above
-        title={draft?.kind === "bill" ? "Confirm this purchase" : "Confirm this transfer"}
-        subtitle={
-          draft
-            ? draft.kind === "bill"
-              ? `${draft.planName} · ${draft.provider} · ${draft.phone}`
-              : `${draft.fiat} ${draft.amount.toLocaleString()} to ${draft.beneficiaryName}`
-            : undefined
-        }
-      />
-
       {/* launcher — pinned inside the 480px app column, clear of the tab bar */}
       {!open && (
         <div className="fixed bottom-[96px] left-1/2 -translate-x-1/2 w-full max-w-[480px] px-4 flex justify-end pointer-events-none z-40">
@@ -406,6 +387,32 @@ export function Assistant() {
         <div className="fixed inset-0 z-[70] flex items-end justify-center">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => setOpen(false)} />
           <div className="relative w-full max-w-[480px] h-[90dvh] bg-[#0B0D14] border-t border-white/10 rounded-t-[26px] flex flex-col animate-sheet overflow-hidden">
+            {/*
+              The PIN pad lives INSIDE this panel, not beside it.
+
+              As a separate fixed sheet it depended on the two overlays agreeing
+              about z-index — and when they didn't, the pad opened behind the
+              chat: there, invisible, untappable, so "Review & confirm with PIN"
+              looked like it was ignoring every tap. A child cannot be painted
+              behind its own parent, so this arrangement cannot fail that way.
+            */}
+            <PinPrompt
+              inline
+              open={!!draft}
+              onClose={() => setDraft(null)}
+              onPin={confirmDraft}
+              error={pinError}
+              busy={sending}
+              title={draft?.kind === "bill" ? "Confirm this purchase" : "Confirm this transfer"}
+              subtitle={
+                draft
+                  ? draft.kind === "bill"
+                    ? `${draft.planName} · ${draft.provider} · ${draft.phone}`
+                    : `${draft.fiat} ${draft.amount.toLocaleString()} to ${draft.beneficiaryName}`
+                  : undefined
+              }
+            />
+
             {/* header */}
             <div className="flex items-center gap-3 px-5 pt-4 pb-3 border-b border-white/[.07] shrink-0">
               <div className="grad-bg-135 w-9 h-9 rounded-full flex items-center justify-center text-[#04121A] shrink-0">

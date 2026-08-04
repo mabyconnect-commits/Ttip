@@ -23,6 +23,7 @@ export function PinPrompt({
   error,
   busy = false,
   above = false,
+  inline = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -36,6 +37,17 @@ export function PinPrompt({
   busy?: boolean;
   /** Raise above a full-screen overlay (Ada's chat panel). */
   above?: boolean;
+  /**
+   * Render INSIDE the parent instead of as a fixed sheet.
+   *
+   * A sheet opened from inside another full-screen overlay depends on the two
+   * of them agreeing about z-index, and when they didn't, the pad opened behind
+   * Ada's chat: there, invisible, and untappable, so the confirm card looked
+   * like it was ignoring every tap. Rendering the pad as a child of the panel
+   * removes the question — a child cannot be painted behind its own parent.
+   * The parent must be `relative` and not clip its overflow.
+   */
+  inline?: boolean;
 }) {
   const { state } = useApp();
   const router = useRouter();
@@ -58,7 +70,7 @@ export function PinPrompt({
 
   if (!state.user.hasPin) {
     return (
-      <Sheet open={open} onClose={onClose} above={above} title="Set a transaction PIN">
+      <Shell open={open} onClose={onClose} above={above} inline={inline} title="Set a transaction PIN">
         <p className="text-white/55 text-[13.5px] leading-[1.55]">
           Withdrawals need a PIN. It takes a minute to set, and it&apos;s what stops anyone who picks
           up your unlocked phone from emptying your account.
@@ -69,12 +81,12 @@ export function PinPrompt({
         >
           Set my PIN
         </button>
-      </Sheet>
+      </Shell>
     );
   }
 
   return (
-    <Sheet open={open} onClose={busy ? () => {} : onClose} above={above} title={title}>
+    <Shell open={open} onClose={busy ? () => {} : onClose} above={above} inline={inline} title={title}>
       {subtitle && <p className="text-white/55 text-[13px] mb-4 -mt-1">{subtitle}</p>}
 
       {busy ? (
@@ -98,6 +110,49 @@ export function PinPrompt({
           />
         </div>
       )}
-    </Sheet>
+    </Shell>
+  );
+}
+
+/**
+ * The container the pad sits in: a normal bottom sheet, or — when `inline` — an
+ * overlay drawn inside whatever opened it, which is the only arrangement that
+ * cannot lose a stacking argument with its own parent.
+ */
+function Shell({
+  open,
+  onClose,
+  title,
+  above,
+  inline,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title?: string;
+  above?: boolean;
+  inline?: boolean;
+  children: React.ReactNode;
+}) {
+  if (!inline) {
+    return (
+      <Sheet open={open} onClose={onClose} above={above} title={title}>
+        {children}
+      </Sheet>
+    );
+  }
+  if (!open) return null;
+  return (
+    <div className="absolute inset-0 z-20 flex flex-col justify-end" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-md" />
+      <div
+        className="relative bg-[#0B0D14] border-t border-white/10 rounded-t-[26px] p-5 pb-8 animate-sheet max-h-full overflow-y-auto no-scrollbar"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-4" />
+        {title && <div className="font-grotesk font-semibold text-[17px] mb-3">{title}</div>}
+        {children}
+      </div>
+    </div>
   );
 }

@@ -137,7 +137,9 @@ export default function SecurityPage() {
 function Row({ icon, label, sub, onClick, border, danger }: { icon: any; label: string; sub: string; onClick: () => void; border?: boolean; danger?: boolean }) {
   return (
     <button onClick={onClick} className={`w-full flex items-center gap-3.5 px-4 py-3.5 active:bg-white/5 ${border ? "border-t border-white/[.05]" : ""}`}>
-      <span className="w-9 h-9 rounded-full bg-surface2 flex items-center justify-center shrink-0" style={{ color: danger ? "#FF7A8A" : "rgba(255,255,255,.8)" }}>
+      <span className="w-9 h-9 rounded-full bg-surface2 flex items-center justify-center shrink-0" // Themed, not a literal white: an inline style is the one thing the
+      // light-mode CSS cannot remap, so this icon vanished on a white card.
+      style={{ color: danger ? "#FF7A8A" : "rgb(var(--fg) / .8)" }}>
         <Icon name={icon} size={18} />
       </span>
       <div className="flex-1 text-left">

@@ -45,7 +45,13 @@ export function PinPad({
             className="w-3.5 h-3.5 rounded-full transition-all"
             style={{
               background: i < pin.length ? (error ? "#FF7A8A" : "#2AC8FF") : "transparent",
-              border: `2px solid ${i < pin.length ? (error ? "#FF7A8A" : "#2AC8FF") : "rgba(255,255,255,.22)"}`,
+              // The empty dot must follow the theme. It used to be a literal
+              // rgba(255,255,255,.22), and an inline style is the one thing the
+              // light-mode CSS can't remap — so in light mode the dots were
+              // white on white and you got no sign your digits were registering.
+              border: `2px solid ${
+                i < pin.length ? (error ? "#FF7A8A" : "#2AC8FF") : "rgb(var(--fg) / .28)"
+              }`,
             }}
           />
         ))}

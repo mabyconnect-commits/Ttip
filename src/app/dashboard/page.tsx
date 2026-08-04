@@ -140,7 +140,7 @@ export default function Dashboard() {
               <div className="flex flex-col gap-2.5 font-sans text-[13px]">
                 {board.slice(0, 6).map((r) => (
                   <div key={r.rank} className={`flex items-center gap-2.5 ${r.isYou ? "bg-brand-cyan/[.08] rounded-xl px-2 -mx-2 py-1.5" : ""}`}>
-                    <b className="w-5 font-grotesk" style={{ color: r.rank === 1 ? "#FFC85B" : r.isYou ? "#2AC8FF" : "rgba(255,255,255,.5)" }}>{r.rank}</b>
+                    <b className="w-5 font-grotesk" style={{ color: r.rank === 1 ? "#FFC85B" : r.isYou ? "#2AC8FF" : "rgb(var(--fg) / .55)" }}>{r.rank}</b>
                     <Avatar gradient={r.gradient} initial={r.username.replace(/^@/, "").charAt(0).toUpperCase()} size={28} />
                     <span className="flex-1 truncate">{r.isYou ? "you" : r.username}</span>
                     <b className="font-grotesk">{formatFiat(r.total, portfolio.fiat, { decimals: 0 })}</b>
