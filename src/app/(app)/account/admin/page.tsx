@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { BackHeader } from "@/components/ui";
 import { Icon } from "@/components/Icon";
+import { Campaigns } from "@/components/admin/Campaigns";
 
 /**
  * Admin: funding audit + clawback, as buttons.
@@ -247,6 +248,8 @@ export default function AdminFundingPage() {
                 </div>
               </>
             )}
+
+            <Campaigns />
 
             <div className="font-grotesk font-semibold text-[14px] mt-6 mb-2">Ledger reconciliation</div>
             {report?.reconciliation && (

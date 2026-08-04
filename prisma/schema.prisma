@@ -58,6 +58,7 @@ model User {
   card         Card?
   feedItems    FeedItem[]      @relation("actor")
   referrals    Referral[]      @relation("referrer")
+  campaigns    Campaign[]      @relation("campaignInfluencer")
 
   @@index([username])
 }
@@ -219,4 +220,41 @@ model Referral {
   referrer User @relation("referrer", fields: [referrerId], references: [id], onDelete: Cascade)
 
   @@index([referrerId])
+}
+
+// An influencer deal. Someone with an audience is set a target — "get 100 people
+// to sign up, deposit at least ₦1,000 of real money, trade, and still be holding
+// it 72 hours later" — and paid a flat fee when they hit it.
+//
+// Admin-only: never listed publicly, and progress is counted from what actually
+// happened rather than anything the influencer reports.
+model Campaign {
+  id           String    @id @default(cuid())
+  name         String
+  // The influencer. Their referral code is what attributes a signup.
+  influencerId String
+  note         String? // internal: agreed terms, contact, anything worth keeping
+
+  // Qualification, all AND-ed together. A referral counts only if it meets all.
+  minDepositNgn Decimal @default(1000) @db.Decimal(18, 2) // real money deposited
+  requireTrade  Boolean @default(true) // must have swapped or bought
+  holdHours     Int     @default(72) // …and held it this long
+  minHoldNgn    Decimal @default(1000) @db.Decimal(18, 2) // …and still hold this much
+
+  targetCount Int     @default(100) // how many qualified referrals to hit
+  rewardNgn   Decimal @db.Decimal(18, 2) // paid on completion
+
+  // Only signups after this count, so an old audience can't be re-billed.
+  startsAt DateTime  @default(now())
+  endsAt   DateTime?
+
+  status String    @default("active") // active | paid | cancelled
+  paidAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  influencer User @relation("campaignInfluencer", fields: [influencerId], references: [id], onDelete: Cascade)
+
+  @@index([influencerId])
+  @@index([status])
 }
