@@ -162,8 +162,37 @@ const INTENTS: Intent[] = [
       `Our fee is a flat $${WITHDRAW_FEE_USDT.toFixed(2)} plus the network's own fee. Sending on the wrong network can lose the funds permanently, so check it twice.`,
   },
   {
-    match: ["ttip", "send to a friend", "send money to", "@", "tip someone"],
+    match: [
+      "send to a friend",
+      "send money to a friend",
+      "send money to someone",
+      "tip someone",
+      "tip a friend",
+      "send to a username",
+      "ttip someone",
+      "ttip a friend",
+    ],
     answer: () => `Tap Ttip, enter their @username and the amount. It's instant and free. If they're not on Ttip yet, the money waits for them to join with that handle.`,
+  },
+  {
+    match: [
+      "what is ttip",
+      "whats ttip",
+      "what is this app",
+      "what does ttip do",
+      "how does ttip work",
+      "about ttip",
+      "all about",
+      "tell me about ttip",
+      "what can i do here",
+      "what can you do",
+    ],
+    answer: () =>
+      `${COMPANY.product} turns crypto into spendable cash across Africa. You can deposit crypto or naira, ` +
+      `buy and sell BTC, ETH, USDT and more, swap between them, and cash out straight to your bank in seconds. ` +
+      `You can also pay bills — airtime, data, electricity, TV, internet — send money instantly to another ` +
+      `${COMPANY.product} user by @username, and earn cashback on every trade plus ${(REFERRAL_EARN_PCT * 100).toFixed(0)}% of the fees from ` +
+      `anyone you invite. Payouts run in ${supportedPayoutCurrencies().join(", ")}.`,
   },
   {
     match: ["pending", "not received", "hasnt arrived", "still processing", "where is my money", "missing"],
@@ -190,7 +219,13 @@ const INTENTS: Intent[] = [
   },
   {
     match: ["hello", "hi", "hey", "good morning", "good afternoon", "good evening"],
-    answer: (c) => `Hi${c.name ? ` ${c.name.split(" ")[0]}` : ""} — what can I help you with? Fees, limits, deposits, payouts, bills, referrals: ask away.`,
+    answer: (c) => {
+      // Skip a one- or two-letter first name — it's usually a title ("Mr"),
+      // and "Hi Mr" reads worse than no name at all.
+      const first = (c.name ?? "").trim().split(/\s+/)[0] ?? "";
+      const greet = first.length >= 3 ? ` ${first}` : "";
+      return `Hi${greet} — what can I help you with? Fees, limits, deposits, payouts, bills, referrals: ask away.`;
+    },
   },
 ];
 
@@ -204,15 +239,29 @@ function normalize(s: string): string {
   return (s ?? "").toLowerCase().replace(/['\u2019]/g, "").replace(/\s+/g, " ").trim();
 }
 
+/** Escape a phrase for use inside a RegExp. */
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Whole-word match. Substring matching sent "Whats Ttip all about?" to the
+ * peer-to-peer transfer answer, because the brand name appears in almost every
+ * question anyone asks. A phrase now has to sit on word boundaries.
+ */
+function mentions(q: string, phrase: string): boolean {
+  return new RegExp(`(^|\\W)${escapeRe(phrase)}($|\\W)`).test(q);
+}
+
 export function answerFaq(question: string, ctx: FaqContext = {}): FaqAnswer {
   const q = normalize(question);
   if (!q) return { text: "Ask me anything about Ttip.", escalate: false };
 
-  // Longest matching phrase wins, so "can't withdraw" beats a bare "withdraw".
+  // Longest matching phrase wins, so "cant withdraw" beats a bare "withdraw".
   let best: { intent: Intent; len: number } | null = null;
   for (const intent of INTENTS) {
     for (const phrase of intent.match) {
-      if (q.includes(phrase) && (!best || phrase.length > best.len)) {
+      if (mentions(q, phrase) && (!best || phrase.length > best.len)) {
         best = { intent, len: phrase.length };
       }
     }

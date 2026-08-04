@@ -68,3 +68,31 @@ test("escalates instead of guessing when it doesn't know", () => {
 test("never invents an answer for an empty question", () => {
   assert.equal(answerFaq("").escalate, false);
 });
+
+test("the brand name in a question doesn't hijack the answer", () => {
+  // "Whats Ttip all about?" was answered with the peer-to-peer transfer
+  // instructions, because "ttip" was a match phrase and the brand name appears
+  // in almost every question anyone asks.
+  for (const q of ["Whats Ttip all about please?", "what is ttip", "how does ttip work", "tell me about ttip"]) {
+    const a = answerFaq(q).text;
+    assert.ok(a.includes("crypto into spendable cash"), `wrong answer for: ${q}`);
+    assert.ok(!a.startsWith("Tap Ttip, enter their"), `still the transfer answer for: ${q}`);
+  }
+});
+
+test("the transfer answer still wins when that's what was asked", () => {
+  for (const q of ["how do I tip someone", "how do I send money to a friend", "can I ttip someone"]) {
+    assert.ok(answerFaq(q).text.startsWith("Tap Ttip"), `should be the transfer answer: ${q}`);
+  }
+});
+
+test("phrases match whole words only", () => {
+  // "limit" must not fire on a word that merely contains it.
+  const a = answerFaq("is there a delimiter in the reference?");
+  assert.equal(a.escalate, true);
+});
+
+test("a two-letter first name is treated as a title, not a name", () => {
+  assert.ok(answerFaq("hi", { name: "Mr" }).text.startsWith("Hi — "));
+  assert.ok(answerFaq("hi", { name: "Kola Adeyemi" }).text.startsWith("Hi Kola"));
+});
