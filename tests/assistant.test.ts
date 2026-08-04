@@ -131,3 +131,22 @@ test("the rules never ask a user to re-type a request in a set format", () => {
   assert.equal(mentions.length, 1, "should survive only inside the prohibition");
   assert.ok(/no "say it as one line"/i.test(flat));
 });
+
+test("Ada knows her own name is not a payee", () => {
+  // "Do it for Ada" means "Ada, do it". She answered "I'm flattered, but I
+  // don't have an account of my own — if 'Ada' is someone you want to pay…",
+  // turning an instruction into a question about a person who doesn't exist.
+  const flat = assistantRules().replace(/\s+/g, " ");
+  assert.ok(/that is YOU being spoken to/i.test(flat), "must claim the name");
+  assert.ok(/never offer to send money to/i.test(flat));
+  assert.ok(/no account, no wallet and no balance of your own/i.test(flat));
+});
+
+test("Ada never announces a confirmation she cannot produce", () => {
+  // "Sending ₦1,500 now… the confirmation should come up for your PIN" — she
+  // can't make either true, and the user sits watching a chat believing their
+  // money is moving.
+  const flat = assistantRules().replace(/\s+/g, " ");
+  assert.ok(/Nor may you announce one that is on its way/i.test(flat));
+  assert.ok(/saying "send it" or "go ahead" is what brings the confirmation up/i.test(flat));
+});

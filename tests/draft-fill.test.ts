@@ -135,13 +135,50 @@ test("a transfer can be rebuilt from the conversation when asked to go ahead", (
   assert.equal(built.amount, 1500);
 });
 
-test("only a clear go-ahead rebuilds anything", () => {
-  for (const yes of ["send it", "go ahead", "yes", "ok", "do it", "proceed", "confirm", "send now"]) {
+test("a go-ahead is recognised the way people actually say it", () => {
+  for (const yes of [
+    "send it",
+    "go ahead",
+    "yes",
+    "ok",
+    "do it",
+    "proceed",
+    "confirm",
+    "send now",
+    // Being addressed by name is not a new instruction. "Do it for Ada" is
+    // "Ada, do it" — she read it as a request to pay someone called Ada.
+    "Yes do it",
+    "Do it for Ada",
+    "Ada do it",
+    "Ada, do it",
+    // Pidgin, which is how a lot of this app's users write.
+    "abeg Ada send am",
+    "send am",
+    "do it jare",
+    "make it go",
+  ]) {
     assert.ok(wantsToProceed(yes), yes);
   }
-  // The message that actually followed the dead conversation was "Busy?" — a
-  // question, and nobody's instruction to move money.
-  for (const no of ["Busy?", "what are your fees", "how much is the fee", "hello", "why is it pending", ""]) {
+});
+
+test("only a message that IS the go-ahead rebuilds anything", () => {
+  for (const no of [
+    // The message that actually followed the dead conversation.
+    "Busy?",
+    "what are your fees",
+    "how much is the fee",
+    "hello",
+    "why is it pending",
+    "",
+    "can you do it?",
+    // Says who or how much: a fresh instruction for the parser, and it must
+    // never quietly inherit a recipient from ten messages ago.
+    "send money to my sister",
+    "send 5k to 9077984753 Opay",
+    "send to my brother account",
+    "do it tomorrow when i get paid",
+    "yes but change the bank first",
+  ]) {
     assert.ok(!wantsToProceed(no), no);
   }
 });

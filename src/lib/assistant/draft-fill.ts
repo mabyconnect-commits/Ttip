@@ -72,15 +72,30 @@ export function draftGap(draft: DraftState): "bank" | "amount" | null {
 /**
  * "Go on then" — a message that asks to proceed rather than saying anything new.
  *
- * Kept tight on purpose. This is what lets a transfer be rebuilt from the
- * conversation, and a loose match would put a confirmation card in front of
- * someone who was only chatting.
+ * Written for how people actually confirm here: "yes do it", "abeg Ada send
+ * am", "Ada do it jare". The assistant's own name and the usual softeners are
+ * allowed on either side, because being addressed by name is not a new
+ * instruction.
+ *
+ * Kept tight in the ways that matter, because this rebuilds a transfer from an
+ * old conversation. The whole message has to BE the go-ahead: anything carrying
+ * a number is a fresh instruction and belongs to the parser, anything with a
+ * question mark is a question, and "send money to my sister" says who — so it
+ * must not quietly inherit a recipient from ten messages ago.
  */
-const PROCEED =
-  /^(?:ok(?:ay)?|yes|yeah|yep|sure|alright|please|abeg)?\s*(?:go\s*ahead|go\s*on|proceed|continue|confirm|do\s*it|send\s*(?:it|now|am|that)?|now)\b|^(?:ok(?:ay)?|yes|yeah|yep|sure)[\s.!]*$/i;
+const FILLER = "(?:ada|abeg|pls|plz|please|oga|bros|boss|now|joor|jare|fast|quick(?:ly)?|na|o|for\\s+me|for\\s+us|for\\s+ada)";
+const GO = "(?:go\\s*ahead|go\\s*on|proceed|continue|confirm|do\\s*it|send\\s*(?:it|am|now|that)?|make\\s*it\\s*go)";
+const PROCEED = new RegExp(
+  `^(?:(?:ok(?:ay)?|yes|yeah|yep|sure|alright|fine)[\\s,.!]*)?(?:${FILLER}[\\s,.!]*)*${GO}(?:[\\s,.!]*${FILLER})*[\\s.!]*$`,
+  "i",
+);
+/** A bare "yes" on its own, answering "shall I?". */
+const BARE_YES = /^(?:ok(?:ay)?|yes|yeah|yep|sure|alright|abeg)[\s.!]*$/i;
 
 export function wantsToProceed(text: string): boolean {
-  return PROCEED.test((text ?? "").trim());
+  const body = (text ?? "").trim();
+  if (!body || body.includes("?") || /\d/.test(body)) return false;
+  return PROCEED.test(body) || BARE_YES.test(body);
 }
 
 /**
