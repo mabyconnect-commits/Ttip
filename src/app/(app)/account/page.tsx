@@ -7,6 +7,7 @@ import { TabBar } from "@/components/TabBar";
 import { Icon, type IconName } from "@/components/Icon";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { CashbackCard } from "@/components/CashbackCard";
+import { TelegramConnect } from "@/components/TelegramConnect";
 import { COMPANY, PRODUCT_OF } from "@/lib/company";
 
 export default function AccountPage() {
@@ -72,6 +73,9 @@ export default function AccountPage() {
 
         {/* cashback */}
         <CashbackCard />
+
+        {/* telegram — hides itself when no bot is configured */}
+        <TelegramConnect />
 
         {/* menu */}
         <div className="mt-4 bg-surface border border-white/[.06] rounded-[20px] overflow-hidden">

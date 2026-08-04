@@ -9,7 +9,7 @@ import {
   DEPOSIT_BONUS_MIN_USD,
   DEPOSIT_BONUS_HOLD_HOURS,
 } from "../constants";
-import { providerTransferFee, transferFeeMarkup, billFee, depositFeeSchedule, collectionFeePct } from "../fees";
+import { providerTransferFee, transferFeeMarkup, billFee, depositFee, depositFeeFlat, collectionFeePct } from "../fees";
 import { COLLECTION_FEE_PCT } from "../constants";
 import { supportedPayoutCurrencies, comingSoonCurrencies } from "./knowledge";
 import { COMPANY } from "../company";
@@ -51,6 +51,23 @@ function feeLine(): string {
   const m = 1 + transferFeeMarkup();
   const up = (a: number) => Math.ceil(providerTransferFee(a, "NGN")! * m);
   return `${money(up(1000))} under ₦5,000, ${money(up(10000))} up to ₦50,000, ${money(up(100000))} above that`;
+}
+
+/**
+ * The deposit fee, in naira.
+ *
+ * Deliberately never states a percentage. A rate quoted at the moment someone
+ * is trying to GIVE us money reads like a tax on their own cash and puts people
+ * off funding at all; the actual charge is tens of naira, which sounds like
+ * what it is. Same numbers either way — the app charges depositFee().
+ */
+function depositFeeLine(): string {
+  const pct = collectionFeePct("NGN", COLLECTION_FEE_PCT);
+  const flat = depositFeeFlat("NGN");
+  if (flat !== null) return flat > 0 ? `Deposits cost ${money(flat)} each.` : "Deposits are free.";
+  const small = depositFee(5000, "NGN", pct);
+  if (small <= 0) return "Deposits are free.";
+  return `There's a small deposit fee — ${money(small)} on ${money(5000)}, ${money(depositFee(20000, "NGN", pct))} on ${money(20000)}.`;
 }
 
 function tierLine(tier: number): string {
@@ -100,8 +117,7 @@ const INTENTS: Intent[] = [
   {
     match: ["deposit", "add money", "fund my account", "account number", "top up", "topup"],
     answer: (c) => {
-      const s = depositFeeSchedule("NGN", collectionFeePct("NGN", COLLECTION_FEE_PCT));
-      const fee = `The deposit fee is ${(s.pct * 100).toFixed(1)}%${s.cap ? `, capped at ${money(s.cap)}` : ""}.`;
+      const fee = depositFeeLine();
       if (c.nairaAccount) {
         const alt = c.bankAliases?.length ? ` Some bank apps list that bank as ${c.bankAliases.join(" or ")} — it's the same bank.` : "";
         return `Transfer to your dedicated account: ${c.nairaAccount} at ${c.nairaBank ?? "your partner bank"}.${alt} It credits automatically, usually in seconds. ${fee} You can also send crypto from Add money — just make sure the network matches.`;

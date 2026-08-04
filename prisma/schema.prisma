@@ -48,6 +48,13 @@ model User {
   lastDropAt     DateTime?
   freeSwapDay    String? // YYYY-MM-DD the free-swap allowance was last counted
   lastTipDay     String? // YYYY-MM-DD of the last tip sent (for streaks)
+  // Telegram account link. Unique so one Telegram account can only ever be
+  // bound to one Ttip account — otherwise a linked chat could be pointed at a
+  // second account and read both.
+  telegramChatId   String?   @unique
+  telegramUsername String?
+  telegramLinkedAt DateTime?
+  telegramTokens   TelegramLinkToken[]
   createdAt      DateTime @default(now())
 
   balances     Balance[]
@@ -100,6 +107,26 @@ model PasswordResetToken {
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// Single-use, short-lived tokens that link a Telegram chat to a Ttip account.
+///
+/// The token is minted inside the signed-in app and travels to Telegram in a
+/// t.me deep link, so possession of it proves the person holding that Telegram
+/// account is the one who was signed in. Only a HASH is stored — the raw token
+/// lives only in the link — and it dies on first use or after minutes, so a
+/// leaked link is worthless almost immediately.
+model TelegramLinkToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

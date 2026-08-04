@@ -9,6 +9,7 @@ import { QR } from "@/components/QR";
 import { Receipt } from "@/components/Receipt";
 import { Icon } from "@/components/Icon";
 import { formatFiat } from "@/lib/format";
+import type { DepositFeeSchedule } from "@/lib/fees";
 import { sortChainsByPopularity } from "@/lib/chains";
 import { bankAliases } from "@/lib/bank-aliases";
 import { useRouter } from "next/navigation";
@@ -119,7 +120,7 @@ export default function DepositPage() {
       </div>
 
       {tab === "naira" ? (
-        <div className="flex-1 overflow-y-auto no-scrollbar pt-4 pb-10">
+        <div className="flex-1 overflow-y-auto no-scrollbar pt-4 pb-24">
           {showDemo ? (
             <>
               <div className="bg-surface border border-white/[.08] rounded-[22px] p-5">
@@ -138,6 +139,13 @@ export default function DepositPage() {
               <Detail label="Bank" value={state.user.nairaBank || "See note below"} onCopy={copy} />
               <Detail label="Account number" value={state.user.nairaAccount} onCopy={copy} />
               <Detail label="Account name" value={`Ttip / ${state.user.name}`} onCopy={copy} />
+
+              {/* The bank charges us to collect this money, so the deposit fee
+                  has to be stated up front — not discovered in the balance.
+                  Sits directly under the account details, not at the bottom of
+                  the card: down there the floating chat button covered the very
+                  numbers this exists to show. */}
+              {depFee && <DepositFee schedule={depFee} fiat={fiat} />}
 
               {/* Dedicated accounts are issued through a partner bank — often a
                   microfinance bank, not a name people recognise. Users were
@@ -176,40 +184,6 @@ export default function DepositPage() {
                 <Icon name="check" size={14} className="text-good mt-0.5 shrink-0" strokeWidth={2.6} />
                 <span>Your dedicated account. Money you send here becomes {fiat} you can swap to any crypto.</span>
               </div>
-
-              {/* The bank charges us to collect this money, so the deposit fee
-                  has to be stated up front — not discovered in the balance. */}
-              {depFee && (() => {
-                const flat = depFee.flat;
-                const fee =
-                  flat !== undefined ? flat : Math.min(Math.ceil(10000 * depFee.pct), depFee.cap ?? Infinity);
-                // Free deposits deserve to be said out loud — it's a reason to
-                // fund the account, not a line to hide.
-                if (fee <= 0) {
-                  return (
-                    <div className="mt-3 flex justify-between text-[12.5px] text-white/55 px-1">
-                      <span>Deposit fee</span>
-                      <b className="text-good font-grotesk">Free</b>
-                    </div>
-                  );
-                }
-                return (
-                  <div className="mt-3 flex flex-col gap-1.5 text-[12.5px] text-white/55 px-1">
-                    <div className="flex justify-between">
-                      <span>Deposit fee</span>
-                      <b className="text-white font-grotesk">
-                        {flat !== undefined
-                          ? `${formatFiat(flat, fiat, { decimals: 0 })} per deposit`
-                          : `${(depFee.pct * 100).toFixed(1)}%${depFee.cap !== null ? ` · max ${formatFiat(depFee.cap, fiat, { decimals: 0 })}` : ""}`}
-                      </b>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Send {formatFiat(10000, fiat, { decimals: 0 })}, you get</span>
-                      <b className="text-good font-grotesk">{formatFiat(10000 - fee, fiat, { decimals: 0 })}</b>
-                    </div>
-                  </div>
-                );
-              })()}
             </div>
           ) : state.user.kycStatus === "verified" ? (
             <div className="bg-surface border border-white/[.08] rounded-[22px] p-5">
@@ -256,7 +230,7 @@ export default function DepositPage() {
           )}
         </div>
       ) : live ? (
-        <div className="flex-1 overflow-y-auto no-scrollbar pt-4 pb-10">
+        <div className="flex-1 overflow-y-auto no-scrollbar pt-4 pb-24">
           {/* pick network + asset (any of Dextopus's supported chains/tokens) */}
           <button onClick={() => setChainSheet(true)} className="w-full flex items-center justify-between bg-surface border border-white/[.08] rounded-2xl px-4 h-[54px] active:scale-[.99]">
             <span className="text-[12px] text-white/40">Network</span>
@@ -312,7 +286,7 @@ export default function DepositPage() {
           )}
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto no-scrollbar pt-4 pb-10">
+        <div className="flex-1 overflow-y-auto no-scrollbar pt-4 pb-24">
           {/* asset tabs */}
           <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
             {assets.map((a) => (
@@ -437,6 +411,93 @@ export default function DepositPage() {
           {tokens.length === 0 && <div className="text-center text-white/40 text-[13px] py-6">No assets on this chain.</div>}
         </div>
       </Sheet>
+    </div>
+  );
+}
+
+/**
+ * What the deposit costs, in money.
+ *
+ * This used to read "1.5% · max ₦2,000". Nobody sending ₦2,000 into a wallet
+ * wants to do arithmetic at the moment they're deciding whether to fund it, and
+ * a percentage on an incoming transfer reads like a tax on your own money —
+ * people bounced off it. The charge is small in absolute terms (tens of naira),
+ * so state it in naira: pick an amount, see the exact fee and exactly what
+ * lands. Same numbers, no percentage anywhere on the screen.
+ */
+
+/** Roughly one thousand naira, per currency — the base rung of the ladder. */
+const FEE_LADDER_UNIT: Record<string, number> = {
+  NGN: 1000, GHS: 10, KES: 100, ZAR: 15, UGX: 3000, TZS: 2000, RWF: 1000, USD: 1, EUR: 1, GBP: 1,
+};
+
+function feeLadder(fiat: string): number[] {
+  const unit = FEE_LADDER_UNIT[(fiat ?? "").toUpperCase()] ?? 1000;
+  return [1, 5, 20, 100].map((m) => unit * m);
+}
+
+function DepositFee({ schedule, fiat }: { schedule: DepositFeeSchedule; fiat: string }) {
+  const ladder = feeLadder(fiat);
+  const [amount, setAmount] = useState(ladder[1]);
+
+  // Mirrors depositFee() on the server: a flat fee wins, otherwise the capped
+  // percentage. The quote here has to be the charge there.
+  const feeFor = (a: number) =>
+    schedule.flat !== undefined
+      ? Math.min(schedule.flat, a)
+      : Math.min(Math.ceil(a * schedule.pct), schedule.cap ?? Infinity, a);
+
+  const money = (v: number) => formatFiat(v, fiat, { decimals: 0 });
+
+  // Free deposits deserve to be said out loud — it's a reason to fund the
+  // account, not a line to hide.
+  if (feeFor(ladder[3]) <= 0) {
+    return (
+      <div className="mt-3 flex justify-between text-[12.5px] text-white/55 px-1">
+        <span>Deposit fee</span>
+        <b className="text-good font-grotesk">Free</b>
+      </div>
+    );
+  }
+
+  // A flat fee is already a single number — no picker needed to explain it.
+  if (schedule.flat !== undefined) {
+    return (
+      <div className="mt-3 flex justify-between text-[12.5px] text-white/55 px-1">
+        <span>Deposit fee</span>
+        <b className="text-white font-grotesk">{money(schedule.flat)} per deposit</b>
+      </div>
+    );
+  }
+
+  const fee = feeFor(amount);
+
+  return (
+    <div className="mt-3.5 rounded-2xl bg-surface2 border border-white/[.07] p-3.5">
+      <div className="text-[11.5px] text-white/45 mb-2">If you send…</div>
+      <div className="grid grid-cols-4 gap-1.5">
+        {ladder.map((a) => (
+          <button
+            key={a}
+            onClick={() => setAmount(a)}
+            className={`h-9 rounded-xl border font-grotesk font-semibold text-[12px] transition-colors ${
+              amount === a ? "bg-brand-cyan/15 border-brand-cyan text-brand-cyan" : "border-white/12 text-white/60"
+            }`}
+          >
+            {money(a)}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-col gap-1.5 text-[12.5px] text-white/55 mt-3">
+        <div className="flex justify-between">
+          <span>Fee</span>
+          <b className="text-white font-grotesk">{money(fee)}</b>
+        </div>
+        <div className="flex justify-between">
+          <span>You get</span>
+          <b className="text-good font-grotesk">{money(amount - fee)}</b>
+        </div>
+      </div>
     </div>
   );
 }

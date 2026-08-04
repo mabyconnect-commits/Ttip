@@ -96,3 +96,14 @@ test("a two-letter first name is treated as a title, not a name", () => {
   assert.ok(answerFaq("hi", { name: "Mr" }).text.startsWith("Hi — "));
   assert.ok(answerFaq("hi", { name: "Kola Adeyemi" }).text.startsWith("Hi Kola"));
 });
+
+test("the deposit answer quotes money, never a percentage", () => {
+  // A rate quoted at the moment someone is trying to GIVE us money reads like a
+  // tax on their own cash and puts people off funding at all. The charge is
+  // tens of naira — say that instead.
+  for (const q of ["how do I deposit", "how do I add money", "how do I fund my account", "how do I top up"]) {
+    const a = answerFaq(q).text;
+    assert.ok(!/\d\s*%/.test(a), `percentage leaked into the deposit answer: ${q} → ${a}`);
+    assert.ok(/₦|free/i.test(a), `deposit fee not stated in money: ${q} → ${a}`);
+  }
+});

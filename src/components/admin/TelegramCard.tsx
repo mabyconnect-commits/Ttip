@@ -20,6 +20,8 @@ interface Status {
   env?: { TELEGRAM_BOT_TOKEN: boolean; TELEGRAM_WEBHOOK_SECRET: boolean };
   expectedWebhookUrl?: string;
   telegramSees?: { url: string | null; pending: number; lastError: string | null } | null;
+  /** How many Ttip accounts have connected their Telegram. */
+  linkedUsers?: number;
   problems?: string[];
   error?: string;
 }
@@ -88,6 +90,11 @@ export function TelegramCard() {
           {typeof s.telegramSees?.pending === "number" && s.telegramSees.pending > 0 && (
             <span className="text-warn">{s.telegramSees.pending} queued</span>
           )}
+          {/* A bot that replies but that nobody has linked is only half-working,
+              and Telegram's own diagnostics can't show you that. */}
+          <span className={s.linkedUsers ? "text-good" : undefined}>
+            {(s.linkedUsers ?? 0).toLocaleString("en-US")} linked
+          </span>
         </div>
 
         {s.problems?.length ? (

@@ -9,7 +9,7 @@ export type IconName =
   | "plus" | "check" | "snowflake" | "scan" | "copy" | "share"
   | "chevronRight" | "chevronDown" | "grid" | "swapVertical" | "sun" | "moon" | "search"
   | "user" | "shield" | "list" | "bank" | "headset" | "gauge" | "logout" | "lock" | "edit" | "trash"
-  | "message" | "mail" | "phone" | "x" | "flag";
+  | "message" | "mail" | "phone" | "x" | "flag" | "telegram";
 
 const P: Record<IconName, React.ReactNode> = {
   home: <path d="M3 10.5 12 3l9 7.5M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5" />,
@@ -140,6 +140,9 @@ const P: Record<IconName, React.ReactNode> = {
   phone: <path d="M6.5 3h3l1.5 5-2 1.5a12 12 0 0 0 5.5 5.5l1.5-2 5 1.5v3a2 2 0 0 1-2 2A16.5 16.5 0 0 1 4.5 5a2 2 0 0 1 2-2Z" />,
   x: <path d="M4 4l7.5 9.5M20 4l-16 16M20 20l-7.5-9.5" />,
   flag: <path d="M5 21V4M5 4h11l-2 4 2 4H5" />,
+  // Telegram's paper plane, drawn as strokes so it inherits currentColor like
+  // every other icon here rather than needing the brand blue.
+  telegram: <path d="M21.5 4.2 2.8 11.4a.4.4 0 0 0 .03.75l4.6 1.44 1.72 5.2a.4.4 0 0 0 .7.13l2.5-2.72 4.7 3.45a.4.4 0 0 0 .63-.24l3.5-14.7a.4.4 0 0 0-.55-.46ZM7.6 13.5 18.4 6.8l-8.6 8.03-.06 3.3" />,
 };
 
 export function Icon({

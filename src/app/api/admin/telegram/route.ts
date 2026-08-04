@@ -104,9 +104,15 @@ export async function GET() {
     }
   }
 
+  // How many people actually connected their account. A bot that replies but
+  // that nobody has linked is only half-working, and that's invisible from
+  // Telegram's own diagnostics.
+  const linkedUsers = await prisma.user.count({ where: { telegramChatId: { not: null } } });
+
   return NextResponse.json({
     ready: problems.length === 0,
     bot: me?.result ? `@${me.result.username}` : null,
+    linkedUsers,
     env: { TELEGRAM_BOT_TOKEN: hasToken, TELEGRAM_WEBHOOK_SECRET: hasSecret },
     expectedWebhookUrl: url,
     telegramSees: hook
