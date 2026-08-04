@@ -6,6 +6,9 @@ import { rateLimit } from "@/lib/rate-limit";
 import { ttipKnowledge, assistantRules, ASSISTANT_NAME } from "@/lib/assistant/knowledge";
 import { buildUserContext } from "@/lib/assistant/context";
 import { cleanAssistantText } from "@/lib/assistant/sanitize";
+import { answerFaq } from "@/lib/assistant/faq";
+import { bankAliases } from "@/lib/bank-aliases";
+import { prisma } from "@/lib/db";
 
 /**
  * Ada — the in-app assistant.
@@ -46,16 +49,41 @@ const schema = z.object({
 });
 
 /**
- * Next only allows route handlers and its own config to be exported from a
- * route file, so this stays local rather than becoming a shared helper.
+ * Whether the MODEL is available. The chat itself is always available — see
+ * below. Next only allows route handlers and its own config to be exported from
+ * a route file, so this stays local rather than becoming a shared helper.
  */
-function assistantEnabled(): boolean {
+function aiEnabled(): boolean {
   return !!process.env.ANTHROPIC_API_KEY;
 }
 
-/** Lets the client hide the launcher entirely when no key is configured. */
+/**
+ * `enabled` is always true: support chat must not depend on an environment
+ * variable. Without a key the built-in answers reply instead, so the launcher
+ * always appears. `ai` says which brain is answering.
+ */
 export async function GET() {
-  return handler(async () => ok({ enabled: assistantEnabled(), name: ASSISTANT_NAME }));
+  return handler(async () => ok({ enabled: true, ai: aiEnabled(), name: ASSISTANT_NAME }));
+}
+
+/** Stream a plain string back in the same SSE shape the model uses. */
+function streamText(text: string, escalate: boolean): Response {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const send = (o: unknown) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(o)}\n\n`));
+      send({ t: "delta", text });
+      send({ t: "done", escalate });
+      controller.close();
+    },
+  });
+  return new Response(body, {
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }
 
 export async function POST(req: Request) {
@@ -63,13 +91,6 @@ export async function POST(req: Request) {
   if (!userId) return unauthorized();
 
   try {
-    if (!assistantEnabled()) {
-      throw new ApiError(
-        `${ASSISTANT_NAME} isn't switched on yet. Email support and a human will help you.`,
-        503,
-      );
-    }
-
     // Chat is cheap for the user and expensive for us; cap both burst and volume.
     rateLimit(`assistant:${userId}`, { limit: 12, windowMs: 60_000 });
     rateLimit(`assistant-day:${userId}`, { limit: 150, windowMs: 24 * 60 * 60_000 });
@@ -79,6 +100,26 @@ export async function POST(req: Request) {
     // The last turn must be the user's — otherwise there's nothing to answer.
     if (messages[messages.length - 1]!.role !== "user") {
       throw new ApiError("Nothing to answer.", 400);
+    }
+
+    const question = messages[messages.length - 1]!.content;
+
+    // No key? Answer from the built-in knowledge rather than telling the user
+    // the assistant is switched off. A plain answer beats no support chat.
+    if (!aiEnabled()) {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { name: true, kycTier: true, kycStatus: true, nairaAccount: true, nairaBank: true },
+      });
+      const a = answerFaq(question, {
+        name: user?.name,
+        tier: user?.kycTier ?? 0,
+        kycStatus: user?.kycStatus,
+        nairaAccount: user?.nairaAccount,
+        nairaBank: user?.nairaBank,
+        bankAliases: bankAliases(user?.nairaBank),
+      });
+      return streamText(a.text, a.escalate);
     }
 
     const context = await buildUserContext(userId);

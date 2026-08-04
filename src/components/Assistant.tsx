@@ -7,14 +7,15 @@ import { COMPANY } from "@/lib/company";
 /**
  * Ada — the floating in-app assistant.
  *
+ * Always rendered. It used to hide itself unless the server reported an API key
+ * was configured, which meant that on a deploy without one there was no support
+ * chat at all — worse than a plain one. The server now answers from built-in
+ * knowledge when the model isn't available, so the button is always real.
+ *
  * Mounted once in the app shell, so it's reachable from every screen without
  * each page knowing about it. Other screens open it by dispatching
  * `window.dispatchEvent(new Event(ASSISTANT_OPEN))` — that's how the "Live chat"
  * tile on the support page works, with no prop drilling.
- *
- * The launcher renders nothing at all until the server confirms the assistant is
- * configured, so a deploy without an API key simply doesn't show a button that
- * would fail when tapped.
  */
 
 export const ASSISTANT_OPEN = "ttip:assistant-open";
@@ -37,24 +38,12 @@ const STARTERS = [
 ];
 
 export function Assistant() {
-  const [enabled, setEnabled] = useState(false);
   const [open, setOpen] = useState(false);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/assistant")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => alive && setEnabled(!!d?.enabled))
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   // Restore the thread so closing the panel mid-conversation doesn't lose it.
   useEffect(() => {
@@ -183,8 +172,6 @@ export function Assistant() {
     },
     [msgs, busy],
   );
-
-  if (!enabled) return null;
 
   return (
     <>
