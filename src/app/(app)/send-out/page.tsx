@@ -15,6 +15,8 @@ import { Receipt } from "@/components/Receipt";
 import { BankPicker } from "@/components/BankPicker";
 import { QrScanner } from "@/components/QrScanner";
 import { TestModeBanner } from "@/components/TestModeBanner";
+import { PinPrompt } from "@/components/PinPrompt";
+import { planFunding } from "@/lib/funding-plan";
 import type { Bank } from "@/lib/banks";
 
 // Crypto sellable to a bank. The user's own fiat is prepended at render time —
@@ -42,6 +44,8 @@ export default function SendOutPage() {
   const [loading, setLoading] = useState(false);
   const [receipt, setReceipt] = useState<any>(null);
   const [scanOpen, setScanOpen] = useState(false);
+  const [pinOpen, setPinOpen] = useState(false);
+  const [pinError, setPinError] = useState(false);
 
   // Wallet-mode: pick any chain → any token Dextopus supports (like the deposit
   // picker). Falls back to a hardcoded list when Dextopus isn't configured (demo).
@@ -106,6 +110,19 @@ export default function SendOutPage() {
 
   const symIsFiat = sym === fiat;
 
+  // Preview of which wallets will pay, using the same planner the server runs.
+  // Purely informational — the server plans again from real balances.
+  const fundingPlan = (() => {
+    if (mode !== "bank" || amt <= 0 || !sym) return null;
+    const sources = state.portfolio.assets
+      .filter((a) => a.amount > 0)
+      .map((a) => ({ symbol: a.symbol, amount: a.amount, fiatPerUnit: convert(1, a.symbol, fiat) }))
+      .filter((a) => a.fiatPerUnit > 0);
+    return planFunding(convert(amt, sym, fiat), sources, sym);
+  })();
+  // Only worth showing when more than one wallet is involved.
+  const splitFunding = !!fundingPlan?.ok && (fundingPlan?.legs.length ?? 0) > 1;
+
   // The active asset + destination differ by mode.
   const walletSym = selToken?.symbol ?? "";
   const activeSym = mode === "wallet" ? walletSym : sym;
@@ -135,25 +152,38 @@ export default function SendOutPage() {
     return () => { cancelled = true; clearTimeout(t); };
   }, [mode, selChain, selToken, address, amt, walletSym]);
 
-  async function submit() {
+  /** Validate, then ask for the PIN. The transfer itself runs in `send`. */
+  function submit() {
     if (amt <= 0) return toast("Enter an amount", "bad");
     if (!verified) { router.push("/account/kyc"); return toast("Verify your BVN to withdraw", "info"); }
+    if (mode === "wallet") {
+      if (!selChain || !selToken) return toast("Choose a network and asset", "bad");
+      if (!address) return toast("Enter a wallet address", "bad");
+    } else {
+      if (!bank) return toast("Choose a bank", "bad");
+      if (!account) return toast("Enter an account number", "bad");
+    }
+    setPinError(false);
+    setPinOpen(true);
+  }
+
+  async function send(pin: string) {
     setLoading(true);
     try {
       let body: any;
       if (mode === "wallet") {
-        if (!selChain || !selToken) { setLoading(false); return toast("Choose a network and asset", "bad"); }
-        if (!address) { setLoading(false); return toast("Enter a wallet address", "bad"); }
         if (amt + feeInAsset > bal + 1e-12) { setLoading(false); return toast(`Not enough ${walletSym} to cover amount + fee`, "bad"); }
-        body = { mode: "wallet", symbol: walletSym, amount: amt, address, network: selChain.name, chainId: selChain.chainId };
+        body = { mode: "wallet", symbol: walletSym, amount: amt, address, network: selChain!.name, chainId: selChain!.chainId, pin };
       } else {
-        if (!bank) { setLoading(false); return toast("Choose a bank", "bad"); }
-        if (!account) { setLoading(false); return toast("Enter an account number", "bad"); }
-        body = { mode: "bank", symbol: sym, amount: amt, fiat, bankName: bank.name, accountNumber: account, accountName: resolvedName ?? accountName };
+        body = { mode: "bank", symbol: sym, amount: amt, fiat, bankName: bank!.name, accountNumber: account, accountName: resolvedName ?? accountName, pin };
       }
       const res: any = await action("/api/send", body);
+      setPinOpen(false);
       setReceipt(res.receipt);
     } catch (e: any) {
+      // A rejected PIN keeps the pad open so they can try again.
+      if (/pin/i.test(e.message ?? "")) setPinError(true);
+      else setPinOpen(false);
       toast(e.message, "bad");
     } finally {
       setLoading(false);
@@ -304,6 +334,14 @@ export default function SendOutPage() {
           {mode === "bank" ? "Send to bank" : "Send to wallet"}
         </GradientButton>
       </div>
+
+      <PinPrompt
+        open={pinOpen}
+        onClose={() => setPinOpen(false)}
+        onPin={(pin) => send(pin)}
+        error={pinError}
+        subtitle={mode === "bank" ? `Sending ${formatFiat(convert(amt, sym, fiat), fiat)} to ${bank?.name ?? "your bank"}` : undefined}
+      />
 
       <BankPicker open={bankOpen} onClose={() => setBankOpen(false)} onPick={(b) => setBank(b)} />
       <QrScanner open={scanOpen} onClose={() => setScanOpen(false)} onResult={(addr) => setAddress(addr)} />

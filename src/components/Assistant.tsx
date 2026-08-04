@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { COMPANY } from "@/lib/company";
+import { PinPrompt } from "@/components/PinPrompt";
+import { useApp } from "@/context/AppContext";
 
 /**
  * Ada — the floating in-app assistant.
@@ -23,11 +25,25 @@ export const ASSISTANT_OPEN = "ttip:assistant-open";
 const STORE_KEY = "ttip_ada_thread";
 const NAME = "Ada";
 
+/** A transfer Ada has prepared. It is NOT sent until the user enters their PIN. */
+interface TransferDraft {
+  kind: "transfer";
+  amount: number;
+  fiat: string;
+  beneficiaryName: string;
+  accountNumber: string;
+  bankName: string | null;
+}
+
 interface Msg {
   role: "user" | "assistant";
   content: string;
   /** Set when Ada asked for a human — renders the hand-over button. */
   escalate?: boolean;
+  /** A prepared transfer awaiting confirmation. */
+  draft?: TransferDraft;
+  /** Set once the draft has been sent, so it can't be sent twice. */
+  sent?: boolean;
 }
 
 const STARTERS = [
@@ -38,7 +54,10 @@ const STARTERS = [
 ];
 
 export function Assistant() {
+  const { action, toast } = useApp();
   const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<TransferDraft | null>(null);
+  const [pinError, setPinError] = useState(false);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -132,7 +151,7 @@ export function Assistant() {
           for (const frame of frames) {
             const line = frame.split("\n").find((l) => l.startsWith("data:"));
             if (!line) continue;
-            let ev: { t: string; text?: string; message?: string; escalate?: boolean };
+            let ev: { t: string; text?: string; message?: string; escalate?: boolean; action?: any };
             try {
               ev = JSON.parse(line.slice(5).trim());
             } catch {
@@ -145,6 +164,13 @@ export function Assistant() {
                 const next = [...prev];
                 const last = next[next.length - 1]!;
                 next[next.length - 1] = { ...last, content: last.content + chunk };
+                return next;
+              });
+            } else if (ev.t === "action" && ev.action?.kind === "transfer") {
+              const d = ev.action as TransferDraft;
+              setMsgs((prev) => {
+                const next = [...prev];
+                next[next.length - 1] = { ...next[next.length - 1]!, draft: d };
                 return next;
               });
             } else if (ev.t === "done") {
@@ -173,8 +199,42 @@ export function Assistant() {
     [msgs, busy],
   );
 
+  /** Send the prepared transfer. The PIN is passed straight through, never kept. */
+  async function confirmDraft(pin: string) {
+    if (!draft) return;
+    try {
+      await action("/api/send", {
+        mode: "bank",
+        symbol: draft.fiat,
+        amount: draft.amount,
+        fiat: draft.fiat,
+        bankName: draft.bankName ?? undefined,
+        accountNumber: draft.accountNumber,
+        accountName: draft.beneficiaryName,
+        pin,
+      });
+      setDraft(null);
+      setMsgs((prev) => prev.map((m) => (m.draft ? { ...m, sent: true } : m)));
+      setMsgs((prev) => [...prev, { role: "assistant", content: "Sent. It's on its way." }]);
+      toast("Transfer sent", "good");
+    } catch (e: any) {
+      if (/pin/i.test(e.message ?? "")) setPinError(true);
+      else setDraft(null);
+      toast(e.message, "bad");
+    }
+  }
+
   return (
     <>
+      <PinPrompt
+        open={!!draft}
+        onClose={() => setDraft(null)}
+        onPin={confirmDraft}
+        error={pinError}
+        title="Confirm this transfer"
+        subtitle={draft ? `${draft.fiat} ${draft.amount.toLocaleString()} to ${draft.beneficiaryName}` : undefined}
+      />
+
       {/* launcher — pinned inside the 480px app column, clear of the tab bar */}
       {!open && (
         <div className="fixed bottom-[96px] left-1/2 -translate-x-1/2 w-full max-w-[480px] px-4 flex justify-end pointer-events-none z-40">
@@ -254,6 +314,26 @@ export function Assistant() {
                   >
                     {m.content || (busy && i === msgs.length - 1 ? <Typing /> : "")}
                   </div>
+                  {m.role === "assistant" && m.draft && !m.sent && (
+                    <button
+                      onClick={() => { setPinError(false); setDraft(m.draft!); }}
+                      className="mt-2 w-full text-left rounded-2xl border border-good/30 bg-good/[.07] px-4 py-3 active:scale-[.99]"
+                    >
+                      <div className="text-white/45 text-[11px]">Ready to send</div>
+                      <div className="font-grotesk font-bold text-[19px] mt-0.5">
+                        {m.draft.fiat} {m.draft.amount.toLocaleString()}
+                      </div>
+                      <div className="text-white/60 text-[12px] mt-0.5">
+                        {m.draft.beneficiaryName} · {m.draft.accountNumber}
+                      </div>
+                      <div className="mt-2 text-good font-grotesk font-semibold text-[12.5px]">
+                        Review &amp; confirm with PIN →
+                      </div>
+                    </button>
+                  )}
+                  {m.role === "assistant" && m.sent && (
+                    <div className="mt-2 text-good text-[12px]">Sent ✓</div>
+                  )}
                   {m.role === "assistant" && m.escalate && (
                     <a
                       href={`mailto:${COMPANY.supportEmail}?subject=${encodeURIComponent("Help with my Ttip account")}`}

@@ -196,14 +196,26 @@ export async function finalizePayout(
       await tx.transaction.update({ where: { id: txn.id }, data: { status } });
     }
 
-    if (status === "failed" && txn?.assetIn && txn.amountIn) {
-      // Refund the debited crypto so the user isn't left short after a failed payout.
-      await tx.balance.upsert({
-        where: { userId_symbol: { userId: settlementUserId, symbol: txn.assetIn } },
-        create: { userId: settlementUserId, symbol: txn.assetIn, kind: kindOf(txn.assetIn), amount: txn.amountIn },
-        update: { amount: { increment: txn.amountIn } },
-      });
-      return { updated: true, refunded: true };
+    if (status === "failed" && txn) {
+      // A payout can be funded from several wallets at once, so the refund has
+      // to replay every leg. Refunding only assetIn/amountIn would hand back one
+      // wallet's share and quietly keep the rest.
+      const legs = (txn.meta as { legs?: { symbol: string; take: number }[] } | null)?.legs;
+      const toRefund =
+        legs && legs.length
+          ? legs.map((l) => ({ symbol: l.symbol, amount: new Prisma.Decimal(l.take) }))
+          : txn.assetIn && txn.amountIn
+            ? [{ symbol: txn.assetIn, amount: txn.amountIn }]
+            : [];
+
+      for (const r of toRefund) {
+        await tx.balance.upsert({
+          where: { userId_symbol: { userId: settlementUserId, symbol: r.symbol } },
+          create: { userId: settlementUserId, symbol: r.symbol, kind: kindOf(r.symbol), amount: r.amount },
+          update: { amount: { increment: r.amount } },
+        });
+      }
+      return { updated: true, refunded: toRefund.length > 0 };
     }
 
     return { updated: true, refunded: false };

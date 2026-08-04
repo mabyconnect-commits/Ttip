@@ -12,10 +12,12 @@ import { dayStr, isYesterday } from "@/lib/format";
 import { payoutFiat, finalizePayout, payoutProvider, ensureFloat, debitFloat, cryptoWithdraw, settlementEnabled, demoEnabled, solanaWithdrawSupported, isValidSolanaAddress, maxCryptoWithdrawal, dextopusWithdrawEnabled, dextopusWithdrawPreview } from "@/lib/settlement";
 import { chainIdForNetwork } from "@/lib/chains";
 import { quoteSell, transferFee } from "@/lib/pricing";
+import { planFunding, type FundingSource } from "@/lib/funding-plan";
 import { referenceFiat } from "@/lib/rate";
 import { accrueCashback } from "@/lib/cashback";
 import { checkWithdrawalLimit } from "@/lib/kyc/limits";
 import { accrueReferralEarning } from "@/lib/referral";
+import { requireWithdrawPin } from "@/lib/withdraw-pin";
 
 const schema = z.object({
   mode: z.enum(["ttip", "wallet", "bank"]),
@@ -33,6 +35,8 @@ const schema = z.object({
   network: z.string().optional(),
   chainId: z.number().optional(), // Dextopus destination chain id (dynamic picker)
   // bank
+  /** Transaction PIN — required for anything that leaves the platform. */
+  pin: z.string().optional(),
   bankName: z.string().optional(),
   accountNumber: z.string().optional(),
   accountName: z.string().optional(),
@@ -59,6 +63,10 @@ export async function POST(req: Request) {
     if (user.kycStatus !== "verified") {
       throw new ApiError("Verify your identity (BVN) to withdraw. It takes about a minute under Account → Verify.", 403);
     }
+    // Anything irreversible asks for the transaction PIN. A stolen session or an
+    // unlocked phone shouldn't be enough to empty an account.
+    await requireWithdrawPin(userId, input.pin);
+
     if (input.mode === "wallet") {
       return handleWalletSend(userId, user.kycTier, input);
     }
@@ -264,6 +272,25 @@ async function handleWalletSend(userId: string, kycTier: number, input: z.infer<
   });
 }
 
+/**
+ * What the USER receives for `amount` of `symbol` in `fiat` — our sell rate for
+ * crypto, 1:1 for the payout currency itself. This is the number the amount
+ * field showed them, so the plan and the screen agree.
+ */
+async function sellValue(amount: number, symbol: string, fiat: string): Promise<number> {
+  if (!(amount > 0)) return 0;
+  if (symbol === fiat || !isCrypto(symbol)) {
+    return symbol === fiat ? amount : await referenceFiat(amount, symbol, fiat);
+  }
+  const market = await referenceFiat(amount, symbol, fiat);
+  const marketRate = market / amount;
+  return quoteSell({ asset: symbol, fiat, amountAsset: amount, marketRate }).userFiat;
+}
+
+function formatShortfall(short: number, fiat: string): string {
+  return `${fiat} ${Math.ceil(short).toLocaleString("en-US")}`;
+}
+
 async function handleBankSend(
   userId: string,
   user: { bankName: string | null; kycTier: number },
@@ -276,21 +303,40 @@ async function handleBankSend(
   if (!input.accountNumber || input.accountNumber.length < 6) throw new ApiError("Enter a valid account number", 400);
   const accountNumber = input.accountNumber;
 
-  const bal = await balanceOf(userId, symbol);
-  if (bal + 1e-12 < amount) throw new ApiError(`Insufficient ${symbol} balance`, 400);
+  // What the user asked to send, valued in the payout currency. Crypto is
+  // valued at our sell rate — the same number the amount field showed them.
+  const targetFiat = await sellValue(amount, symbol, fiat);
+  if (!(targetFiat > 0)) throw new ApiError("Rate unavailable, try again", 503);
 
-  // Competitive pricing: the user is paid the live market rate minus our margin
-  // when converting crypto → fiat; that spread is platform revenue. A same-fiat
-  // withdrawal carries no spread.
-  const marketFiat = await referenceFiat(amount, symbol, fiat);
-  let grossFiat = marketFiat;
-  let spreadFiat = 0;
-  if (symbol !== fiat && isCrypto(symbol)) {
-    const marketRate = amount > 0 ? marketFiat / amount : 0;
-    const q = quoteSell({ asset: symbol, fiat, amountAsset: amount, marketRate });
-    grossFiat = q.userFiat;
-    spreadFiat = q.spreadFiat;
+  // Which wallets pay for it. Someone holding $10 of USDT, $15 of SOL and
+  // ₦25,000 can send ₦50,000 — no single wallet covers it, together they do.
+  const balances = await prisma.balance.findMany({ where: { userId } });
+  const sources: FundingSource[] = [];
+  for (const b of balances) {
+    const held = Number(b.amount);
+    if (!(held > 0)) continue;
+    const unit = await sellValue(1, b.symbol, fiat);
+    if (unit > 0) sources.push({ symbol: b.symbol, amount: held, fiatPerUnit: unit });
   }
+
+  const plan = planFunding(targetFiat, sources, symbol);
+  if (!plan.ok) {
+    throw new ApiError(
+      `Not enough across your wallets — you're ${formatShortfall(plan.short, fiat)} short.`,
+      400,
+    );
+  }
+
+  // Gross = what the legs raise. The spread is only taken on the crypto legs;
+  // a naira leg converts 1:1 and carries none.
+  const grossFiat = plan.raised;
+  let spreadFiat = 0;
+  for (const leg of plan.legs) {
+    if (leg.symbol === fiat || !isCrypto(leg.symbol)) continue;
+    const market = await referenceFiat(leg.take, leg.symbol, fiat);
+    spreadFiat += Math.max(0, market - leg.fiat);
+  }
+  const marketFiat = grossFiat + spreadFiat;
 
   // Transfer fee (provider cost + markup), charged to the user like a bank fee.
   // The net amount is what actually lands in their bank. A currency we can't
@@ -318,20 +364,32 @@ async function handleBankSend(
   // 1. Debit the crypto and record the payout as pending — one atomic step, so
   //    the money can never leave the wallet without a settlement row to match it.
   await prisma.$transaction(async (tx) => {
-    await adjust(tx, userId, symbol, -amount);
+    for (const leg of plan.legs) await adjust(tx, userId, leg.symbol, -leg.take);
+    const first = plan.legs[0];
     await tx.transaction.create({
       data: {
         userId,
         type: "withdraw_bank",
-        assetIn: symbol,
-        amountIn: new Prisma.Decimal(amount),
+        // assetIn/amountIn describe the largest leg for display; `meta.legs`
+        // is the authoritative record and what a refund replays.
+        assetIn: first?.symbol ?? symbol,
+        amountIn: new Prisma.Decimal(first?.take ?? amount),
         assetOut: fiat,
         amountOut: new Prisma.Decimal(fiatAmount),
         counterparty: bankLabel,
         note: input.accountName ? `To ${input.accountName}` : "Bank payout",
         emoji: "🏦",
         status: "pending",
-        meta: { reference, provider, network: "bank", spreadFiat, marketFiat, fee, grossFiat },
+        meta: {
+          reference,
+          provider,
+          network: "bank",
+          spreadFiat,
+          marketFiat,
+          fee,
+          grossFiat,
+          legs: plan.legs.map((l) => ({ symbol: l.symbol, take: l.take, fiat: l.fiat })),
+        },
       },
     });
     await tx.settlement.create({
@@ -402,6 +460,8 @@ async function handleBankSend(
       kind: "bank",
       symbol,
       amount,
+      // Every wallet that contributed, so the receipt can show the split.
+      legs: plan.legs.map((l) => ({ symbol: l.symbol, take: l.take, fiat: l.fiat })),
       fiat,
       fiatAmount, // net amount that lands in the bank
       grossFiat,

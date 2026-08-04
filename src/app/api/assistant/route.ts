@@ -7,6 +7,7 @@ import { ttipKnowledge, assistantRules, ASSISTANT_NAME } from "@/lib/assistant/k
 import { buildUserContext } from "@/lib/assistant/context";
 import { cleanAssistantText } from "@/lib/assistant/sanitize";
 import { answerFaq } from "@/lib/assistant/faq";
+import { parseTransferIntent } from "@/lib/assistant/intent";
 import { bankAliases } from "@/lib/bank-aliases";
 import { prisma } from "@/lib/db";
 
@@ -67,12 +68,13 @@ export async function GET() {
 }
 
 /** Stream a plain string back in the same SSE shape the model uses. */
-function streamText(text: string, escalate: boolean): Response {
+function streamText(text: string, escalate: boolean, action?: unknown): Response {
   const encoder = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
       const send = (o: unknown) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(o)}\n\n`));
       send({ t: "delta", text });
+      if (action) send({ t: "action", action });
       send({ t: "done", escalate });
       controller.close();
     },
@@ -103,6 +105,52 @@ export async function POST(req: Request) {
     }
 
     const question = messages[messages.length - 1]!.content;
+
+    // "Help me transfer 7,500 to my GTBank account."
+    //
+    // Ada never moves money. She turns the request into a DRAFT matched against
+    // the user's own saved beneficiaries, and the client makes them confirm it
+    // with their transaction PIN — after which the normal /api/send path runs
+    // every check it always did. The destination can only be something they
+    // already saved, so an account number typed into a chat window (which is
+    // exactly how people get talked into paying a scammer) can never be used.
+    const intent = parseTransferIntent(question);
+    if (intent) {
+      const [me, beneficiaries] = await Promise.all([
+        prisma.user.findUnique({ where: { id: userId }, select: { defaultFiat: true, bankName: true } }),
+        prisma.beneficiary.findMany({ where: { userId, type: "bank" }, take: 25 }),
+      ]);
+      const fiat = me?.defaultFiat ?? "NGN";
+      const wanted = (intent.target ?? "").replace(/^@/, "").toLowerCase();
+      const match =
+        beneficiaries.find((b) => b.name.toLowerCase().includes(wanted) && wanted.length > 1) ??
+        beneficiaries.find((b) => b.detail.toLowerCase().includes(wanted) && wanted.length > 1) ??
+        (beneficiaries.length === 1 ? beneficiaries[0] : undefined);
+
+      if (!match) {
+        const listed = beneficiaries.length
+          ? ` You have ${beneficiaries.map((b) => b.name).join(", ")} saved — say which one.`
+          : " You don't have any saved bank accounts yet — add one on the Send out screen and I can use it next time.";
+        return streamText(
+          `I can set up ${fiat} ${intent.amount.toLocaleString("en-US")}, but I need to know where it's going.${listed}`,
+          false,
+        );
+      }
+
+      return streamText(
+        `Ready to send ${fiat} ${intent.amount.toLocaleString("en-US")} to ${match.name}. ` +
+          `Check it and confirm with your PIN — I can't move money myself.`,
+        false,
+        {
+          kind: "transfer",
+          amount: intent.amount,
+          fiat,
+          beneficiaryName: match.name,
+          accountNumber: match.detail,
+          bankName: match.handle ?? me?.bankName ?? null,
+        },
+      );
+    }
 
     // No key? Answer from the built-in knowledge rather than telling the user
     // the assistant is switched off. A plain answer beats no support chat.
