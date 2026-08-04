@@ -33,6 +33,20 @@ export async function buildUserContext(userId: string): Promise<string> {
 
   const tier = kycTierDef(user.kycTier ?? 0);
 
+  // The user's own crypto deposit addresses.
+  //
+  // Ada could see the naira account but not these, so "send me my wallet
+  // addresses" — one of the most obvious things to ask an assistant that can
+  // see your account — got an answer about opening the Deposit screen. They're
+  // the user's own, and already printed on that screen, so there is nothing
+  // here they can't already read.
+  const addresses = await prisma.walletAddress.findMany({
+    where: { userId },
+    orderBy: [{ symbol: "asc" }, { network: "asc" }],
+    take: 40,
+    select: { symbol: true, network: true, address: true },
+  });
+
   const recent = await prisma.transaction.findMany({
     where: { userId },
     orderBy: { createdAt: "desc" },
@@ -74,6 +88,10 @@ export async function buildUserContext(userId: string): Promise<string> {
     }`,
     `Transaction PIN set: ${user.pinHash ? "yes" : "no"}`,
     `Holdings: ${holdings || "empty"}`,
+    addresses.length
+      ? `Crypto deposit addresses (their own — quote these EXACTLY, never alter a character, and always name the network alongside):\n` +
+        addresses.map((a) => `  ${a.symbol} on ${a.network}: ${a.address}`).join("\n")
+      : `Crypto deposit addresses: none generated yet — they appear on Add money once an asset and network are picked.`,
     `Cashback pot: ${trim(Number(user.cashback))} (base currency) · Referral earned: ${trim(
       Number(user.referralEarned),
     )} (base currency)`,

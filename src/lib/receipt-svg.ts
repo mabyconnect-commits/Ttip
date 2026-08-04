@@ -1,5 +1,6 @@
 import "server-only";
 import { COMPANY } from "./company";
+import { ensureReceiptFont, RECEIPT_FONT } from "./receipt-fonts";
 
 /**
  * A receipt drawn on the SERVER, as a real image.
@@ -73,6 +74,8 @@ function statusColour(status: string): string {
   return WARN;
 }
 
+const FONT = `${RECEIPT_FONT}, DejaVu Sans, sans-serif`;
+
 export function receiptSvg(r: ServerReceipt): string {
   const rows = r.rows.filter((x) => x.value).map((x) => ({ ...x, value: clamp(x.value) }));
   const heights = rows.map((row) => (row.value.length > LONG_VALUE ? TALL_ROW_H : ROW_H));
@@ -90,12 +93,12 @@ export function receiptSvg(r: ServerReceipt): string {
       const y = cursor;
       cursor += heights[i];
       const body = tall
-        ? `<text x="${PAD + 26}" y="${y}" font-family="sans-serif" font-size="16" fill="${MUTED}">${esc(row.label)}</text>` +
-          `<text x="${PAD + 26}" y="${y + 26}" font-family="sans-serif" font-size="18" font-weight="600" fill="${FG}">${esc(
+        ? `<text x="${PAD + 26}" y="${y}" font-family="${FONT}" font-size="16" fill="${MUTED}">${esc(row.label)}</text>` +
+          `<text x="${PAD + 26}" y="${y + 26}" font-family="${FONT}" font-size="18" font-weight="600" fill="${FG}">${esc(
             row.value,
           )}</text>`
-        : `<text x="${PAD + 26}" y="${y}" font-family="sans-serif" font-size="17" fill="${MUTED}">${esc(row.label)}</text>` +
-          `<text x="${W - PAD - 26}" y="${y}" font-family="sans-serif" font-size="18" font-weight="600" fill="${FG}" text-anchor="end">${esc(
+        : `<text x="${PAD + 26}" y="${y}" font-family="${FONT}" font-size="17" fill="${MUTED}">${esc(row.label)}</text>` +
+          `<text x="${W - PAD - 26}" y="${y}" font-family="${FONT}" font-size="18" font-weight="600" fill="${FG}" text-anchor="end">${esc(
             row.value,
           )}</text>`;
       const rule =
@@ -109,20 +112,20 @@ export function receiptSvg(r: ServerReceipt): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
   <rect width="${W}" height="${H}" fill="${BG}"/>
 
-  <text x="${PAD}" y="58" font-family="sans-serif" font-size="22" font-weight="700" fill="${FG}">${esc(COMPANY.product)}</text>
-  <text x="${W - PAD}" y="58" font-family="sans-serif" font-size="17" fill="${statusColour(
+  <text x="${PAD}" y="58" font-family="${FONT}" font-size="22" font-weight="700" fill="${FG}">${esc(COMPANY.product)}</text>
+  <text x="${W - PAD}" y="58" font-family="${FONT}" font-size="17" fill="${statusColour(
     r.status,
   )}" text-anchor="end">${esc(r.status)}</text>
 
-  <text x="${PAD}" y="126" font-family="sans-serif" font-size="52" font-weight="700" fill="${FG}">${esc(r.amount)}</text>
-  <text x="${PAD}" y="156" font-family="sans-serif" font-size="17" fill="${MUTED}">${esc(r.kind)}</text>
+  <text x="${PAD}" y="126" font-family="${FONT}" font-size="52" font-weight="700" fill="${FG}">${esc(r.amount)}</text>
+  <text x="${PAD}" y="156" font-family="${FONT}" font-size="17" fill="${MUTED}">${esc(r.kind)}</text>
 
   <rect x="${PAD}" y="${cardTop}" width="${W - PAD * 2}" height="${cardH}" rx="22" fill="${CARD}"/>
   ${rowSvg}
 
-  <text x="${PAD}" y="${cardTop + cardH + 52}" font-family="sans-serif" font-size="14" fill="${MUTED}">Reference</text>
-  <text x="${PAD}" y="${cardTop + cardH + 76}" font-family="monospace" font-size="16" fill="${FG}">${esc(r.reference)}</text>
-  <text x="${W - PAD}" y="${cardTop + cardH + 76}" font-family="sans-serif" font-size="14" fill="${MUTED}" text-anchor="end">${esc(
+  <text x="${PAD}" y="${cardTop + cardH + 52}" font-family="${FONT}" font-size="14" fill="${MUTED}">Reference</text>
+  <text x="${PAD}" y="${cardTop + cardH + 76}" font-family="${FONT}" font-size="16" fill="${FG}">${esc(r.reference)}</text>
+  <text x="${W - PAD}" y="${cardTop + cardH + 76}" font-family="${FONT}" font-size="14" fill="${MUTED}" text-anchor="end">${esc(
     COMPANY.domain,
   )}</text>
 </svg>`;
@@ -137,6 +140,9 @@ export function receiptSvg(r: ServerReceipt): string {
  */
 export async function renderReceiptPng(r: ServerReceipt): Promise<Buffer | null> {
   try {
+    // No bundled font means no readable image — boxes are worse than no
+    // receipt, because the user forwards them believing they say something.
+    if (!ensureReceiptFont()) return null;
     const sharp = (await import("sharp")).default;
     return await sharp(Buffer.from(receiptSvg(r))).png().toBuffer();
   } catch (e) {

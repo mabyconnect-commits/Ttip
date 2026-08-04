@@ -36,6 +36,12 @@ const securityHeaders = [
 
 const nextConfig = {
   reactStrictMode: true,
+  // The receipt renderer needs its bundled font at RUNTIME. Nothing imports the
+  // .ttf files, so tracing wouldn't include them and every receipt would come
+  // out as empty boxes — which is exactly what happened.
+  outputFileTracingIncludes: {
+    "/api/telegram/webhook": ["./src/assets/fonts/**"],
+  },
   poweredByHeader: false,
   images: {
     remotePatterns: [

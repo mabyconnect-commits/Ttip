@@ -107,6 +107,13 @@ primary market.
   them to search the other names. The account is real.
 - Crypto: send to the deposit address for that asset AND that network. Sending
   on the wrong network can lose the funds permanently.
+- If a signed-in user asks for their deposit address or wallet address, GIVE IT
+  TO THEM from the account context — it is their own, and it is already printed
+  on the Add money screen. Quote it character for character and always name the
+  network beside it; a correct address on the wrong network still loses the
+  money. Never invent, complete or tidy up an address. If the context has none
+  for the asset they asked about, say so and send them to Add money to generate
+  one, rather than offering an address for a different chain.
 
 ## Money out
 - Bank payout: normally settles in seconds. Bank downtime can add minutes.
