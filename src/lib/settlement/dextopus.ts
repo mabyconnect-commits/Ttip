@@ -3,15 +3,40 @@ import { dextopusConfig, type DextopusConfig } from "./config";
 
 /**
  * Dextopus crypto-deposit provider — cross-chain settlement across 70+ networks,
- * non-custodial, ~0.25%/tx. A static per-user address is generated per origin
- * chain/asset; whatever the user sends is cross-chain-settled to your treasury
+ * non-custodial, ~0.25%/tx. A reusable per-user address is generated per origin
+ * FAMILY; whatever the user sends is cross-chain-settled to your treasury
  * asset/address, and a signed webhook hits /api/webhooks/deposit.
  *
- * Dextopus identifies assets by their on-chain **token address** (native assets
- * use the 0xEeee… sentinel), so we resolve symbols → addresses via
- * /deposit/tokens before generating.
- *
  * API: https://swap-api.dextopus.com/api  (auth: `x-api-key`)
+ *
+ * ────────────────────────────────────────────────────────────────────────────
+ * Three things about this API that we had wrong, and that broke SOL and BTC:
+ *
+ * 1. THE CATALOG IS ONE CALL, NOT TWO. `GET /deposit/tokens` — with no
+ *    parameters — returns `{ chains: [...] }`, and every chain carries its own
+ *    token lists inline. There is no per-chain token endpoint to page through,
+ *    so `/deposit/tokens?chainId=N` did not return what we assumed and the
+ *    symbol→address map came back EMPTY. An empty map means resolveTokenAddress
+ *    returns undefined, which means "asset not listed on that chain", which is
+ *    exactly the "not available for deposit right now" users were hitting.
+ *
+ * 2. DEPOSITABLE TOKENS LIVE IN `solverCurrencies`. `featuredTokens` and
+ *    `erc20Currencies` are catalog/display lists — they carry the logos but
+ *    they are not the set you can actually mint an address for. Reading the
+ *    wrong list gives you tokens that then fail at generate time.
+ *
+ * 3. ADDRESSES ARE MINTED PER FAMILY, NOT PER TOKEN. Each user gets one
+ *    reusable address for EVM, one for Solana, one for Tron and one for
+ *    Bitcoin, each minted through that family's canonical origin. Any
+ *    chain+token the user picks inside a family resolves to that family's
+ *    single address. Minting per (chain, token) is what fails on the non-EVM
+ *    families — which is why Solana and Bitcoin never produced an address
+ *    while EVM appeared to work.
+ *
+ * The endpoint for minting is `POST /deposit/static/addresses` (we were posting
+ * to /deposit/static/generate), and `GET /deposit/static/addresses?userId=`
+ * lists what a user already has — so a lost local record is recovered instead
+ * of minting a second address for the same tuple.
  */
 
 export interface DextopusAddress {
@@ -21,104 +46,255 @@ export interface DextopusAddress {
   originAsset: string;
 }
 
-// Per-chain token list cache: symbol(upper) → token address.
-const tokenCache = new Map<number, { at: number; bySymbol: Record<string, string> }>();
-
-async function tokensForChain(cfg: DextopusConfig, chainId: number): Promise<Record<string, string>> {
-  const cached = tokenCache.get(chainId);
-  if (cached && Date.now() - cached.at < 6 * 60 * 60 * 1000) return cached.bySymbol;
-  const res = await fetch(`${cfg.baseUrl}/deposit/tokens?chainId=${chainId}`, { headers: { "x-api-key": cfg.apiKey } });
-  const bySymbol: Record<string, string> = {};
-  if (res.ok) {
-    const body = (await res.json().catch(() => null)) as Record<string, unknown> | unknown[] | null;
-    const list = (Array.isArray(body) ? body : ((body as Record<string, unknown>)?.tokens ?? (body as Record<string, unknown>)?.data)) as
-      | Record<string, unknown>[]
-      | undefined;
-    for (const t of list ?? []) {
-      const symbol = String(t.symbol ?? "").toUpperCase();
-      const address = String(t.address ?? t.contractAddress ?? t.mint ?? "");
-      if (symbol && address && !(symbol in bySymbol)) bySymbol[symbol] = address;
-    }
-  }
-  tokenCache.set(chainId, { at: Date.now(), bySymbol });
-  return bySymbol;
-}
-
-/** Resolve an asset symbol to its Dextopus token address on a given chain. */
-export async function resolveTokenAddress(cfg: DextopusConfig, chainId: number, symbol: string): Promise<string | undefined> {
-  const bySymbol = await tokensForChain(cfg, chainId);
-  return bySymbol[symbol.toUpperCase()];
-}
-
-// ---- Discovery: every supported chain + token (for the on-demand deposit UI) ----
+export type ChainFamily = "evm" | "solana" | "tron" | "bitcoin";
 
 export interface DxChain {
   chainId: number;
   name: string;
 }
+
 export interface DxToken {
   symbol: string;
   name: string;
 }
 
-let chainsCache: { at: number; chains: DxChain[] } | null = null;
-
-/** All chains Dextopus supports (cached 6h). */
-export async function listChains(): Promise<DxChain[]> {
-  const cfg = dextopusConfig();
-  if (!cfg) return [];
-  if (chainsCache && Date.now() - chainsCache.at < 6 * 60 * 60 * 1000) return chainsCache.chains;
-  const res = await fetch(`${cfg.baseUrl}/deposit/chains`, { headers: { "x-api-key": cfg.apiKey } });
-  if (!res.ok) return chainsCache?.chains ?? [];
-  const body = (await res.json().catch(() => null)) as Record<string, unknown> | unknown[] | null;
-  const list = (Array.isArray(body) ? body : ((body as Record<string, unknown>)?.chains ?? (body as Record<string, unknown>)?.data)) as
-    | Record<string, unknown>[]
-    | undefined;
-  const chains = (list ?? [])
-    .map((c) => ({ chainId: Number(c.chainId ?? c.id), name: String(c.name ?? "") }))
-    .filter((c) => c.chainId && c.name)
-    .sort((a, b) => a.name.localeCompare(b.name));
-  chainsCache = { at: Date.now(), chains };
-  return chains;
+interface CatalogToken {
+  symbol: string;
+  name: string;
+  address: string;
 }
 
-// Cache the full token objects per chain (for names + symbols).
-const tokenListCache = new Map<number, { at: number; tokens: DxToken[] }>();
+interface CatalogChain {
+  chainId: number;
+  name: string;
+  family: ChainFamily;
+  supportsStaticAddress: boolean;
+  tokens: CatalogToken[];
+}
 
-/** Tokens on a chain that actually support static deposit addresses (cached 6h). */
-export async function listTokens(chainId: number): Promise<DxToken[]> {
-  const cfg = dextopusConfig();
-  if (!cfg) return [];
-  const cached = tokenListCache.get(chainId);
-  if (cached && Date.now() - cached.at < 6 * 60 * 60 * 1000) return cached.tokens;
-  // Ask Dextopus for only the tokens that support static addresses, so users
-  // never see a token that would fail with "not available".
-  const res = await fetch(`${cfg.baseUrl}/deposit/tokens?chainId=${chainId}&supportsStaticAddress=true`, { headers: { "x-api-key": cfg.apiKey } });
-  const tokens: DxToken[] = [];
-  if (res.ok) {
-    const body = (await res.json().catch(() => null)) as Record<string, unknown> | unknown[] | null;
-    const list = (Array.isArray(body) ? body : ((body as Record<string, unknown>)?.tokens ?? (body as Record<string, unknown>)?.data)) as
-      | Record<string, unknown>[]
-      | undefined;
-    // Belt-and-braces: if the payload still carries the flag, honour it.
-    const flagged = (list ?? []).some((t) => "supportsStaticAddress" in t);
-    const seen = new Set<string>();
-    for (const t of list ?? []) {
-      if (flagged && t.supportsStaticAddress === false) continue;
-      const symbol = String(t.symbol ?? "").toUpperCase();
-      if (!symbol || seen.has(symbol)) continue;
-      seen.add(symbol);
-      tokens.push({ symbol, name: String(t.name ?? symbol) });
-    }
-  }
-  tokenListCache.set(chainId, { at: Date.now(), tokens });
-  return tokens;
+// ---- Families ---------------------------------------------------------------
+
+/**
+ * Dextopus gives the non-EVM networks synthetic numeric chain ids. These are
+ * the well-known ones; anything else in the catalog is EVM. The name check is
+ * the fallback, so a new Solana-family rollup (Eclipse) still classifies
+ * correctly without a code change.
+ */
+const SOLANA_CHAIN_IDS = new Set([792703809, 9286185]);
+const TRON_CHAIN_ID = 728126428;
+const BITCOIN_CHAIN_ID = 8253038;
+
+export function chainFamily(chainId: number, name = ""): ChainFamily {
+  if (SOLANA_CHAIN_IDS.has(chainId)) return "solana";
+  if (chainId === TRON_CHAIN_ID) return "tron";
+  if (chainId === BITCOIN_CHAIN_ID) return "bitcoin";
+  const n = name.toLowerCase();
+  if (n.includes("solana") || n === "eclipse") return "solana";
+  if (n.includes("tron")) return "tron";
+  if (n.includes("bitcoin") || n.includes("btc")) return "bitcoin";
+  return "evm";
 }
 
 /**
- * Generate a reusable (static) deposit address for a user, for `originSymbol` on
- * `originChainId`, settling to the configured treasury asset/address. Returns
- * null when Dextopus isn't configured or the asset isn't supported on that chain.
+ * The origin each family's address is minted through.
+ *
+ * One address per family covers every chain and token in that family, so a user
+ * has four addresses rather than one per asset. Overridable with
+ * DEXTOPUS_CANONICAL_ORIGINS (JSON) if Dextopus ever reprices these routes.
+ */
+const DEFAULT_CANONICAL_ORIGIN: Record<ChainFamily, { chainId: number; asset: string }> = {
+  evm: { chainId: 1, asset: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" }, // Ethereum USDC
+  solana: { chainId: 792703809, asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" }, // Solana USDC
+  tron: { chainId: 728126428, asset: "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t" }, // Tron USDT
+  bitcoin: { chainId: 8253038, asset: "bc1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqmql8k8" }, // Bitcoin BTC
+};
+
+function canonicalOrigin(family: ChainFamily): { chainId: number; asset: string } {
+  try {
+    const raw = process.env.DEXTOPUS_CANONICAL_ORIGINS;
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<Record<ChainFamily, { chainId: number; asset: string }>>;
+      const hit = parsed[family];
+      if (hit?.chainId && hit?.asset) return hit;
+    }
+  } catch {
+    /* malformed override — fall through to the defaults */
+  }
+  return DEFAULT_CANONICAL_ORIGIN[family];
+}
+
+/**
+ * Where a refund goes if a deposit can't be settled — per family, because a
+ * Bitcoin refund cannot land on an EVM address. Falls back to DEXTOPUS_REFUND_TO.
+ * Omitted entirely when empty: the API rejects a blank refundTo.
+ */
+function refundFor(family: ChainFamily, cfg: DextopusConfig): string | null {
+  const perFamily = {
+    evm: process.env.DEXTOPUS_REFUND_EVM,
+    solana: process.env.DEXTOPUS_REFUND_SOL,
+    tron: process.env.DEXTOPUS_REFUND_TRON,
+    bitcoin: process.env.DEXTOPUS_REFUND_BTC,
+  }[family];
+  return perFamily || (family === "evm" ? cfg.refundTo : null) || null;
+}
+
+// ---- Catalog ----------------------------------------------------------------
+
+let catalogCache: { at: number; chains: CatalogChain[] } | null = null;
+const CATALOG_TTL_MS = 6 * 60 * 60 * 1000;
+
+function asArray(v: unknown): Record<string, unknown>[] {
+  return Array.isArray(v) ? (v as Record<string, unknown>[]) : [];
+}
+
+/**
+ * The whole chain + token catalog, in one request.
+ *
+ * Deliberately forgiving about the envelope — `{chains:[…]}`, `{data:[…]}` or a
+ * bare array — and about which token list is present, so a shape change on
+ * their side degrades rather than emptying the catalog and taking every deposit
+ * address down with it.
+ */
+async function catalog(): Promise<CatalogChain[]> {
+  const cfg = dextopusConfig();
+  if (!cfg) return [];
+  if (catalogCache && Date.now() - catalogCache.at < CATALOG_TTL_MS) return catalogCache.chains;
+
+  let list: Record<string, unknown>[] = [];
+  try {
+    const res = await fetch(`${cfg.baseUrl}/deposit/tokens`, { headers: { "x-api-key": cfg.apiKey } });
+    if (!res.ok) {
+      console.error("[dextopus] catalog request failed", res.status);
+      return catalogCache?.chains ?? [];
+    }
+    const body = (await res.json().catch(() => null)) as Record<string, unknown> | unknown[] | null;
+    list = Array.isArray(body) ? asArray(body) : asArray((body as Record<string, unknown>)?.chains ?? (body as Record<string, unknown>)?.data);
+  } catch (e) {
+    console.error("[dextopus] catalog threw", e);
+    return catalogCache?.chains ?? [];
+  }
+
+  const chains: CatalogChain[] = [];
+  for (const raw of list) {
+    // A chain the provider has switched off can still appear in the catalog.
+    if (raw.disabled === true || raw.depositEnabled === false) continue;
+
+    const chainId = Number(raw.chainId ?? raw.id);
+    const name = String(raw.name ?? raw.blockchain ?? "");
+    if (!Number.isFinite(chainId) || !chainId || !name) continue;
+
+    // solverCurrencies is what you can actually deposit. The others are
+    // catalog/display lists and will happily offer you a token that then
+    // fails at generate time.
+    const source = raw.solverCurrencies ?? raw.tokens ?? raw.currencies;
+    const tokens: CatalogToken[] = [];
+    const seen = new Set<string>();
+    for (const t of asArray(source)) {
+      const symbol = String(t.symbol ?? "").toUpperCase();
+      const address = String(t.address ?? t.contractAddress ?? t.mint ?? "");
+      if (!symbol || !address || seen.has(symbol)) continue;
+      seen.add(symbol);
+      tokens.push({ symbol, address, name: String(t.name ?? symbol) });
+    }
+    if (!tokens.length) continue;
+
+    chains.push({
+      chainId,
+      name,
+      family: chainFamily(chainId, name),
+      supportsStaticAddress: raw.supportsStaticAddress !== false,
+      tokens,
+    });
+  }
+
+  if (chains.length) catalogCache = { at: Date.now(), chains };
+  return chains.length ? chains : (catalogCache?.chains ?? []);
+}
+
+/** Every chain we can mint a deposit address on (cached 6h). */
+export async function listChains(): Promise<DxChain[]> {
+  const chains = await catalog();
+  return chains
+    .filter((c) => c.supportsStaticAddress)
+    .map((c) => ({ chainId: c.chainId, name: c.name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** The tokens depositable on a chain (cached 6h). */
+export async function listTokens(chainId: number): Promise<DxToken[]> {
+  const chains = await catalog();
+  const hit = chains.find((c) => c.chainId === chainId);
+  return (hit?.tokens ?? []).map((t) => ({ symbol: t.symbol, name: t.name }));
+}
+
+/**
+ * Resolve an asset symbol to its Dextopus token address on a chain.
+ *
+ * Also accepts an address already: settlement assets are usually configured as
+ * a contract address (Base USDC is `0x8335…`), and treating one as a symbol
+ * would fail to resolve and silently disable every deposit.
+ */
+export async function resolveTokenAddress(
+  _cfg: DextopusConfig,
+  chainId: number,
+  symbolOrAddress: string,
+): Promise<string | undefined> {
+  const value = (symbolOrAddress ?? "").trim();
+  if (!value) return undefined;
+  if (looksLikeTokenAddress(value)) return value;
+
+  const chains = await catalog();
+  const hit = chains.find((c) => c.chainId === chainId);
+  return hit?.tokens.find((t) => t.symbol === value.toUpperCase())?.address;
+}
+
+/** An on-chain token identifier rather than a ticker. */
+function looksLikeTokenAddress(v: string): boolean {
+  if (/^0x[a-fA-F0-9]{40}$/.test(v)) return true; // EVM
+  if (/^(bc1|[13])[a-zA-HJ-NP-Z0-9]{20,}$/.test(v)) return true; // Bitcoin
+  if (/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(v)) return true; // Tron
+  // Solana mints are base58 and always longer than any ticker.
+  if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(v)) return true;
+  return false;
+}
+
+// ---- Addresses --------------------------------------------------------------
+
+interface ExistingAddress {
+  id?: string;
+  depositAddress?: string;
+  originChainId?: number | string;
+  originAsset?: string;
+  settlementChainId?: number | string;
+  settlementAsset?: string;
+  settlementAddress?: string;
+}
+
+/** Every static address already minted for this user. */
+async function listUserAddresses(cfg: DextopusConfig, userId: string): Promise<ExistingAddress[]> {
+  try {
+    const res = await fetch(`${cfg.baseUrl}/deposit/static/addresses?userId=${encodeURIComponent(userId)}`, {
+      headers: { "x-api-key": cfg.apiKey },
+    });
+    if (!res.ok) return [];
+    const body = (await res.json().catch(() => ({}))) as { success?: boolean; data?: unknown };
+    if (body.success === false) return [];
+    return Array.isArray(body.data) ? (body.data as ExistingAddress[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+const sameId = (a: unknown, b: unknown) => Number(a) === Number(b);
+const sameAddr = (a: unknown, b: unknown) => String(a ?? "").toLowerCase() === String(b ?? "").toLowerCase();
+
+/**
+ * The user's reusable deposit address for the FAMILY that `originChainId`
+ * belongs to. Anything they send on any chain in that family lands here.
+ *
+ * Returns null when Dextopus isn't configured or the settlement target can't be
+ * resolved — never a half-built address, because an address we can't settle
+ * from is money we can't credit.
  */
 export async function createDepositAddress(
   userId: string,
@@ -128,28 +304,74 @@ export async function createDepositAddress(
   const cfg = dextopusConfig();
   if (!cfg || cfg.settlementChainId == null || !cfg.settlementAsset || !cfg.settlementAddress) return null;
 
-  const [originAsset, settlementAsset] = await Promise.all([
-    resolveTokenAddress(cfg, originChainId, originSymbol),
-    resolveTokenAddress(cfg, cfg.settlementChainId, cfg.settlementAsset),
-  ]);
-  if (!originAsset || !settlementAsset) return null; // asset not listed on that chain
+  // The family is what decides the address; the chain the user picked only
+  // tells us which family they're in.
+  const chains = await catalog();
+  const chain = chains.find((c) => c.chainId === originChainId);
+  const family = chainFamily(originChainId, chain?.name);
+  const origin = canonicalOrigin(family);
 
-  const res = await fetch(`${cfg.baseUrl}/deposit/static/generate`, {
-    method: "POST",
-    headers: { "x-api-key": cfg.apiKey, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      userId,
-      originChainId,
-      originAsset,
-      settlementChainId: cfg.settlementChainId,
-      settlementAsset,
-      settlementAddress: cfg.settlementAddress,
-      ...(cfg.refundTo ? { refundTo: cfg.refundTo } : {}),
-      metadata: { source: "ttip" },
-    }),
-  });
-  if (!res.ok) return null;
-  const json = (await res.json().catch(() => ({}))) as { data?: { id?: string; depositAddress?: string }; depositAddress?: string };
+  const settlementAsset = await resolveTokenAddress(cfg, cfg.settlementChainId, cfg.settlementAsset);
+  if (!settlementAsset) {
+    console.error("[dextopus] settlement asset did not resolve", cfg.settlementAsset, cfg.settlementChainId);
+    return null;
+  }
+
+  // Reuse before minting: a user who cleared their record shouldn't collect a
+  // second address for the same route, and Dextopus indexes by userId.
+  const existing = await listUserAddresses(cfg, userId);
+  const match = existing.find(
+    (a) =>
+      a.depositAddress &&
+      sameId(a.originChainId, origin.chainId) &&
+      sameAddr(a.originAsset, origin.asset) &&
+      sameId(a.settlementChainId, cfg.settlementChainId) &&
+      sameAddr(a.settlementAsset, settlementAsset) &&
+      sameAddr(a.settlementAddress, cfg.settlementAddress),
+  );
+  if (match?.depositAddress) {
+    return { id: match.id ?? "", address: match.depositAddress, originChainId, originAsset: originSymbol };
+  }
+
+  const refundTo = refundFor(family, cfg);
+
+  let res: Response;
+  try {
+    res = await fetch(`${cfg.baseUrl}/deposit/static/addresses`, {
+      method: "POST",
+      headers: { "x-api-key": cfg.apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId,
+        originChainId: origin.chainId,
+        originAsset: origin.asset,
+        settlementChainId: cfg.settlementChainId,
+        settlementAsset,
+        settlementAddress: cfg.settlementAddress,
+        // Only when we actually have one — a blank refundTo is rejected.
+        ...(refundTo ? { refundTo } : {}),
+        metadata: { source: "ttip", family },
+      }),
+    });
+  } catch (e) {
+    console.error("[dextopus] generate threw", e);
+    return null;
+  }
+
+  const json = (await res.json().catch(() => ({}))) as {
+    success?: boolean;
+    data?: { id?: string; depositAddress?: string };
+    depositAddress?: string;
+    message?: string;
+    error?: string;
+  };
+
+  if (!res.ok || json.success === false) {
+    // Logged loudly: this is the failure users see as "not available right
+    // now", and without the provider's own message it's unguessable.
+    console.error("[dextopus] generate failed", res.status, json.message ?? json.error ?? "", { family, originChainId });
+    return null;
+  }
+
   const address = json.data?.depositAddress ?? json.depositAddress;
   return address ? { id: json.data?.id ?? "", address, originChainId, originAsset: originSymbol } : null;
 }

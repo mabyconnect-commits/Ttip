@@ -33,14 +33,24 @@ const DRAFT_TTL_MS = 5 * 60_000;
 const MAX_ATTEMPTS = 3;
 
 /**
- * An optional extra ceiling on chat-initiated transfers, on top of the user's
- * KYC limits. Unset means no extra cap — the app's own limits still apply.
- * Set TELEGRAM_MAX_TRANSFER_NGN to something small if you'd rather the chat
- * channel only handle everyday amounts.
+ * A ceiling on chat-initiated transfers, on top of the user's KYC limits.
+ *
+ * ₦100,000 by default. A chat window is a softer target than the app — no
+ * device binding, no app lock, and a phone someone has already unlocked — so
+ * everyday amounts go through here and anything larger goes through the app.
+ * Override with TELEGRAM_MAX_TRANSFER_NGN; set it to 0 to remove the extra cap
+ * and let the KYC limits stand alone.
  */
+const DEFAULT_MAX_TRANSFER_NGN = 100_000;
+
 export function telegramMaxTransfer(): number | null {
-  const v = Number(process.env.TELEGRAM_MAX_TRANSFER_NGN);
-  return Number.isFinite(v) && v > 0 ? v : null;
+  const raw = process.env.TELEGRAM_MAX_TRANSFER_NGN;
+  if (raw !== undefined) {
+    // Tolerate "100,000" — it's the way the number is actually written down.
+    const v = Number(String(raw).replace(/[,_\s]/g, ""));
+    if (Number.isFinite(v) && v >= 0) return v > 0 ? v : null;
+  }
+  return DEFAULT_MAX_TRANSFER_NGN;
 }
 
 export interface DraftInput {

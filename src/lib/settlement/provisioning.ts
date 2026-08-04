@@ -2,7 +2,7 @@ import "server-only";
 import { prisma } from "../db";
 import { CRYPTO_ASSETS } from "../constants";
 import { depositProvider, dextopusConfig } from "./config";
-import { createDepositAddress } from "./dextopus";
+import { createDepositAddress, chainFamily, type ChainFamily } from "./dextopus";
 
 /**
  * On-demand: return the user's static deposit address for one (chain, asset),
@@ -37,11 +37,12 @@ export async function getOrCreateDepositAddress(
  * configured it's a no-op and the built-in demo addresses stay in place.
  *
  * The app's network id → Dextopus numeric chainId. The EVM ids are the standard
- * EIP-155 values; Tron/others are provider-specific — verify against
- * `GET /deposit/chains` and override with the DEXTOPUS_CHAIN_IDS env (JSON).
- * Networks with no mapping keep their demo address.
+ * EIP-155 values; Solana, Tron and Bitcoin get synthetic ids from the provider.
+ * Verify against `GET /api/deposit/tokens` (which returns every chain with its
+ * tokens inline) and override with the DEXTOPUS_CHAIN_IDS env (JSON). Networks
+ * with no mapping keep their demo address.
  */
-// Verified against Dextopus GET /api/deposit/chains.
+// Verified against the Dextopus catalog.
 const DEFAULT_CHAIN_IDS: Record<string, number> = {
   erc20: 1, // Ethereum
   bep20: 56, // BNB Smart Chain
@@ -85,18 +86,37 @@ export async function ensureDepositAddresses(userId: string): Promise<number> {
     }
   }
 
-  // Generate them in parallel so the first deposit-screen load stays fast.
-  const results = await Promise.all(
-    tasks.map(async (t) => {
-      const res = await createDepositAddress(userId, t.chainId, t.symbol).catch(() => null);
-      if (!res) return 0;
-      await prisma.walletAddress.upsert({
-        where: { userId_symbol_network: { userId, symbol: t.symbol, network: t.network } },
-        create: { userId, symbol: t.symbol, network: t.network, address: res.address, provider: "dextopus" },
-        update: { address: res.address, provider: "dextopus" },
-      });
-      return 1;
+  // One address per FAMILY, not per (asset, chain).
+  //
+  // Dextopus mints a single reusable address per family and every chain+token
+  // inside that family settles through it. Minting per task would fire a dozen
+  // concurrent POSTs for the same tuple — racing each other to create
+  // duplicates of an address they all end up sharing anyway. So mint once per
+  // family, then fan the result out to every row that family covers.
+  const families = new Map<ChainFamily, { chainId: number; symbol: string }>();
+  for (const t of tasks) {
+    const family = chainFamily(t.chainId);
+    if (!families.has(family)) families.set(family, { chainId: t.chainId, symbol: t.symbol });
+  }
+
+  const minted = new Map<ChainFamily, string>();
+  await Promise.all(
+    [...families].map(async ([family, seed]) => {
+      const res = await createDepositAddress(userId, seed.chainId, seed.symbol).catch(() => null);
+      if (res) minted.set(family, res.address);
     }),
   );
-  return results.reduce((a: number, b: number) => a + b, 0);
+
+  let count = 0;
+  for (const t of tasks) {
+    const address = minted.get(chainFamily(t.chainId));
+    if (!address) continue; // that family didn't mint — keep the demo address
+    await prisma.walletAddress.upsert({
+      where: { userId_symbol_network: { userId, symbol: t.symbol, network: t.network } },
+      create: { userId, symbol: t.symbol, network: t.network, address, provider: "dextopus" },
+      update: { address, provider: "dextopus" },
+    });
+    count += 1;
+  }
+  return count;
 }
