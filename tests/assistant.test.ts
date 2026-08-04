@@ -86,10 +86,22 @@ test("knowledge names every alias of the partner bank", () => {
   }
 });
 
-test("rules forbid credentials, money movement and markup", () => {
+test("rules forbid credentials and markup", () => {
   const r = assistantRules().toLowerCase();
   assert.ok(r.includes("pin"));
   assert.ok(r.includes("seed"));
   assert.ok(r.includes("cannot"));
   assert.ok(r.includes("never emit xml"));
+});
+
+test("rules tell the model it CAN prepare a transfer", () => {
+  // It was told "you have no buttons", so it answered "I can't move money" to
+  // someone asking for help with a transfer — while the app could do it.
+  const r = assistantRules();
+  assert.ok(/you can set up a bank transfer/i.test(r), "must describe the real capability");
+  // The prompt is wrapped, so compare on collapsed whitespace.
+  const flat = r.replace(/\s+/g, " ");
+  assert.ok(/never say you can.t help with a transfer/i.test(flat));
+  // …but still can't execute one on its own.
+  assert.ok(/confirm with their transaction pin/i.test(r));
 });

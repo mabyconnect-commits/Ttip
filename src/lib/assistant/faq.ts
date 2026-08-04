@@ -131,6 +131,25 @@ const INTENTS: Intent[] = [
     },
   },
   {
+    // "Can you help me do transfers?" — this used to escalate to email, which
+    // is absurd for something the assistant can actually do.
+    match: [
+      "help me do transfers",
+      "help me transfer",
+      "can you transfer",
+      "can you send money",
+      "can you help me send",
+      "do transfers",
+      "can you buy airtime",
+      "can you buy data",
+      "what can you do for me",
+    ],
+    answer: () =>
+      `Yes. Tell me the amount and who it's for and I'll set it up — you confirm with your PIN. ` +
+      `Try "send ₦5,000 to my GTBank account", "buy me ₦100 airtime" or "send 1GB to my MTN line". ` +
+      `I can only use accounts and lines you've used before, or a number you type yourself.`,
+  },
+  {
     match: ["cashback", "cash back"],
     answer: () =>
       `You earn ${(CASHBACK_PCT * 100).toFixed(2)}% back on every buy, sell and swap. Once it reaches ${money(
@@ -172,7 +191,9 @@ const INTENTS: Intent[] = [
       "ttip someone",
       "ttip a friend",
     ],
-    answer: () => `Tap Ttip, enter their @username and the amount. It's instant and free. If they're not on Ttip yet, the money waits for them to join with that handle.`,
+    answer: () =>
+      `Tap Ttip, enter their @username and the amount — instant and free. If they're not on Ttip yet, the money waits for them to join with that handle. ` +
+      `For a bank account, just tell me the amount and who, like "send ₦5,000 to my GTBank account", and I'll set it up for you to confirm with your PIN.`,
   },
   {
     match: [

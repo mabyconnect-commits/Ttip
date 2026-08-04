@@ -106,8 +106,8 @@ export function InstallPrompt() {
     route === "open-in-browser"
       ? { line: "Open in Safari or Chrome to install", cta: "How" }
       : route === "ios-share"
-        ? { line: "Add it to your home screen — opens like an app", cta: "How" }
-        : { line: "Add it to your home screen — opens like an app", cta: "Install" };
+        ? { line: "Install it to your home screen — opens like an app", cta: "How" }
+        : { line: "Install it to your home screen — opens like an app", cta: "Install" };
 
   return (
     <>
@@ -137,7 +137,7 @@ export function InstallPrompt() {
         </div>
       </div>
 
-      <Sheet open={howTo} onClose={() => setHowTo(false)} title="Add Ttip to your home screen">
+      <Sheet open={howTo} onClose={() => setHowTo(false)} title="Install Ttip to your home screen">
         {route === "open-in-browser" ? (
           <div className="flex flex-col gap-3">
             <p className="text-white/60 text-[13.5px] leading-[1.55]">
@@ -152,7 +152,7 @@ export function InstallPrompt() {
               Tap the <ShareGlyph /> Share button in <b className="text-white">{where}</b>.
             </Step>
             <Step n={2}>
-              Scroll down and tap <b className="text-white">Add to Home Screen</b>.
+              Scroll down and tap <b className="text-white">Add to Home Screen</b> — that&apos;s the install.
             </Step>
             <Step n={3}>
               Tap <b className="text-white">Add</b>. Ttip appears on your home screen and opens

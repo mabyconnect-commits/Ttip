@@ -551,6 +551,28 @@ async function handleBankSend(
     throw new ApiError(`${base} — balance not charged.`, 502);
   }
 
+  // Remember who they paid. Beneficiaries were only ever created by hand, so
+  // almost nobody had any — which meant Ada could never find an account to send
+  // to, and the Send out screen never offered a recent one either.
+  {
+    const label = input.accountName?.trim() || bankLabel;
+    try {
+      const existing = await prisma.beneficiary.findFirst({
+        where: { userId, type: "bank", detail: accountNumber },
+        select: { id: true },
+      });
+      if (existing) {
+        await prisma.beneficiary.update({ where: { id: existing.id }, data: { name: label, handle: input.bankName ?? null } });
+      } else {
+        await prisma.beneficiary.create({
+          data: { userId, type: "bank", name: label, detail: accountNumber, handle: input.bankName ?? null },
+        });
+      }
+    } catch {
+      /* saving a beneficiary must never fail a payout that already went out */
+    }
+  }
+
   // The fiat has left the float — draw it down, reward cashback on the sale, and
   // pay the referrer their share of the revenue (spread + transfer fee).
   if (payoutStatus === "completed") {

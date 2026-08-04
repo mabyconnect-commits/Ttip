@@ -129,15 +129,47 @@ export async function POST(req: Request) {
     // exactly how people get talked into paying a scammer) can never be used.
     const intent = parseTransferIntent(question);
     if (intent) {
-      const [me, beneficiaries] = await Promise.all([
+      const [me, saved, pastPayouts] = await Promise.all([
         prisma.user.findUnique({ where: { id: userId }, select: { defaultFiat: true, bankName: true } }),
         prisma.beneficiary.findMany({ where: { userId, type: "bank" }, take: 25 }),
+        // Anyone they've actually paid before. Beneficiaries used to be created
+        // only by hand, so almost nobody had any and Ada could never find an
+        // account to send to — history is the more reliable source.
+        prisma.settlement.findMany({
+          where: { userId, kind: "payout", address: { not: null } },
+          orderBy: { createdAt: "desc" },
+          take: 25,
+          select: { address: true, userId: true, createdAt: true },
+        }),
       ]);
+
+      // Name each past account from the transaction that paid it.
+      const history: { name: string; detail: string; handle: string | null }[] = [];
+      const seenAccounts = new Set(saved.map((b) => b.detail));
+      for (const s of pastPayouts) {
+        const acct = s.address!;
+        if (seenAccounts.has(acct)) continue;
+        seenAccounts.add(acct);
+        const txn = await prisma.transaction.findFirst({
+          where: { userId, type: "withdraw_bank", createdAt: { gte: new Date(s.createdAt.getTime() - 60_000), lte: new Date(s.createdAt.getTime() + 60_000) } },
+          select: { counterparty: true, note: true },
+        });
+        const label = (txn?.note ?? "").replace(/^To\s+/i, "").trim() || txn?.counterparty || `Account ${acct}`;
+        history.push({ name: label, detail: acct, handle: (txn?.counterparty ?? "").split("••")[0]?.trim() || null });
+      }
+
+      const beneficiaries = [...saved.map((b) => ({ name: b.name, detail: b.detail, handle: b.handle })), ...history];
       const fiat = me?.defaultFiat ?? "NGN";
       const wanted = (intent.target ?? "").replace(/^@/, "").toLowerCase();
+      // Match on the person's name, the account number, OR the bank — "my
+      // GTBank account" names the bank, not the payee, and that's how people
+      // actually refer to an account they've used before.
+      const hit = (v: string | null | undefined) =>
+        wanted.length > 1 && (v ?? "").toLowerCase().includes(wanted);
       const match =
-        beneficiaries.find((b) => b.name.toLowerCase().includes(wanted) && wanted.length > 1) ??
-        beneficiaries.find((b) => b.detail.toLowerCase().includes(wanted) && wanted.length > 1) ??
+        beneficiaries.find((b) => hit(b.name)) ??
+        beneficiaries.find((b) => hit(b.detail)) ??
+        beneficiaries.find((b) => hit(b.handle)) ??
         (beneficiaries.length === 1 ? beneficiaries[0] : undefined);
 
       if (!match) {
@@ -152,7 +184,7 @@ export async function POST(req: Request) {
 
       return streamText(
         `Ready to send ${fiat} ${intent.amount.toLocaleString("en-US")} to ${match.name}. ` +
-          `Check it and confirm with your PIN — I can't move money myself.`,
+          `Check the details and confirm with your PIN.`,
         false,
         {
           kind: "transfer",
