@@ -124,3 +124,28 @@ test("an ordinary naira message names no crypto at all", () => {
   }
   assert.equal(mentionsCrypto("send 0.05 solana"), true);
 });
+
+test("an asset survives being mis-transcribed", () => {
+  // Verbatim from a chat: "Okay, send SOL" came back from the transcriber as
+  // "Okay. Send soul." The word was right there and the app couldn't see it.
+  assert.equal(parseCryptoAsset("Okay. Send soul."), "SOL");
+  assert.equal(parseCryptoAsset("send sole"), "SOL");
+  assert.equal(parseCryptoAsset("salana"), "SOL");
+  assert.equal(parseCryptoAsset("send u s d t"), "USDT");
+  assert.equal(parseCryptoAsset("send bit coin"), "BTC");
+  assert.equal(parseCryptoAsset("etherium"), "ETH");
+});
+
+test("a word that merely contains a ticker is not an asset", () => {
+  // "JENMEC SOLUTIONS LTD" is a beneficiary name, not an instruction to send
+  // SOL — matching inside words would turn one into the other.
+  for (const t of [
+    "JENMEC SOLUTIONS LTD - MATTHEW OLUWATOBI ADELEYE",
+    "i need a solution",
+    "soldier",
+    "console the user",
+    "send 5000 to 9077984753 Opay",
+  ]) {
+    assert.equal(parseCryptoAsset(t), undefined, t);
+  }
+});

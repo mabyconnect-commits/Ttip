@@ -133,14 +133,20 @@ export const FAMILY_NETWORK: Record<ChainFamily, string> = {
  * back as a ₦5 bank transfer, complete with a list of the user's bank
  * beneficiaries — which is a long way from what they asked for.
  */
+/**
+ * Spellings included because a transcriber produced them, not because anyone
+ * would type them. "Okay, send SOL" came back as "Okay. Send soul." — the word
+ * is right there in the sentence and the app still could not see it. These are
+ * the sound-alikes for the tickers people actually say out loud.
+ */
 const ASSET_WORDS: [RegExp, string][] = [
-  [/\bsol(ana)?\b/i, "SOL"],
-  [/\busdc\b|\busd\s*coin\b/i, "USDC"],
-  [/\busdt\b|\btether\b/i, "USDT"],
-  [/\bbtc\b|\bbitcoins?\b/i, "BTC"],
-  [/\beth(er(eum)?)?\b/i, "ETH"],
-  [/\bbnb\b|\bbinance\s*coin\b/i, "BNB"],
-  [/\bxrp\b|\bripple\b/i, "XRP"],
+  [/\bs(?:ol|oul|ole|ola|olar)\b|\bsol[ao]n[ao]\b|\bsalana\b/i, "SOL"],
+  [/\busdc\b|\bu\s*s\s*d\s*c\b|\busd\s*coin\b/i, "USDC"],
+  [/\busdt\b|\bu\s*s\s*d\s*t\b|\btethers?\b|\busd\s*tether\b/i, "USDT"],
+  [/\bbtc\b|\bb\s*t\s*c\b|\bbit\s*coins?\b/i, "BTC"],
+  [/\beth(?:er(?:eum)?)?\b|\be\s*t\s*h\b|\betherium\b/i, "ETH"],
+  [/\bbnb\b|\bb\s*n\s*b\b|\bbinance(?:\s*coin)?\b/i, "BNB"],
+  [/\bxrp\b|\bx\s*r\s*p\b|\bripple\b/i, "XRP"],
 ];
 
 /**

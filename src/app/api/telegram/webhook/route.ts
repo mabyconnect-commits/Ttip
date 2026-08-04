@@ -98,11 +98,71 @@ async function say(chatId: number | string, text: string): Promise<void> {
   await rememberTurn(chatId, "assistant", text);
 }
 
+/**
+ * What is actually half-built right now, in words for the model.
+ *
+ * The model has been narrating transfers into existence — "Right, 0.05 SOL to
+ * the address you pasted… if no confirmation comes up, use the app" — because
+ * it could see the conversation but not the state. It had no way to know
+ * whether anything was really pending, so it guessed, and the guess read like a
+ * promise. Telling it exactly what is held and exactly what is missing turns
+ * that guess into the one short question that moves things on.
+ */
+function pendingSummary(d: {
+  kind?: string;
+  amount: unknown;
+  fiat: string;
+  accountNumber: string | null;
+  bankName: string | null;
+  resolvedName: string | null;
+  asset?: string | null;
+  network?: string | null;
+  address?: string | null;
+} | null): string {
+  if (!d) {
+    return (
+      `## Nothing is pending\n` +
+      `No transfer is set up right now. Do NOT say one is, do not say a confirmation is coming, ` +
+      `and do not describe money as moving. If they want to send, ask for what's missing.`
+    );
+  }
+  const gap = draftGap({ ...d, amount: d.amount === null ? null : Number(d.amount) });
+  const held =
+    d.kind === "crypto"
+      ? `a crypto send on ${d.network} to ${d.address}${d.asset ? `, asset ${d.asset}` : ""}${
+          d.amount !== null ? `, amount ${Number(d.amount)}` : ""
+        }`
+      : `a bank transfer to ${d.accountNumber}${d.bankName ? ` at ${d.bankName}` : ""}${
+          d.resolvedName ? ` (${d.resolvedName})` : ""
+        }${d.amount !== null ? `, amount ${d.fiat} ${Number(d.amount)}` : ""}`;
+
+  if (!gap) {
+    return (
+      `## A confirmation is on screen\n` +
+      `The app has already shown them ${held} and asked for their PIN. Say nothing that ` +
+      `contradicts it; if they ask, tell them to reply with their PIN, or /cancel to drop it.`
+    );
+  }
+  const ask =
+    gap === "asset"
+      ? `which ASSET to send`
+      : gap === "bank"
+        ? `which BANK that account is with`
+        : `HOW MUCH to send`;
+  return (
+    `## Half-built, and it needs one thing\n` +
+    `The app is holding ${held}. It still needs ${ask} — ask exactly that, in one short ` +
+    `sentence, and nothing else. Do not claim it is set up, do not say a confirmation is ` +
+    `coming, and do not send them to the app: the moment they answer, the confirmation appears here.`
+  );
+}
+
 async function reply(
   chatId: number | string,
   question: string,
   userId: string | null,
   ctx: FaqCtx,
+  pending?: Awaited<ReturnType<typeof liveDraft>>,
 ): Promise<string> {
   const key = process.env.ANTHROPIC_API_KEY;
 
@@ -145,6 +205,7 @@ async function reply(
                 `Swaps and bill payments are still app-only — point those to ${COMPANY.domain}.\n` +
                 `Never ask for a password, BVN or OTP; you never need them. Only ever ask for a PIN as the ` +
                 `final step of a transfer the parser has already set up.\n\n` +
+                `${pendingSummary(pending ?? null)}\n\n` +
                 `## Formatting\n` +
                 `This is a chat. Keep it short — a couple of lines. **bold** and *italic* render; headings ` +
                 `and tables do not. Never dump the whole account summary unless they asked for it.\n\n` +
@@ -882,7 +943,13 @@ export async function POST(req: Request) {
         }
       : {};
 
-    await say(chatId, await reply(chatId, text.replace(/^\/\w+\s*/, ""), linked?.id ?? null, ctx));
+    // What's actually pending goes to the model too. Without it she answered
+    // from the conversation alone and described transfers that didn't exist.
+    const stillPending = linked ? await liveDraft(chatId) : null;
+    await say(
+      chatId,
+      await reply(chatId, text.replace(/^\/\w+\s*/, ""), linked?.id ?? null, ctx, stillPending),
+    );
   } catch (e) {
     console.error("[telegram] reply failed", e);
     await sendMessage(chatId, "Something went wrong on my side — try again in a moment.");
