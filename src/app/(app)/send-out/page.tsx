@@ -17,9 +17,10 @@ import { QrScanner } from "@/components/QrScanner";
 import { TestModeBanner } from "@/components/TestModeBanner";
 import type { Bank } from "@/lib/banks";
 
-// Assets sellable to a bank (crypto → fiat). Wallet sends use the full,
-// dynamic Dextopus chain/token list instead (see below).
-const BANK_ASSETS = ["USDT", "USDC", "BTC", "ETH", "SOL", "BNB", "XRP", "TRX"];
+// Crypto sellable to a bank. The user's own fiat is prepended at render time —
+// see `bankAssets` below — because someone holding naira has to be able to send
+// naira to a bank without swapping it into crypto and back first.
+const BANK_CRYPTO = ["USDT", "USDC", "BTC", "ETH", "SOL", "BNB", "XRP", "TRX"];
 
 interface DxChain { chainId: number; name: string }
 interface DxToken { symbol: string; name: string }
@@ -29,7 +30,7 @@ export default function SendOutPage() {
   const { convert } = usePrices();
   const router = useRouter();
   const [mode, setMode] = useState<"bank" | "wallet">("bank");
-  const [sym, setSym] = useState("USDT"); // bank-mode asset
+  const [sym, setSym] = useState(""); // bank-mode asset; defaulted once state loads
   const [amount, setAmount] = useState("");
   const [address, setAddress] = useState("");
   const [bank, setBank] = useState<Bank | null>(null);
@@ -91,6 +92,19 @@ export default function SendOutPage() {
   const verified = state.user.kycStatus === "verified";
   const amt = parseFloat(amount) || 0;
   const fiat = state.user.defaultFiat;
+
+  // Cash-out sources: the user's own fiat first (a naira balance goes straight
+  // to a bank — no spread, just the transfer fee), then the crypto rails.
+  const fiatBal = state.portfolio.assets.find((a) => a.symbol === fiat)?.amount ?? 0;
+  const bankAssets = [fiat, ...BANK_CRYPTO.filter((s) => s !== fiat)];
+
+  // Default to naira when they hold naira; otherwise the usual USDT.
+  useEffect(() => {
+    if (sym) return;
+    setSym(fiatBal > 0 ? fiat : "USDT");
+  }, [sym, fiat, fiatBal]);
+
+  const symIsFiat = sym === fiat;
 
   // The active asset + destination differ by mode.
   const walletSym = selToken?.symbol ?? "";
@@ -171,7 +185,7 @@ export default function SendOutPage() {
           <>
             {/* asset chips (crypto to sell to fiat) */}
             <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
-              {BANK_ASSETS.map((s) => (
+              {bankAssets.map((s) => (
                 <button key={s} onClick={() => setSym(s)} className={`h-10 px-4 rounded-[20px] shrink-0 border font-grotesk font-bold text-[13px] transition ${sym === s ? "bg-white text-[#07080D] border-white" : "border-white/14 text-white/70"}`}>
                   {s}
                 </button>
@@ -274,7 +288,13 @@ export default function SendOutPage() {
             );
           })()}
           {(mode === "bank" || selToken) && (
-            <div className="flex justify-between"><span>Balance</span><b className="text-white font-grotesk">{formatCrypto(bal, activeSym)} {activeSym}</b></div>
+            <div className="flex justify-between">
+              <span>Balance</span>
+              <b className="text-white font-grotesk">
+                {/* Naira is a currency, not a token — don't print it to 6 decimals. */}
+                {symIsFiat && mode === "bank" ? formatFiat(bal, fiat) : `${formatCrypto(bal, activeSym)} ${activeSym}`}
+              </b>
+            </div>
           )}
         </div>
       </div>

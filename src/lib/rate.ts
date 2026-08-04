@@ -24,6 +24,13 @@ export function p2pPremium(fiat: string): number {
 
 /** Fiat value of `amount` crypto at the live reference (Bybit P2P, else FX). */
 export async function referenceFiat(amount: number, asset: string, fiat: string): Promise<number> {
+  // ₦10,000 is ₦10,000. Without this it round-tripped NGN → USDT at the OFFICIAL
+  // rate and back at the P2P rate, which are not the same number — so a naira
+  // cash-out valued ₦10,000 of balance at roughly ₦10,300 and paid out the
+  // difference on every single one. The fallback branch does the same thing by
+  // multiplying by (1 + premium).
+  if (asset.toUpperCase() === fiat.toUpperCase()) return amount;
+
   const usdtRate = await p2pUsdtRate(fiat);
   if (usdtRate && usdtRate > 0) {
     const inUsdt = asset.toUpperCase() === "USDT" ? amount : await convert(amount, asset, "USDT");
