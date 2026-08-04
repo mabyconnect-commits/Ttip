@@ -25,6 +25,19 @@ export const ASSISTANT_OPEN = "ttip:assistant-open";
 const STORE_KEY = "ttip_ada_thread";
 const NAME = "Ada";
 
+/** A bill Ada has prepared. Not bought until the user enters their PIN. */
+interface BillDraft {
+  kind: "bill";
+  category: "airtime" | "data";
+  provider: string;
+  billerCode: string;
+  itemCode: string;
+  planName: string;
+  phone: string;
+  amountNgn: number;
+  fiat: string;
+}
+
 /** A transfer Ada has prepared. It is NOT sent until the user enters their PIN. */
 interface TransferDraft {
   kind: "transfer";
@@ -41,7 +54,7 @@ interface Msg {
   /** Set when Ada asked for a human — renders the hand-over button. */
   escalate?: boolean;
   /** A prepared transfer awaiting confirmation. */
-  draft?: TransferDraft;
+  draft?: TransferDraft | BillDraft;
   /** Set once the draft has been sent, so it can't be sent twice. */
   sent?: boolean;
 }
@@ -56,7 +69,7 @@ const STARTERS = [
 export function Assistant() {
   const { action, toast } = useApp();
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState<TransferDraft | null>(null);
+  const [draft, setDraft] = useState<TransferDraft | BillDraft | null>(null);
   const [pinError, setPinError] = useState(false);
   const [sending, setSending] = useState(false);
   const [msgs, setMsgs] = useState<Msg[]>([]);
@@ -167,8 +180,8 @@ export function Assistant() {
                 next[next.length - 1] = { ...last, content: last.content + chunk };
                 return next;
               });
-            } else if (ev.t === "action" && ev.action?.kind === "transfer") {
-              const d = ev.action as TransferDraft;
+            } else if (ev.t === "action" && (ev.action?.kind === "transfer" || ev.action?.kind === "bill")) {
+              const d = ev.action as TransferDraft | BillDraft;
               setMsgs((prev) => {
                 const next = [...prev];
                 next[next.length - 1] = { ...next[next.length - 1]!, draft: d };
@@ -205,20 +218,34 @@ export function Assistant() {
     if (!draft || sending) return;
     setSending(true);
     try {
-      await action("/api/send", {
-        mode: "bank",
-        symbol: draft.fiat,
-        amount: draft.amount,
-        fiat: draft.fiat,
-        bankName: draft.bankName ?? undefined,
-        accountNumber: draft.accountNumber,
-        accountName: draft.beneficiaryName,
-        pin,
-      });
+      if (draft.kind === "bill") {
+        await action("/api/bills", {
+          category: draft.category,
+          provider: draft.provider,
+          billerCode: draft.billerCode,
+          itemCode: draft.itemCode,
+          account: draft.phone,
+          fiatAmount: draft.category === "airtime" ? draft.amountNgn : undefined,
+          fundingSymbol: undefined,
+          pin,
+        });
+      } else {
+        await action("/api/send", {
+          mode: "bank",
+          symbol: draft.fiat,
+          amount: draft.amount,
+          fiat: draft.fiat,
+          bankName: draft.bankName ?? undefined,
+          accountNumber: draft.accountNumber,
+          accountName: draft.beneficiaryName,
+          pin,
+        });
+      }
+      const what = draft.kind === "bill" ? (draft.category === "airtime" ? "Airtime sent." : "Data sent.") : "Sent. It's on its way.";
       setDraft(null);
       setMsgs((prev) => prev.map((m) => (m.draft ? { ...m, sent: true } : m)));
-      setMsgs((prev) => [...prev, { role: "assistant", content: "Sent. It's on its way." }]);
-      toast("Transfer sent", "good");
+      setMsgs((prev) => [...prev, { role: "assistant", content: what }]);
+      toast(draft.kind === "bill" ? "Purchase sent" : "Transfer sent", "good");
     } catch (e: any) {
       if (/pin/i.test(e.message ?? "")) setPinError(true);
       else setDraft(null);
@@ -236,8 +263,14 @@ export function Assistant() {
         onPin={confirmDraft}
         error={pinError}
         busy={sending}
-        title="Confirm this transfer"
-        subtitle={draft ? `${draft.fiat} ${draft.amount.toLocaleString()} to ${draft.beneficiaryName}` : undefined}
+        title={draft?.kind === "bill" ? "Confirm this purchase" : "Confirm this transfer"}
+        subtitle={
+          draft
+            ? draft.kind === "bill"
+              ? `${draft.planName} · ${draft.provider} · ${draft.phone}`
+              : `${draft.fiat} ${draft.amount.toLocaleString()} to ${draft.beneficiaryName}`
+            : undefined
+        }
       />
 
       {/* launcher — pinned inside the 480px app column, clear of the tab bar */}
@@ -324,12 +357,20 @@ export function Assistant() {
                       onClick={() => { setPinError(false); setDraft(m.draft!); }}
                       className="mt-2 w-full text-left rounded-2xl border border-good/30 bg-good/[.07] px-4 py-3 active:scale-[.99]"
                     >
-                      <div className="text-white/45 text-[11px]">Ready to send</div>
+                      <div className="text-white/45 text-[11px]">
+                        {m.draft.kind === "bill" ? (m.draft.category === "airtime" ? "Ready to buy" : "Ready to send") : "Ready to send"}
+                      </div>
                       <div className="font-grotesk font-bold text-[19px] mt-0.5">
-                        {m.draft.fiat} {m.draft.amount.toLocaleString()}
+                        {m.draft.kind === "bill"
+                          ? m.draft.category === "airtime"
+                            ? `₦${m.draft.amountNgn.toLocaleString()} airtime`
+                            : m.draft.planName
+                          : `${m.draft.fiat} ${m.draft.amount.toLocaleString()}`}
                       </div>
                       <div className="text-white/60 text-[12px] mt-0.5">
-                        {m.draft.beneficiaryName} · {m.draft.accountNumber}
+                        {m.draft.kind === "bill"
+                          ? `${m.draft.provider} · ${m.draft.phone}${m.draft.category === "data" ? ` · ₦${m.draft.amountNgn.toLocaleString()}` : ""}`
+                          : `${m.draft.beneficiaryName} · ${m.draft.accountNumber}`}
                       </div>
                       <div className="mt-2 text-good font-grotesk font-semibold text-[12.5px]">
                         Review &amp; confirm with PIN →

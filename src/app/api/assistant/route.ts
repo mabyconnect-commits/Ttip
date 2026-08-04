@@ -7,7 +7,8 @@ import { ttipKnowledge, assistantRules, ASSISTANT_NAME } from "@/lib/assistant/k
 import { buildUserContext } from "@/lib/assistant/context";
 import { cleanAssistantText } from "@/lib/assistant/sanitize";
 import { answerFaq } from "@/lib/assistant/faq";
-import { parseTransferIntent } from "@/lib/assistant/intent";
+import { parseTransferIntent, parseBillIntent } from "@/lib/assistant/intent";
+import { buildBillDraft } from "@/lib/assistant/bill-draft";
 import { bankAliases } from "@/lib/bank-aliases";
 import { prisma } from "@/lib/db";
 
@@ -105,6 +106,18 @@ export async function POST(req: Request) {
     }
 
     const question = messages[messages.length - 1]!.content;
+
+    // "Ada buy me ₦100 airtime", "send 1GB to my MTN line".
+    //
+    // Same rule as transfers: Ada prepares, the user confirms with their PIN.
+    // The number is one they've topped up before unless they typed a new one —
+    // a model inventing a digit sends someone else's airtime, and there's no
+    // way back from that.
+    const bill = parseBillIntent(question);
+    if (bill) {
+      const outcome = await buildBillDraft(userId, bill);
+      return streamText(outcome.message, false, outcome.draft);
+    }
 
     // "Help me transfer 7,500 to my GTBank account."
     //

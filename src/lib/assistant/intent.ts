@@ -103,3 +103,81 @@ export function parseTransferIntent(text: string): TransferIntent | null {
 
   return { amount, target: parseTarget(q) };
 }
+
+
+/* ------------------------------------------------------------------------ */
+/* Bills: "Ada buy me ₦100 airtime", "send 1GB to my MTN line"               */
+/* ------------------------------------------------------------------------ */
+
+export interface BillIntent {
+  category: "airtime" | "data";
+  /** Naira amount, for airtime. */
+  amountNgn?: number;
+  /** Data size in MB, for data. 1GB → 1024. */
+  sizeMb?: number;
+  /** MTN | Glo | Airtel | 9mobile, when the message names one. */
+  network?: string;
+  /** An explicit phone number in the message, if there is one. */
+  phone?: string;
+}
+
+const NETWORKS: [string, RegExp][] = [
+  ["MTN", /\bmtn\b/],
+  ["Glo", /\bglo\b|\bglobacom\b/],
+  ["Airtel", /\bairtel\b/],
+  ["9mobile", /\b9\s?mobile\b|\betisalat\b/],
+];
+
+/** Nigerian mobile number in any of the usual shapes. */
+export function parsePhone(text: string): string | undefined {
+  const q = normalize(text).replace(/[\s-]/g, "");
+  const m = q.match(/(?:\+?234|0)(\d{10})/);
+  if (!m) return undefined;
+  return "0" + m[1];
+}
+
+/** "500mb", "1gb", "1.5 gb" → megabytes. */
+export function parseDataSize(text: string): number | undefined {
+  const m = normalize(text).match(/(\d+(?:\.\d+)?)\s*(mb|gb)\b/);
+  if (!m) return undefined;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return m[2] === "gb" ? n * 1024 : n;
+}
+
+/**
+ * Read an airtime or data purchase out of a message, or null when it isn't one.
+ *
+ * As with transfers, the amount comes from a parser rather than the model — a
+ * misread "₦100" as "₦1,000" is money out of someone's balance. And a question
+ * about airtime is not an instruction to buy any.
+ */
+export function parseBillIntent(text: string): BillIntent | null {
+  const q = normalize(text);
+
+  const wantsAirtime = /\b(airtime|recharge|credit|top\s?up|topup)\b/.test(q);
+  const size = parseDataSize(q);
+  const wantsData = /\bdata\b/.test(q) || size !== undefined;
+  if (!wantsAirtime && !wantsData) return null;
+
+  // "how much is 1GB of data" is a question, not a purchase.
+  if (/\b(how|what|why|where|can i|do i|does|explain|cost|price|fee|fees)\b/.test(q)) return null;
+  // Needs an intent to buy, so "my data finished" isn't read as an order.
+  if (!/\b(buy|get|send|recharge|top\s?up|topup|load|purchase|credit|fund)\b/.test(q)) return null;
+
+  const network = NETWORKS.find(([, re]) => re.test(q))?.[0];
+  const phone = parsePhone(q);
+
+  if (wantsData && size !== undefined) {
+    return { category: "data", sizeMb: size, network, phone };
+  }
+
+  // Airtime needs a naira amount. Ignore a phone number when reading it.
+  const withoutPhone = q.replace(/(?:\+?234|0)\d{10}/g, " ");
+  const amountNgn = parseAmount(withoutPhone);
+  if (wantsAirtime && amountNgn) return { category: "airtime", amountNgn, network, phone };
+
+  // "buy me data" with no size — still a purchase, the app asks for the rest.
+  if (wantsData) return { category: "data", network, phone };
+  return null;
+}

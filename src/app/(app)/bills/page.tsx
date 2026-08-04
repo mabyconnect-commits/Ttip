@@ -12,6 +12,7 @@ import { pickFunding } from "@/lib/funding";
 import { formatFiat, formatCrypto } from "@/lib/format";
 import { billFee } from "@/lib/fees";
 import { Receipt } from "@/components/Receipt";
+import { PinPrompt } from "@/components/PinPrompt";
 
 type Category = (typeof BILL_CATEGORIES)[number];
 
@@ -55,6 +56,8 @@ export default function BillsPage() {
   const [validating, setValidating] = useState(false);
   const [planSheet, setPlanSheet] = useState(false);
   const [planQ, setPlanQ] = useState("");
+  const [pinOpen, setPinOpen] = useState(false);
+  const [pinError, setPinError] = useState(false);
 
   const funding = pickFunding(state.portfolio.assets);
   const fundBal = state.portfolio.assets.find((a) => a.symbol === funding)?.amount ?? 0;
@@ -116,11 +119,18 @@ export default function BillsPage() {
     return () => { cancelled = true; clearTimeout(t); };
   }, [item, account, needsValidation]);
 
-  async function pay() {
+  /** Validate, then ask for the PIN. `send` does the actual purchase. */
+  function pay() {
     if (!cat || !provider || !item) return toast("Choose a plan", "bad");
     if (!account) return toast(`Enter the ${item.label.toLowerCase()}`, "bad");
     if (payAmount <= 0) return toast("Choose an amount", "bad");
     if (cost > fundBal) return toast(`Not enough ${funding} to pay this bill`, "bad");
+    setPinError(false);
+    setPinOpen(true);
+  }
+
+  async function send(pin: string) {
+    if (loading || !cat || !provider || !item) return;
     setLoading(true);
     try {
       const res: any = await action("/api/bills", {
@@ -131,9 +141,13 @@ export default function BillsPage() {
         account,
         fiatAmount: variable ? amount : undefined,
         fundingSymbol: funding,
+        pin,
       });
+      setPinOpen(false);
       setReceipt(res.receipt);
     } catch (e: any) {
+      if (/pin/i.test(e.message ?? "")) { setPinError(true); setPinOpen(true); }
+      else setPinOpen(false);
       toast(e.message, "bad");
     } finally {
       setLoading(false);
@@ -321,6 +335,15 @@ export default function BillsPage() {
             })}
         </div>
       </Sheet>
+
+      <PinPrompt
+        open={pinOpen}
+        onClose={() => setPinOpen(false)}
+        onPin={(pin) => send(pin)}
+        error={pinError}
+        busy={loading}
+        subtitle={item ? `${formatFiat(payAmount, fiat, { decimals: 0 })} · ${provider?.provider ?? ""} · ${account}` : undefined}
+      />
 
       {receipt && (
         <Receipt

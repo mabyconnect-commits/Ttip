@@ -9,6 +9,7 @@ import { billFee } from "@/lib/fees";
 import { balanceOf } from "@/lib/wallet";
 import { BILL_CATEGORIES, BILL_FIAT } from "@/lib/constants";
 import { payBill, ensureFloat, settlementEnabled, findBillItem } from "@/lib/settlement";
+import { requireWithdrawPin } from "@/lib/withdraw-pin";
 
 const schema = z.object({
   category: z.string(),
@@ -20,6 +21,8 @@ const schema = z.object({
   // (airtime, prepaid meters) the user supplies the amount.
   fiatAmount: z.number().positive("Enter an amount").optional(),
   fundingSymbol: z.string().default("USDT"),
+  /** Transaction PIN — a bill leaves the platform and can't be recalled. */
+  pin: z.string().optional(),
 });
 
 export async function POST(req: Request) {
@@ -32,6 +35,10 @@ export async function POST(req: Request) {
     if (!settlementEnabled()) throw new ApiError("Bill payments aren't available yet. Please check back soon.", 503);
 
     const input = schema.parse(await req.json());
+
+    // Same gate as a withdrawal: airtime sent to the wrong number is gone.
+    await requireWithdrawPin(userId, input.pin);
+
     const cat = BILL_CATEGORIES.find((c) => c.id === input.category);
     if (!cat) throw new ApiError("Unknown bill category", 400);
 

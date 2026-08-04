@@ -68,3 +68,60 @@ test("a missing destination still parses — the app asks for it", () => {
   assert.equal(i.amount, 2000);
   assert.equal(i.target, null);
 });
+
+/* ---- bills: "Ada buy me ₦100 airtime", "send 1GB to my MTN line" ---- */
+
+import { parseBillIntent, parseDataSize, parsePhone } from "../src/lib/assistant/intent";
+
+test("reads an airtime purchase", () => {
+  const i = parseBillIntent("Ada buy me 100 naira airtime");
+  assert.ok(i);
+  assert.equal(i.category, "airtime");
+  assert.equal(i.amountNgn, 100);
+});
+
+test("reads a data purchase with a network", () => {
+  const i = parseBillIntent("send 100mb to my MTN line");
+  assert.ok(i);
+  assert.equal(i.category, "data");
+  assert.equal(i.sizeMb, 100);
+  assert.equal(i.network, "MTN");
+});
+
+test("understands the ways data sizes are written", () => {
+  assert.equal(parseDataSize("1gb"), 1024);
+  assert.equal(parseDataSize("1.5 GB"), 1536);
+  assert.equal(parseDataSize("500mb"), 500);
+  assert.equal(parseDataSize("no size here"), undefined);
+});
+
+test("reads a Nigerian number in any shape", () => {
+  assert.equal(parsePhone("send to 08113866493"), "08113866493");
+  assert.equal(parsePhone("send to +2348113866493"), "08113866493");
+  assert.equal(parsePhone("send to 2348113866493"), "08113866493");
+});
+
+test("a phone number is never mistaken for the airtime amount", () => {
+  // 08113866493 must not be read as ₦8,113,866,493.
+  const i = parseBillIntent("buy 200 airtime for 08113866493");
+  assert.ok(i);
+  assert.equal(i.amountNgn, 200);
+  assert.equal(i.phone, "08113866493");
+});
+
+test("questions about airtime are not purchase instructions", () => {
+  for (const q of ["how much is 1gb of data", "what does airtime cost", "why did my airtime fail"]) {
+    assert.equal(parseBillIntent(q), null, `misread: ${q}`);
+  }
+});
+
+test("a statement about data is not an order", () => {
+  assert.equal(parseBillIntent("my data finished"), null);
+  assert.equal(parseBillIntent("I have no airtime"), null);
+});
+
+test("every network is recognised", () => {
+  for (const [text, net] of [["buy 1gb glo data", "Glo"], ["buy 1gb airtel data", "Airtel"], ["buy 1gb 9mobile data", "9mobile"], ["buy 1gb etisalat data", "9mobile"]] as const) {
+    assert.equal(parseBillIntent(text)?.network, net, text);
+  }
+});
