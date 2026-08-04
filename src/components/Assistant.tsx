@@ -15,6 +15,7 @@ import {
   type Listener,
   type Recording,
 } from "@/lib/speech-input";
+import { VoiceNote, formatClock } from "@/components/VoiceNote";
 
 /**
  * Ada — the floating in-app assistant.
@@ -34,6 +35,25 @@ export const ASSISTANT_OPEN = "ttip:assistant-open";
 
 const STORE_KEY = "ttip_ada_thread";
 const NAME = "Ada";
+
+/**
+ * A hard stop on a recording.
+ *
+ * Nobody says "send 5k to my sister" for a minute, and the transcriber refuses
+ * anything much bigger — better to end the clip cleanly than to let someone
+ * talk for five minutes into an upload that will be rejected.
+ */
+const MAX_CLIP_MS = 60_000;
+
+/** A finished recording, waiting to be sent or thrown away. */
+interface VoiceClip {
+  blob: Blob;
+  /** In-memory URL so it can be played back before sending. */
+  url: string;
+  ms: number;
+  /** What the browser's recogniser heard, if anything. */
+  text: string;
+}
 
 /** A bill Ada has prepared. Not bought until the user enters their PIN. */
 interface BillDraft {
@@ -69,6 +89,12 @@ interface Msg {
   draft?: TransferDraft | BillDraft;
   /** Set once the draft has been sent, so it can't be sent twice. */
   sent?: boolean;
+  /**
+   * A voice note the user sent. `url` is an in-memory blob URL, so it is
+   * dropped when the thread is saved — the bubble stays, the audio doesn't
+   * survive a reload. `content` still holds what was heard.
+   */
+  voice?: { url?: string; ms: number };
 }
 
 const STARTERS = [
@@ -94,16 +120,41 @@ export function Assistant() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [scanning, setScanning] = useState(false);
 
-  // Speak instead of typing. Held in a ref so the button can stop it.
-  const [listening, setListening] = useState(false);
+  // Speak instead of typing. Held in refs so the buttons can stop them.
+  const [recording, setRecording] = useState(false);
   const [canSpeak, setCanSpeak] = useState(false);
+  const [canRecord, setCanRecord] = useState(false);
   const listener = useRef<Listener | null>(null);
   const recorder = useRef<Recording | null>(null);
   const heard = useRef("");
   const [transcribing, setTranscribing] = useState(false);
+  /** The finished clip, waiting for Send or Cancel. */
+  const [clip, setClip] = useState<VoiceClip | null>(null);
+  const startedAt = useRef(0);
+  const [elapsed, setElapsed] = useState(0);
+  /** The words as they firm up, so you can see you're being heard. */
+  const [heardLive, setHeardLive] = useState("");
 
-  // Either route is enough to offer the button.
-  useEffect(() => setCanSpeak(speechSupported() || recordingSupported()), []);
+  // Either route is enough to offer the button; only one of them can produce
+  // an actual voice note.
+  useEffect(() => {
+    setCanSpeak(speechSupported() || recordingSupported());
+    setCanRecord(recordingSupported());
+  }, []);
+
+  // The running timer, and a hard stop before the clip gets too big to upload.
+  useEffect(() => {
+    if (!recording) return;
+    const t = setInterval(() => {
+      const ms = Date.now() - startedAt.current;
+      setElapsed(ms);
+      if (ms >= MAX_CLIP_MS) stopVoice();
+    }, 200);
+    return () => clearInterval(t);
+    // stopVoice is stable enough for this; re-creating the interval each render
+    // would reset the tick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recording]);
 
   // Restore the thread so closing the panel mid-conversation doesn't lose it.
   useEffect(() => {
@@ -115,7 +166,10 @@ export function Assistant() {
 
   useEffect(() => {
     try {
-      sessionStorage.setItem(STORE_KEY, JSON.stringify(msgs.slice(-20)));
+      // A blob URL is meaningless in the next page load, so it isn't saved —
+      // a play button that does nothing is worse than no play button.
+      const keep = msgs.slice(-20).map((m) => (m.voice ? { ...m, voice: { ms: m.voice.ms } } : m));
+      sessionStorage.setItem(STORE_KEY, JSON.stringify(keep));
     } catch {}
   }, [msgs]);
 
@@ -195,63 +249,32 @@ export function Assistant() {
   );
 
   /**
-   * Hold-free voice: tap to start, tap to stop.
+   * Start a voice note.
    *
-   * What was heard lands in the input box rather than being sent straight off.
-   * A misheard amount has to be visible and editable BEFORE the PIN, not
-   * discovered after the money has gone.
+   * The clip is what gets sent — recognition runs alongside it only so Ada
+   * knows what was said. Claude can't hear audio, so a transcript has to exist
+   * either way; doing it in the browser is free and instant, and the server
+   * picks up whatever the browser missed.
    */
-  const toggleListening = useCallback(async () => {
-    // ---- stop ----
-    if (listening) {
-      listener.current?.stop();
-      listener.current = null;
-      const rec = recorder.current;
-      recorder.current = null;
-      setListening(false);
-
-      // Give the recogniser a moment to deliver its last result before
-      // deciding it produced nothing.
-      await new Promise((r) => setTimeout(r, 350));
-      const blob = rec ? await rec.stop() : null;
-
-      if (heard.current.trim()) {
-        inputRef.current?.focus();
-        return; // the browser heard it; nothing to upload
-      }
-      if (!blob) {
-        toast("I didn't catch anything — try again, or type it.", "bad");
-        return;
-      }
-
-      // The browser's recogniser gave us nothing. Send the recording instead.
-      setTranscribing(true);
-      const res = await transcribeBlob(blob);
-      setTranscribing(false);
-      if (res.text) {
-        setInput(res.text.slice(0, 2000));
-        inputRef.current?.focus();
-      } else {
-        toast(res.error ?? "I couldn't make that out.", "bad");
-      }
-      return;
-    }
-
-    // ---- start ----
+  const startVoice = useCallback(async () => {
+    if (recording || busy || scanning) return;
     heard.current = "";
+    setHeardLive("");
 
-    // Record in parallel. It costs nothing when the recogniser works, and it's
-    // the difference between working and not when it silently doesn't.
     recorder.current = await record();
 
     listener.current = listen({
+      // The words no longer land in the input box: you're sending a voice note,
+      // not dictating. They show above the composer so you can see you're
+      // being heard, and again under the sent bubble so a misheard amount is
+      // visible before any PIN.
       onPartial: (t) => {
         heard.current = t;
-        setInput(t.slice(0, 2000));
+        setHeardLive(t);
       },
       onFinal: (t) => {
         heard.current = t;
-        setInput(t.slice(0, 2000));
+        setHeardLive(t);
       },
       // Only worth surfacing when there's no recording to fall back on.
       onError: (reason) => {
@@ -266,27 +289,70 @@ export function Assistant() {
       toast("I couldn't reach your microphone — check the permission, or type it.", "bad");
       return;
     }
-    setListening(true);
-  }, [listening, toast]);
+    startedAt.current = Date.now();
+    setElapsed(0);
+    setRecording(true);
+  }, [busy, recording, scanning, toast]);
+
+  /** Finish recording and hold the clip for review — nothing is sent yet. */
+  const stopVoice = useCallback(async () => {
+    if (!recording) return;
+    listener.current?.stop();
+    listener.current = null;
+    const rec = recorder.current;
+    recorder.current = null;
+    const ms = Date.now() - startedAt.current;
+    setRecording(false);
+
+    // Give the recogniser a moment to deliver its last result before deciding
+    // it produced nothing.
+    await new Promise((r) => setTimeout(r, 350));
+    const blob = rec ? await rec.stop() : null;
+    const said = heard.current.trim();
+
+    if (!blob) {
+      // No clip to send. On a browser that can hear but can't record, the old
+      // behaviour is still the right one: put the words in the box.
+      if (said) {
+        setInput(said.slice(0, 2000));
+        inputRef.current?.focus();
+      } else {
+        toast("I didn't catch anything — try again, or type it.", "bad");
+      }
+      return;
+    }
+    setClip({ blob, url: URL.createObjectURL(blob), ms, text: said });
+  }, [recording, toast]);
+
+  /** Throw the recording away — while it's running, or after. */
+  const cancelVoice = useCallback(() => {
+    listener.current?.cancel();
+    listener.current = null;
+    recorder.current?.cancel();
+    recorder.current = null;
+    setRecording(false);
+    setHeardLive("");
+    heard.current = "";
+    setClip((c) => {
+      if (c) URL.revokeObjectURL(c.url);
+      return null;
+    });
+  }, []);
 
   // Never leave the microphone running when the panel closes.
   useEffect(() => {
-    if (!open && (listener.current || recorder.current)) {
-      listener.current?.cancel();
-      listener.current = null;
-      recorder.current?.cancel();
-      recorder.current = null;
-      setListening(false);
-    }
-  }, [open]);
+    if (!open && (listener.current || recorder.current)) cancelVoice();
+  }, [open, cancelVoice]);
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, voice?: { url: string; ms: number }) => {
       const question = text.trim();
       if (!question || busy) return;
 
       // History the model sees, then an empty bubble that fills as it streams.
-      const history: Msg[] = [...msgs, { role: "user", content: question }];
+      // A voice note carries its clip; the model still reads the transcript,
+      // because Claude cannot listen to audio.
+      const history: Msg[] = [...msgs, { role: "user", content: question, voice }];
       setMsgs([...history, { role: "assistant", content: "" }]);
       setInput("");
       setBusy(true);
@@ -381,6 +447,37 @@ export function Assistant() {
     },
     [msgs, busy],
   );
+
+  /**
+   * Send the voice note.
+   *
+   * The clip goes into the thread as a clip. What Ada needs is the words, so
+   * they're fetched first — from the browser if it managed, from the server if
+   * it didn't — and shown under the bubble. If nothing can be made out, the
+   * recording is KEPT: dropping someone's voice note because a transcriber had
+   * a bad moment would mean recording it all over again.
+   */
+  const sendVoice = useCallback(async () => {
+    if (!clip || busy || transcribing) return;
+
+    let text = clip.text;
+    if (!text) {
+      setTranscribing(true);
+      const res = await transcribeBlob(clip.blob);
+      setTranscribing(false);
+      if (!res.text) {
+        toast(res.error ?? "I couldn't make that out — try again, or type it.", "bad");
+        return;
+      }
+      text = res.text;
+    }
+
+    // The bubble owns the URL from here, so it must not be revoked.
+    const voice = { url: clip.url, ms: clip.ms };
+    setClip(null);
+    setHeardLive("");
+    await send(text.slice(0, 2000), voice);
+  }, [busy, clip, send, toast, transcribing]);
 
   /** Send the prepared transfer. The PIN is passed straight through, never kept. */
   async function confirmDraft(pin: string) {
@@ -535,7 +632,20 @@ export function Assistant() {
                         : "bg-surface border border-white/[.06] rounded-2xl rounded-bl-md px-3.5 py-2.5 text-[13.5px] leading-[1.55] whitespace-pre-wrap text-white/85"
                     }
                   >
-                    {m.content || (busy && i === msgs.length - 1 ? <Typing /> : "")}
+                    {m.voice ? (
+                      <>
+                        <VoiceNote url={m.voice.url} ms={m.voice.ms} />
+                        {/* What we heard, under the clip. A misheard amount has
+                            to be readable before the PIN, not after. */}
+                        {m.content && (
+                          <div className="mt-1.5 text-[11.5px] text-white/45 leading-[1.45]">
+                            {m.content}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      m.content || (busy && i === msgs.length - 1 ? <Typing /> : "")
+                    )}
                   </div>
                   {m.role === "assistant" && m.draft && !m.sent && (
                     <button
@@ -592,18 +702,69 @@ export function Assistant() {
 
             {/* composer */}
             <div className="shrink-0 border-t border-white/[.07] px-4 pt-3 pb-5">
-              {listening && (
-                <div className="flex items-center justify-center gap-2 pb-2 text-[12px] text-good">
-                  <span className="w-2 h-2 rounded-full bg-good animate-pulse" />
-                  Listening… tap the mic when you&apos;re done
-                </div>
-              )}
               {transcribing && (
                 <div className="flex items-center justify-center gap-2 pb-2 text-[12px] text-white/55">
                   <span className="w-3 h-3 rounded-full border-2 border-white/20 border-t-good animate-spin" />
-                  Reading that back…
+                  Sending your voice note…
                 </div>
               )}
+
+              {/*
+                Recording, and reviewing what was recorded, replace the text row
+                entirely. Cancel is always on the left — the one thing you must
+                be able to reach without thinking — and the right-hand button is
+                the only one that moves things on: stop while recording, send
+                once there's something to send.
+              */}
+              {recording ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={cancelVoice}
+                    aria-label="Cancel recording"
+                    className="w-[46px] h-[46px] rounded-2xl bg-surface border border-white/[.08] flex items-center justify-center shrink-0 text-white/60 active:scale-95"
+                  >
+                    <Icon name="trash" size={18} />
+                  </button>
+                  <div className="flex-1 min-w-0 h-[46px] rounded-2xl bg-bad/[.12] border border-bad/25 px-3.5 flex items-center gap-2.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-bad animate-pulse shrink-0" />
+                    <span className="font-grotesk font-semibold text-[13px] tabular-nums text-white/85 shrink-0">
+                      {formatClock(elapsed)}
+                    </span>
+                    <span className="text-[11.5px] text-white/45 truncate">
+                      {heardLive || "Recording…"}
+                    </span>
+                  </div>
+                  <button
+                    onClick={stopVoice}
+                    aria-label="Finish recording"
+                    className="w-[46px] h-[46px] rounded-2xl bg-good text-ink flex items-center justify-center shrink-0 active:scale-95"
+                  >
+                    <Icon name="stop" size={17} />
+                  </button>
+                </div>
+              ) : clip ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={cancelVoice}
+                    aria-label="Delete recording"
+                    className="w-[46px] h-[46px] rounded-2xl bg-surface border border-white/[.08] flex items-center justify-center shrink-0 text-white/60 active:scale-95"
+                  >
+                    <Icon name="trash" size={18} />
+                  </button>
+                  {/* Hear it back before it goes. */}
+                  <div className="flex-1 min-w-0 h-[46px] rounded-2xl bg-surface border border-white/[.08] px-3 flex items-center">
+                    <VoiceNote url={clip.url} ms={clip.ms} />
+                  </div>
+                  <button
+                    onClick={sendVoice}
+                    disabled={busy || transcribing}
+                    aria-label="Send voice note"
+                    className="w-[46px] h-[46px] rounded-2xl bg-good text-ink flex items-center justify-center shrink-0 disabled:opacity-35 active:scale-95"
+                  >
+                    <Icon name="arrowUp" size={19} strokeWidth={2.4} />
+                  </button>
+                </div>
+              ) : (
               <div className="flex items-end gap-2">
                 {/* Photograph an account rather than typing ten digits. */}
                 <input
@@ -640,21 +801,16 @@ export function Assistant() {
                   placeholder={`Ask ${NAME} anything…`}
                   className="flex-1 resize-none bg-surface border border-white/[.08] rounded-2xl px-4 py-3 text-[13.5px] outline-none focus:border-white/20 max-h-[110px]"
                 />
-                {/* Speak instead of typing. Falls back to the send button on
-                    browsers with no speech recognition. */}
-                {/* While listening, the mic must stay — it's the stop button. It used to
-                    swap to Send the moment speech put text in the box, leaving no way
-                    to stop except closing the chat. */}
-                {canSpeak && (listening || !input.trim()) ? (
+                {/* The mic holds the spot until there's something typed —
+                    then it becomes Send, as in every chat app. */}
+                {canSpeak && !input.trim() ? (
                   <button
-                    onClick={toggleListening}
+                    onClick={startVoice}
                     disabled={busy || scanning || transcribing}
-                    aria-label={listening ? "Stop listening" : "Speak to Ada"}
-                    className={`w-[46px] h-[46px] rounded-2xl flex items-center justify-center shrink-0 disabled:opacity-35 active:scale-95 ${
-                      listening ? "bg-bad text-white" : "bg-surface border border-white/[.08] text-white/70"
-                    }`}
+                    aria-label={canRecord ? "Record a voice note" : "Speak to Ada"}
+                    className="w-[46px] h-[46px] rounded-2xl bg-surface border border-white/[.08] text-white/70 flex items-center justify-center shrink-0 disabled:opacity-35 active:scale-95"
                   >
-                    <Icon name={listening ? "x" : "mic"} size={19} />
+                    <Icon name="mic" size={19} />
                   </button>
                 ) : (
                   <button
@@ -667,6 +823,7 @@ export function Assistant() {
                   </button>
                 )}
               </div>
+              )}
               <p className="text-center text-white/30 text-[10.5px] mt-2.5 tracking-[0.2px] uppercase">
                 {NAME} can make mistakes · we&apos;ll loop in the team when needed
               </p>

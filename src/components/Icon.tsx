@@ -9,7 +9,8 @@ export type IconName =
   | "plus" | "check" | "snowflake" | "scan" | "copy" | "share"
   | "chevronRight" | "chevronDown" | "grid" | "swapVertical" | "sun" | "moon" | "search"
   | "user" | "shield" | "list" | "bank" | "headset" | "gauge" | "logout" | "lock" | "edit" | "trash"
-  | "message" | "mail" | "phone" | "x" | "flag" | "telegram" | "mic" | "eye" | "eyeOff";
+  | "message" | "mail" | "phone" | "x" | "flag" | "telegram" | "mic" | "eye" | "eyeOff"
+  | "play" | "pause" | "stop";
 
 const P: Record<IconName, React.ReactNode> = {
   home: <path d="M3 10.5 12 3l9 7.5M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5" />,
@@ -144,6 +145,16 @@ const P: Record<IconName, React.ReactNode> = {
   // Telegram's paper plane, drawn as strokes so it inherits currentColor like
   // every other icon here rather than needing the brand blue.
   telegram: <path d="M21.5 4.2 2.8 11.4a.4.4 0 0 0 .03.75l4.6 1.44 1.72 5.2a.4.4 0 0 0 .7.13l2.5-2.72 4.7 3.45a.4.4 0 0 0 .63-.24l3.5-14.7a.4.4 0 0 0-.55-.46ZM7.6 13.5 18.4 6.8l-8.6 8.03-.06 3.3" />,
+  // Filled shapes, because a hollow triangle reads as an outline arrow rather
+  // than "play". `fill="currentColor"` is set on the paths themselves.
+  play: <path d="M8 5.2v13.6a.6.6 0 0 0 .93.5l10.2-6.8a.6.6 0 0 0 0-1l-10.2-6.8A.6.6 0 0 0 8 5.2Z" fill="currentColor" stroke="none" />,
+  pause: (
+    <>
+      <rect x="7" y="5" width="3.6" height="14" rx="1.2" fill="currentColor" stroke="none" />
+      <rect x="13.4" y="5" width="3.6" height="14" rx="1.2" fill="currentColor" stroke="none" />
+    </>
+  ),
+  stop: <rect x="6.5" y="6.5" width="11" height="11" rx="2.4" fill="currentColor" stroke="none" />,
   eye: (
     <>
       <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
