@@ -1,10 +1,10 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
-import { apiPost } from "@/lib/client";
+import { apiGet, apiPost } from "@/lib/client";
 import { GradientButton } from "@/components/ui";
 import { Field } from "@/components/Field";
 
@@ -14,6 +14,14 @@ const FIATS = [
   { code: "KES", flag: "🇰🇪", label: "Shilling" },
   { code: "ZAR", flag: "🇿🇦", label: "Rand" },
 ];
+
+interface UsernameCheck {
+  username: string;
+  valid: boolean;
+  available: boolean;
+  reason?: string;
+  suggestions: string[];
+}
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +42,33 @@ function SignupInner() {
   const [fiat, setFiat] = useState("NGN");
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Live username check. The handle is the user's tip link and how people Ttip
+  // them, so they get to see it's free while typing instead of being rejected
+  // after filling in the whole form.
+  const [check, setCheck] = useState<UsernameCheck | null>(null);
+  const [checking, setChecking] = useState(false);
+  const seq = useRef(0);
+
+  useEffect(() => {
+    const u = username.trim();
+    setCheck(null);
+    if (u.length < 3) return;
+    const mine = ++seq.current;
+    setChecking(true);
+    const t = setTimeout(async () => {
+      try {
+        const r = await apiGet<UsernameCheck>(`/api/auth/username?u=${encodeURIComponent(u)}`);
+        // Ignore a slow reply for a name they've already typed past.
+        if (seq.current === mine) setCheck(r);
+      } catch {
+        if (seq.current === mine) setCheck(null);
+      } finally {
+        if (seq.current === mine) setChecking(false);
+      }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [username]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -68,11 +103,46 @@ function SignupInner() {
 
       <div className="flex-1 flex flex-col justify-center py-6">
         <h1 className="font-grotesk font-bold text-[30px] tracking-[-1px] mb-1">Create your account</h1>
-        <p className="text-white/50 text-sm mb-6">Free to join. Your first 3 swaps a day are on us.</p>
+        <p className="text-white/50 text-sm mb-6">Free to join. Buy, sell and cash out in seconds.</p>
 
         <form onSubmit={submit} className="flex flex-col gap-3">
           <Field label="Full name" value={name} onChange={setName} placeholder="Kola Adeyemi" autoFocus />
-          <Field label="Username" value={username} onChange={(v) => setUsername(v.replace(/[^a-zA-Z0-9_]/g, ""))} placeholder="kola" hint="Your tip link will be ttip.site/u/username" />
+          <div>
+            <Field
+              label="Username"
+              value={username}
+              onChange={(v) => setUsername(v.replace(/[^a-zA-Z0-9_]/g, "").toLowerCase())}
+              placeholder="kola"
+              hint={username.length >= 3 ? `Your tip link: ttip.site/u/${username}` : "Your tip link will be ttip.site/u/username"}
+            />
+            {username.length >= 3 && (
+              <div className="ml-1 mt-1.5 text-[12px]">
+                {checking && <span className="text-white/40">Checking…</span>}
+                {!checking && check?.available && (
+                  <span className="text-good">@{check.username} is available</span>
+                )}
+                {!checking && check && !check.available && (
+                  <>
+                    <span className="text-bad">{check.reason}</span>
+                    {check.suggestions.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {check.suggestions.map((sug) => (
+                          <button
+                            key={sug}
+                            type="button"
+                            onClick={() => setUsername(sug)}
+                            className="rounded-full border border-white/15 px-3 py-1 text-[12px] text-white/75 active:scale-95"
+                          >
+                            @{sug}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
           <Field label="Email" value={email} onChange={setEmail} placeholder="you@email.com" type="email" />
           <Field label="Password" value={password} onChange={setPassword} placeholder="At least 8 characters" type="password" />
 
@@ -96,7 +166,7 @@ function SignupInner() {
           </div>
 
           {err && <div className="text-bad text-[13px] px-1">{err}</div>}
-          <GradientButton type="submit" loading={loading} className="mt-2">
+          <GradientButton type="submit" loading={loading} disabled={check ? !check.available : false} className="mt-2">
             Create account
           </GradientButton>
           <p className="text-center text-white/40 text-[11.5px] leading-[1.5] mt-1 px-2">

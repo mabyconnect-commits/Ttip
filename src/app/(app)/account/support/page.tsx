@@ -28,7 +28,7 @@ function SupportInner() {
   ];
   const faqs = [
     { q: "How long do bank payouts take?", a: "Most payouts settle in seconds. Bank downtime can add a few minutes." },
-    { q: "Are my swaps free?", a: "Your first 3 swaps each day are free. After that a small 0.5% fee applies." },
+    { q: "What do swaps cost?", a: "Crypto-to-crypto swaps carry a 0.5% fee. Crypto-to-cash is priced in the rate you see before confirming — no separate charge." },
     { q: "How do I raise my limits?", a: "Verify your identity under Account → KYC to move to Tier 2." },
   ];
 
