@@ -153,6 +153,39 @@ export async function downloadFile(
   }
 }
 
+/**
+ * Send an image into the chat.
+ *
+ * multipart/form-data rather than a URL, because the receipt is generated in
+ * memory for one user and should never need a public address to be fetched from.
+ */
+export async function sendPhoto(
+  chatId: number | string,
+  png: Buffer,
+  caption?: string,
+): Promise<boolean> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return false;
+  try {
+    const form = new FormData();
+    form.append("chat_id", String(chatId));
+    form.append("photo", new Blob([new Uint8Array(png)], { type: "image/png" }), "receipt.png");
+    if (caption) {
+      form.append("caption", toTelegramHtml(caption.slice(0, 900)));
+      form.append("parse_mode", "HTML");
+    }
+    const res = await fetch(`${API}/bot${token}/sendPhoto`, { method: "POST", body: form });
+    if (!res.ok) {
+      console.error("[telegram] sendPhoto failed", res.status, (await res.text()).slice(0, 300));
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error("[telegram] sendPhoto threw", e);
+    return false;
+  }
+}
+
 /** The "typing…" indicator, so a slow model answer doesn't look like nothing happened. */
 export async function sendTyping(chatId: number | string): Promise<void> {
   await call("sendChatAction", { chat_id: chatId, action: "typing" });

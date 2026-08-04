@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { cleanAssistantText, ESCALATE_MARKER } from "../src/lib/assistant/sanitize";
+import { SWAP_FEE_PCT } from "../src/lib/constants";
 import {
   ttipKnowledge,
   assistantRules,
@@ -56,7 +57,9 @@ test("knowledge quotes the live fee schedule, not hardcoded numbers", () => {
   const k = ttipKnowledge();
   // ₦10 provider cost + 20% markup, rounded up = ₦12 on a small transfer.
   assert.ok(k.includes("₦12"), "small-transfer NGN fee missing");
-  assert.ok(k.includes("0.5%"), "swap fee missing");
+  // Derived, not typed out — this test exists to catch hardcoded fees, so
+  // hardcoding one here is how it silently stops doing its job.
+  assert.ok(k.includes(`${(SWAP_FEE_PCT * 100).toFixed(1)}%`), "swap fee missing");
   assert.ok(k.includes("₦5,000"), "cashback claim threshold missing");
   assert.ok(k.includes("25%"), "referral share missing");
 });

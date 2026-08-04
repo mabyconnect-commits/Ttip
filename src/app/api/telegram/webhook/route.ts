@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { sendMessage, sendTyping, deleteMessage, downloadFile, telegramEnabled, telegramWebhookSecret, telegramWelcome } from "@/lib/telegram";
+import { sendMessage, sendTyping, deleteMessage, downloadFile, sendPhoto, telegramEnabled, telegramWebhookSecret, telegramWelcome } from "@/lib/telegram";
+import { renderReceiptPng } from "@/lib/receipt-svg";
+import { transferFee } from "@/lib/pricing";
 import { parseTransferIntent, parseBankName, parseAmount } from "@/lib/assistant/intent";
 import { extractPaymentFromImage, imageMediaType, resolveImageType, isHeic } from "@/lib/assistant/vision";
 import { speechEnabled, transcribe } from "@/lib/assistant/speech";
@@ -417,6 +419,7 @@ async function handlePin(
   if (res.ok) {
     await clearDraft(chatId);
     await sendMessage(chatId, res.message + notWiped);
+    await sendReceipt(chatId, draft);
     return;
   }
 
@@ -444,6 +447,47 @@ async function handlePin(
   // can't fire it again.
   await clearDraft(chatId);
   await sendMessage(chatId, res.message + notWiped);
+}
+
+/**
+ * A picture of what just happened.
+ *
+ * Somebody who has just paid a market seller needs to SHOW them it went — and
+ * a line of chat text isn't that. This is a real image they can forward.
+ *
+ * Best-effort by design: the money has already moved, so a receipt that fails
+ * to render must never turn a completed transfer into an error. It is sent
+ * AFTER the confirmation, never instead of it.
+ */
+async function sendReceipt(
+  chatId: number,
+  draft: NonNullable<Awaited<ReturnType<typeof liveDraft>>>,
+): Promise<void> {
+  try {
+    const amount = Number(draft.amount);
+    if (!(amount > 0)) return;
+    const money = (n: number) =>
+      `${draft.fiat === "NGN" ? "₦" : draft.fiat + " "}${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const fee = transferFee(amount, draft.fiat);
+
+    const png = await renderReceiptPng({
+      amount: money(amount),
+      kind: "Bank transfer",
+      status: "Completed",
+      reference: `TG-${draft.id.slice(-10).toUpperCase()}`,
+      rows: [
+        { label: "To", value: draft.accountName },
+        { label: "Account", value: draft.accountNumber },
+        { label: "Bank", value: draft.bankName },
+        { label: "Amount", value: money(amount) },
+        ...(fee !== null ? [{ label: "Fee", value: money(fee) }] : []),
+        { label: "Date", value: new Date().toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }) },
+      ],
+    });
+    if (png) await sendPhoto(chatId, png, "Receipt — forward this to whoever you paid.");
+  } catch (e) {
+    console.error("[telegram] receipt failed", e);
+  }
 }
 
 export async function POST(req: Request) {

@@ -158,7 +158,7 @@ export function kycTierDef(tier: number): KycTierDef {
 /** ID types that count as a government ID for Tier 2 (BVN is separate). */
 export const GOVERNMENT_ID_TYPES = ["nin", "passport", "drivers_license"] as const;
 
-export const SWAP_FEE_PCT = 0.005; // 0.5% after free swaps used
+export const SWAP_FEE_PCT = 0.009; // 0.9% after free swaps used
 export const NETWORK_FEE_USDT = 1; // flat network fee on external sends (USDT-equivalent)
 
 // Ttip's flat platform fee on a crypto withdrawal — charged ON TOP of the real
