@@ -18,6 +18,7 @@ import { accrueCashback } from "@/lib/cashback";
 import { checkWithdrawalLimit } from "@/lib/kyc/limits";
 import { accrueReferralEarning } from "@/lib/referral";
 import { requireWithdrawPin } from "@/lib/withdraw-pin";
+import { cleanNarration, payoutNarration } from "@/lib/narration";
 
 const schema = z.object({
   mode: z.enum(["ttip", "wallet", "bank"]),
@@ -302,6 +303,9 @@ async function handleBankSend(
   if (!amount) throw new ApiError("Enter an amount", 400);
   if (!input.accountNumber || input.accountNumber.length < 6) throw new ApiError("Enter a valid account number", 400);
   const accountNumber = input.accountNumber;
+  // What the user typed in "What's this for?" — this is what lands on the
+  // recipient's bank statement, so it's cleaned to characters the rails accept.
+  const narration = payoutNarration(input.note);
 
   // What the user asked to send, valued in the payout currency. Crypto is
   // valued at our sell rate — the same number the amount field showed them.
@@ -377,7 +381,7 @@ async function handleBankSend(
         assetOut: fiat,
         amountOut: new Prisma.Decimal(fiatAmount),
         counterparty: bankLabel,
-        note: input.accountName ? `To ${input.accountName}` : "Bank payout",
+        note: cleanNarration(input.note) || (input.accountName ? `To ${input.accountName}` : "Bank payout"),
         emoji: "🏦",
         status: "pending",
         meta: {
@@ -389,6 +393,7 @@ async function handleBankSend(
           fee,
           grossFiat,
           legs: plan.legs.map((l) => ({ symbol: l.symbol, take: l.take, fiat: l.fiat })),
+          narration,
         },
       },
     });
@@ -420,7 +425,7 @@ async function handleBankSend(
       accountNumber,
       bankName: input.bankName ?? user.bankName ?? undefined,
       accountName: input.accountName,
-      narration: "Ttip payout",
+      narration,
       reference,
     });
     payoutStatus = result.status;
@@ -462,6 +467,7 @@ async function handleBankSend(
       amount,
       // Every wallet that contributed, so the receipt can show the split.
       legs: plan.legs.map((l) => ({ symbol: l.symbol, take: l.take, fiat: l.fiat })),
+      narration: cleanNarration(input.note) || null,
       fiat,
       fiatAmount, // net amount that lands in the bank
       grossFiat,

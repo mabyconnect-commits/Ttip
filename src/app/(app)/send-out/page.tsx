@@ -16,6 +16,7 @@ import { BankPicker } from "@/components/BankPicker";
 import { QrScanner } from "@/components/QrScanner";
 import { TestModeBanner } from "@/components/TestModeBanner";
 import { PinPrompt } from "@/components/PinPrompt";
+import { cleanNarration, NARRATION_MAX } from "@/lib/narration";
 import { planFunding } from "@/lib/funding-plan";
 import type { Bank } from "@/lib/banks";
 
@@ -39,6 +40,7 @@ export default function SendOutPage() {
   const [bankOpen, setBankOpen] = useState(false);
   const [account, setAccount] = useState("");
   const [accountName, setAccountName] = useState("");
+  const [note, setNote] = useState("");
   const [resolvedName, setResolvedName] = useState<string | null>(null);
   const [resolving, setResolving] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -175,7 +177,7 @@ export default function SendOutPage() {
         if (amt + feeInAsset > bal + 1e-12) { setLoading(false); return toast(`Not enough ${walletSym} to cover amount + fee`, "bad"); }
         body = { mode: "wallet", symbol: walletSym, amount: amt, address, network: selChain!.name, chainId: selChain!.chainId, pin };
       } else {
-        body = { mode: "bank", symbol: sym, amount: amt, fiat, bankName: bank!.name, accountNumber: account, accountName: resolvedName ?? accountName, pin };
+        body = { mode: "bank", symbol: sym, amount: amt, fiat, bankName: bank!.name, accountNumber: account, accountName: resolvedName ?? accountName, note: cleanNarration(note) || undefined, pin };
       }
       const res: any = await action("/api/send", body);
       setPinOpen(false);
@@ -240,6 +242,24 @@ export default function SendOutPage() {
               ) : (
                 <input value={accountName} onChange={(e) => setAccountName(e.target.value)} placeholder="Account name (optional)" className="bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] outline-none text-[14px] focus:border-brand-cyan/50" />
               )}
+
+              {/* The narration. It lands on the recipient's bank statement, which
+                  is how they work out who paid for what — every transfer going
+                  out as "Ttip payout" made them all look identical. */}
+              <div>
+                <input
+                  value={note}
+                  onChange={(e) => setNote(e.target.value.slice(0, NARRATION_MAX))}
+                  placeholder="What's this for? (optional)"
+                  className="w-full bg-surface border border-white/[.08] rounded-2xl px-4 h-[52px] outline-none text-[14px] focus:border-brand-cyan/50"
+                />
+                <div className="flex justify-between px-1.5 mt-1">
+                  <span className="text-[11px] text-white/35">Shows on their statement</span>
+                  {note.length > 0 && (
+                    <span className="text-[11px] text-white/35">{note.length}/{NARRATION_MAX}</span>
+                  )}
+                </div>
+              </div>
             </div>
           </>
         )}
@@ -404,6 +424,7 @@ export default function SendOutPage() {
                 { label: "Sent to", value: resolvedName || accountName || "—" },
                 { label: "Receiver's account", value: bank ? `${bank.name} (${account})` : receipt.bank },
                 { label: "Amount", value: formatFiat(receipt.fiatAmount, receipt.fiat) },
+                receipt.narration ? { label: "Narration", value: receipt.narration } : null,
                 receipt.fee ? { label: "Transfer fee", value: formatFiat(receipt.fee, receipt.fiat) } : null,
                 { label: "Debited", value: `${formatCrypto(receipt.amount, receipt.symbol)} ${receipt.symbol}` },
               ]}
