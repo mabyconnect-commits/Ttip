@@ -5,6 +5,7 @@ import { Icon } from "@/components/Icon";
 import { COMPANY } from "@/lib/company";
 import { PinPrompt } from "@/components/PinPrompt";
 import { useApp } from "@/context/AppContext";
+import { listen, speechSupported, speechErrorMessage, type Listener } from "@/lib/speech-input";
 
 /**
  * Ada — the floating in-app assistant.
@@ -80,6 +81,17 @@ export function Assistant() {
   const scroller = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Photograph an account instead of typing ten digits in a market.
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [scanning, setScanning] = useState(false);
+
+  // Speak instead of typing. Held in a ref so the button can stop it.
+  const [listening, setListening] = useState(false);
+  const [canSpeak, setCanSpeak] = useState(false);
+  const listener = useRef<Listener | null>(null);
+
+  useEffect(() => setCanSpeak(speechSupported()), []);
+
   // Restore the thread so closing the panel mid-conversation doesn't lose it.
   useEffect(() => {
     try {
@@ -112,6 +124,105 @@ export function Assistant() {
     const el = scroller.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [msgs, open]);
+
+  /**
+   * A photo of an account, turned into a payment to confirm.
+   *
+   * The reply and the draft card are pushed into the thread exactly as if Ada
+   * had answered a typed message, so there's one confirmation flow and one PIN
+   * step no matter how the details arrived.
+   */
+  const scan = useCallback(
+    async (file: File) => {
+      if (scanning || busy) return;
+      setScanning(true);
+      const caption = input.trim();
+      setMsgs((prev) => [
+        ...prev,
+        { role: "user", content: caption ? `📷 ${caption}` : "📷 Photo of an account" },
+        { role: "assistant", content: "" },
+      ]);
+      setInput("");
+
+      try {
+        const dataUrl: string = await new Promise((resolve, reject) => {
+          const r = new FileReader();
+          r.onload = () => resolve(String(r.result));
+          r.onerror = () => reject(new Error("Couldn't read that file"));
+          r.readAsDataURL(file);
+        });
+
+        const res = await fetch("/api/assistant/scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image: dataUrl, mimeType: file.type, caption }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error ?? "I couldn't read that image.");
+
+        setMsgs((prev) => {
+          const next = [...prev];
+          next[next.length - 1] = { role: "assistant", content: data.text, draft: data.draft ?? undefined };
+          return next;
+        });
+      } catch (e: any) {
+        setMsgs((prev) => {
+          const next = [...prev];
+          next[next.length - 1] = {
+            role: "assistant",
+            content: e?.message ?? "I couldn't read that image. Try a sharper photo, or type the details.",
+          };
+          return next;
+        });
+      } finally {
+        setScanning(false);
+      }
+    },
+    [busy, input, scanning],
+  );
+
+  /**
+   * Hold-free voice: tap to start, tap to stop.
+   *
+   * What was heard lands in the input box rather than being sent straight off.
+   * A misheard amount has to be visible and editable BEFORE the PIN, not
+   * discovered after the money has gone.
+   */
+  const toggleListening = useCallback(() => {
+    if (listener.current) {
+      listener.current.stop();
+      listener.current = null;
+      setListening(false);
+      return;
+    }
+    const l = listen({
+      onPartial: (t) => setInput(t.slice(0, 2000)),
+      onFinal: (t) => {
+        setInput(t.slice(0, 2000));
+        inputRef.current?.focus();
+      },
+      onError: (reason) => toast(speechErrorMessage(reason), "bad"),
+      onEnd: () => {
+        listener.current = null;
+        setListening(false);
+      },
+    });
+    if (!l) {
+      toast("This browser can't do voice input — type it instead.", "bad");
+      return;
+    }
+    listener.current = l;
+    setListening(true);
+  }, [toast]);
+
+  // Never leave the microphone running when the panel closes.
+  useEffect(() => {
+    if (!open && listener.current) {
+      listener.current.cancel();
+      listener.current = null;
+      setListening(false);
+    }
+  }, [open]);
 
   const send = useCallback(
     async (text: string) => {
@@ -412,7 +523,34 @@ export function Assistant() {
 
             {/* composer */}
             <div className="shrink-0 border-t border-white/[.07] px-4 pt-3 pb-5">
+              {listening && (
+                <div className="flex items-center justify-center gap-2 pb-2 text-[12px] text-good">
+                  <span className="w-2 h-2 rounded-full bg-good animate-pulse" />
+                  Listening… tap the mic to stop
+                </div>
+              )}
               <div className="flex items-end gap-2">
+                {/* Photograph an account rather than typing ten digits. */}
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = ""; // so the same photo can be sent twice
+                    if (f) scan(f);
+                  }}
+                />
+                <button
+                  onClick={() => fileRef.current?.click()}
+                  disabled={busy || scanning}
+                  aria-label="Send a photo of an account"
+                  className="w-[46px] h-[46px] rounded-2xl bg-surface border border-white/[.08] flex items-center justify-center shrink-0 text-white/70 disabled:opacity-35 active:scale-95"
+                >
+                  <Icon name={scanning ? "activity" : "scan"} size={19} />
+                </button>
                 <textarea
                   ref={inputRef}
                   rows={1}
@@ -427,14 +565,29 @@ export function Assistant() {
                   placeholder={`Ask ${NAME} anything…`}
                   className="flex-1 resize-none bg-surface border border-white/[.08] rounded-2xl px-4 py-3 text-[13.5px] outline-none focus:border-white/20 max-h-[110px]"
                 />
-                <button
-                  onClick={() => send(input)}
-                  disabled={busy || !input.trim()}
-                  aria-label="Send"
-                  className="w-[46px] h-[46px] rounded-2xl bg-good text-ink flex items-center justify-center shrink-0 disabled:opacity-35 active:scale-95"
-                >
-                  <Icon name="arrowUp" size={19} strokeWidth={2.4} />
-                </button>
+                {/* Speak instead of typing. Falls back to the send button on
+                    browsers with no speech recognition. */}
+                {canSpeak && !input.trim() ? (
+                  <button
+                    onClick={toggleListening}
+                    disabled={busy || scanning}
+                    aria-label={listening ? "Stop listening" : "Speak to Ada"}
+                    className={`w-[46px] h-[46px] rounded-2xl flex items-center justify-center shrink-0 disabled:opacity-35 active:scale-95 ${
+                      listening ? "bg-bad text-white" : "bg-surface border border-white/[.08] text-white/70"
+                    }`}
+                  >
+                    <Icon name={listening ? "x" : "mic"} size={19} />
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => send(input)}
+                    disabled={busy || !input.trim()}
+                    aria-label="Send"
+                    className="w-[46px] h-[46px] rounded-2xl bg-good text-ink flex items-center justify-center shrink-0 disabled:opacity-35 active:scale-95"
+                  >
+                    <Icon name="arrowUp" size={19} strokeWidth={2.4} />
+                  </button>
+                )}
               </div>
               <p className="text-center text-white/30 text-[10.5px] mt-2.5 tracking-[0.2px] uppercase">
                 {NAME} can make mistakes · we&apos;ll loop in the team when needed

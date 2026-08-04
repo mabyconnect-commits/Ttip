@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { sendMessage, sendTyping, deleteMessage, telegramEnabled, telegramWebhookSecret, telegramWelcome } from "@/lib/telegram";
-import { parseTransferIntent, parseBankName } from "@/lib/assistant/intent";
+import { sendMessage, sendTyping, deleteMessage, downloadFile, telegramEnabled, telegramWebhookSecret, telegramWelcome } from "@/lib/telegram";
+import { parseTransferIntent, parseBankName, parseAmount } from "@/lib/assistant/intent";
+import { extractPaymentFromImage, imageMediaType } from "@/lib/assistant/vision";
+import { speechEnabled, transcribe } from "@/lib/assistant/speech";
+import { prisma } from "@/lib/db";
 import { NIGERIAN_BANKS } from "@/lib/banks";
 import {
   createDraft,
@@ -33,10 +36,11 @@ import { COMPANY } from "@/lib/company";
  * Ada answers about the real account. Unlinked, she answers product questions
  * and offers the one-tap link instead of pretending she can see anything.
  *
- * What a linked chat can do is deliberately bounded to READING. Nothing here
- * moves money, and nothing here asks for a PIN — a chat window is the wrong
- * place for both, and a bot that never asks for a secret is a bot users can be
- * told to distrust the moment anything does.
+ * A linked chat can send a bank transfer — by typing it, by photographing the
+ * vendor's account details, or by saying it out loud. All three converge on the
+ * same code: a parser reads the amount and account, the BANK confirms who owns
+ * it, and the user enters a PIN that is deleted from the chat the moment it's
+ * read. Swaps, bills and crypto withdrawals stay in the app.
  *
  * Telegram retries any non-2xx, so this always returns 200 once the update has
  * been accepted; failures are logged, not bounced back into a retry loop.
@@ -55,6 +59,14 @@ interface Update {
     chat?: { id?: number };
     from?: { id?: number; username?: string };
     text?: string;
+    caption?: string;
+    /** Telegram sends several sizes, smallest first. */
+    photo?: { file_id: string; file_size?: number }[];
+    /** A photo sent as a file rather than compressed. */
+    document?: { file_id: string; mime_type?: string };
+    voice?: { file_id: string; mime_type?: string };
+    audio?: { file_id: string; mime_type?: string };
+    video_note?: { file_id: string };
   };
 }
 
@@ -158,6 +170,106 @@ async function handleStart(chatId: number, arg: string, username?: string): Prom
 }
 
 /**
+ * A photo or a voice note, turned into the sentence the user meant.
+ *
+ * Returns the text to carry on with, "" when the message has already been
+ * answered, or null when there was nothing usable.
+ *
+ * The market case this exists for: you photograph a vendor's account details
+ * rather than typing ten digits standing up in a hurry, and you say what to
+ * send rather than typing that either. Both paths converge on the same
+ * sentence, so a photo and a typed message go through identical checks — the
+ * bank still confirms the name, and you still enter your PIN.
+ */
+async function handleMedia(chatId: number, m: NonNullable<Update["message"]>): Promise<string | null> {
+  const linked = await userForChat(chatId);
+  const caption = (m.caption ?? "").trim();
+
+  // ---- Voice ----
+  const voice = m.voice ?? m.audio;
+  if (voice) {
+    if (!speechEnabled()) {
+      await sendMessage(
+        chatId,
+        "I can't listen to voice notes yet — type it instead and I'll do it right away.",
+      );
+      return "";
+    }
+    await sendTyping(chatId);
+    const file = await downloadFile(voice.file_id);
+    const said = file ? await transcribe(file.buffer, voice.mime_type ?? file.mime ?? "audio/ogg") : null;
+    if (!said) {
+      await sendMessage(chatId, "I couldn't make that out — say it again, or type it.");
+      return "";
+    }
+    // Echo it back. A misheard amount has to be visible BEFORE the PIN, not
+    // discovered afterwards.
+    await sendMessage(chatId, `I heard: *${said}*`);
+    return said;
+  }
+
+  // ---- Photo ----
+  const photoId =
+    m.photo?.length
+      ? m.photo[m.photo.length - 1].file_id // last entry is the largest
+      : m.document && imageMediaType(m.document.mime_type)
+        ? m.document.file_id
+        : null;
+
+  if (!photoId) return null;
+
+  if (!linked) {
+    await sendMessage(
+      chatId,
+      `I can read account details off a photo, but I need to know whose account is paying first. Open ${COMPANY.domain} → Account → Telegram and tap Connect.`,
+    );
+    return "";
+  }
+
+  await sendTyping(chatId);
+  const file = await downloadFile(photoId);
+  const mediaType = imageMediaType(m.document?.mime_type ?? file?.mime ?? "image/jpeg");
+  if (!file || !mediaType) {
+    await sendMessage(chatId, "I couldn't open that image. Try again, or type the account number and bank.");
+    return "";
+  }
+
+  const found = await extractPaymentFromImage(file.buffer.toString("base64"), mediaType);
+  if (!found.accountNumber) {
+    await sendMessage(
+      chatId,
+      "I couldn't read an account number from that clearly enough to trust it — and I'd rather ask than guess with your money. Type the number and bank, or send a sharper photo.",
+    );
+    return "";
+  }
+
+  // The amount can come from the caption ("send 7k to this") or from the image
+  // itself (an invoice). Neither is assumed — if there's no amount, we ask.
+  const amount = parseAmount(caption) ?? found.amount;
+  const bank = parseBankName(caption, NIGERIAN_BANKS.map((b) => b.name)) ?? found.bankName;
+
+  if (!bank) {
+    await sendMessage(
+      chatId,
+      `I read the account number **${found.accountNumber}** but not the bank. Which bank is it?`,
+    );
+    return "";
+  }
+  if (!amount) {
+    await sendMessage(
+      chatId,
+      `Got it — **${found.accountNumber}** at **${bank}**${found.printedName ? ` (${found.printedName})` : ""}.\n\nHow much should I send?`,
+    );
+    return "";
+  }
+
+  await createDraft({ userId: linked.id, chatId, amount, fiat: "NGN", accountNumber: found.accountNumber, bankName: bank });
+  const draft = await liveDraft(chatId);
+  if (draft) await sendMessage(chatId, draftPrompt(draft));
+  return "";
+}
+
+/**
  * "Send 5k to 9077984753 Opay".
  *
  * Returns true when it took the message. The amount, the account number and
@@ -166,16 +278,66 @@ async function handleStart(chatId: number, arg: string, username?: string): Prom
  * money. The bank is then asked who owns the account, and the name goes in the
  * confirmation, so the user sees who they are actually paying before the PIN.
  */
+/**
+ * Find a saved account by the name the user calls it.
+ *
+ * Matched on whole words so "sister" can't be found inside another word, and
+ * only returned when exactly ONE beneficiary matches — two candidates means we
+ * ask rather than pick, because picking wrong sends money to the wrong person.
+ * A beneficiary with no bank recorded is skipped: we can't pay it.
+ */
+async function matchBeneficiary(userId: string, text: string) {
+  const saved = await prisma.beneficiary.findMany({ where: { userId, type: "bank" } });
+  const usable = saved.filter((b) => b.handle && b.detail);
+  if (!usable.length) return null;
+
+  const q = text.toLowerCase();
+  const hits = usable.filter((b) =>
+    b.name
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length >= 3)
+      .some((w) => new RegExp(`(^|\\W)${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}('?s)?(\\W|$)`).test(q)),
+  );
+  return hits.length === 1 ? hits[0] : null;
+}
+
 async function handleTransferIntent(chatId: number, userId: string, text: string): Promise<boolean> {
   const intent = parseTransferIntent(text);
   if (!intent || !intent.amount) return false;
 
   const fiat = "NGN";
 
+  // "Send 7k to my sister's account" — a saved beneficiary, by whatever name
+  // the user gave it. This is how people actually refer to accounts they use;
+  // nobody remembers a NUBAN for someone they pay every week.
   if (!intent.account) {
+    const named = await matchBeneficiary(userId, text);
+    if (named) {
+      await createDraft({
+        userId,
+        chatId,
+        amount: intent.amount,
+        fiat,
+        accountNumber: named.detail,
+        bankName: named.handle!,
+      });
+      const draft = await liveDraft(chatId);
+      if (draft) await sendMessage(chatId, draftPrompt(draft));
+      return true;
+    }
+
+    const saved = await prisma.beneficiary.findMany({
+      where: { userId, type: "bank" },
+      select: { name: true },
+      take: 12,
+    });
+    const listed = saved.length
+      ? ` You have ${saved.map((b) => b.name).join(", ")} saved — say which one.`
+      : "";
     await sendMessage(
       chatId,
-      `I can send that — which account? Paste it like *"send ₦${intent.amount.toLocaleString(
+      `I can send that — which account?${listed} Or paste it like *"send ₦${intent.amount.toLocaleString(
         "en-US",
       )} to 9077984753 Opay"* and I'll check the name before anything moves.`,
     );
@@ -269,8 +431,25 @@ export async function POST(req: Request) {
 
   const chatId = update.message?.chat?.id;
   const messageId = update.message?.message_id;
-  const text = (update.message?.text ?? "").trim();
-  if (!chatId || !text) return NextResponse.json({ ok: true });
+  let text = (update.message?.text ?? "").trim();
+  if (!chatId) return NextResponse.json({ ok: true });
+
+  // A photo of an account, or a voice note. Both end up as the same thing: a
+  // request in words, handled by exactly the code a typed message goes through.
+  const media = update.message;
+  if (!text && (media?.photo?.length || media?.voice || media?.audio || media?.document)) {
+    try {
+      const handled = await handleMedia(chatId, media);
+      if (handled !== null) text = handled;
+    } catch (e) {
+      console.error("[telegram] media failed", e);
+      await sendMessage(chatId, "I couldn't open that. Try sending it again, or type the details.");
+      return NextResponse.json({ ok: true });
+    }
+    if (!text) return NextResponse.json({ ok: true });
+  }
+
+  if (!text) return NextResponse.json({ ok: true });
 
   // A PIN gets deleted from the chat BEFORE anything else happens — before the
   // rate limiter, before the transfer, before any await that could fail. The

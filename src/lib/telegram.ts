@@ -119,6 +119,40 @@ export async function deleteMessage(chatId: number | string, messageId: number):
   return call("deleteMessage", { chat_id: chatId, message_id: messageId });
 }
 
+/**
+ * Download a file the user sent (a photo, a voice note).
+ *
+ * Two hops, because that's how Telegram works: getFile turns a file_id into a
+ * path, then the path is fetched from the file endpoint. Capped, because an
+ * attachment is the one thing in a chat whose size someone else chooses.
+ */
+export async function downloadFile(
+  fileId: string,
+  maxBytes = 6 * 1024 * 1024,
+): Promise<{ buffer: Buffer; mime: string | null } | null> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return null;
+  try {
+    const meta = await fetch(`${API}/bot${token}/getFile?file_id=${encodeURIComponent(fileId)}`);
+    const json = (await meta.json().catch(() => ({}))) as {
+      ok?: boolean;
+      result?: { file_path?: string; file_size?: number };
+    };
+    const path = json.result?.file_path;
+    if (!json.ok || !path) return null;
+    if ((json.result?.file_size ?? 0) > maxBytes) return null;
+
+    const res = await fetch(`${API}/file/bot${token}/${path}`);
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.byteLength > maxBytes) return null;
+    return { buffer: buf, mime: res.headers.get("content-type") };
+  } catch (e) {
+    console.error("[telegram] file download failed", e);
+    return null;
+  }
+}
+
 /** The "typing…" indicator, so a slow model answer doesn't look like nothing happened. */
 export async function sendTyping(chatId: number | string): Promise<void> {
   await call("sendChatAction", { chat_id: chatId, action: "typing" });
@@ -150,9 +184,12 @@ export function telegramWelcome(name?: string | null): string {
   if (name) {
     return (
       `Hi ${firstName(name)} — Ada here, and I can see your ${COMPANY.product} account.\n\n` +
-      `**Send money**\n` +
-      `Just say *"send ₦5,000 to 9077984753 Opay"*. I'll confirm the account name, then you reply with ` +
-      `your PIN — and I delete your PIN from this chat the second I read it.\n\n` +
+      `**Send money — three ways**\n` +
+      `• Type it: *"send ₦5,000 to 9077984753 Opay"*\n` +
+      `• Photograph the account and add *"send ₦5,000 to this"*\n` +
+      `• Say it: hold the mic and speak\n\n` +
+      `I confirm the account name with the bank, then you reply with your PIN — and I delete your ` +
+      `PIN from this chat the second I read it.\n\n` +
       `**Ask me anything**\n` +
       `"What's my balance", "why is my transfer pending", "what's my limit", "what's my account number", ` +
       `or anything about fees, KYC, bills, referrals and cashback.\n\n` +
