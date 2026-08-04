@@ -56,6 +56,19 @@ const nextConfig = {
       },
     ];
   },
+  // The two files the phones fetch to decide whether our app is allowed to
+  // open ttip.site links. They live under /.well-known, which App Router
+  // can't express as a folder (a leading dot isn't a route segment), and
+  // Apple's has no file extension at all — so both are served from routes.
+  async rewrites() {
+    return [
+      { source: "/.well-known/assetlinks.json", destination: "/api/well-known/assetlinks" },
+      {
+        source: "/.well-known/apple-app-site-association",
+        destination: "/api/well-known/apple-app-site-association",
+      },
+    ];
+  },
 };
 
 export default nextConfig;

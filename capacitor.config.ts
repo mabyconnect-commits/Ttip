@@ -33,7 +33,15 @@ const config: CapacitorConfig = {
   },
   android: {
     backgroundColor: "#07080D",
+    // A released wallet does not hand out a remote debugger. With this on,
+    // anyone who can plug the phone into a laptop can open DevTools against
+    // the signed-in session — read the DOM, run script in it, call the API as
+    // that user. Capacitor turns it on automatically for debug builds, which
+    // is where it belongs.
+    webContentsDebuggingEnabled: false,
   },
+  // Nothing about a user's session or balances goes to logcat in production.
+  loggingBehavior: "production",
   plugins: {
     SplashScreen: {
       launchShowDuration: 900,

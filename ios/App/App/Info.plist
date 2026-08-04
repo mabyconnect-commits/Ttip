@@ -30,11 +30,14 @@
 	<array>
 		<string>armv7</string>
 	</array>
+	<!--
+	  Portrait only on iPhone. Every screen in Ttip is laid out for one hand at
+	  480px; turning the phone sideways stretches the balance card and the PIN
+	  pad into something nobody designed. The iPad list below is left as it is.
+	-->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
@@ -47,5 +50,19 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Ttip uses the camera to scan a wallet's QR code when you send crypto out.</string>
+	<!--
+	  iOS KILLS an app that touches a protected resource without a reason string
+	  — it is not a permission prompt that gets declined, it is a crash. Ada
+	  takes voice notes and reads photos of account details, so without these the
+	  app would die the first time someone held the mic or picked a photo.
+	-->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Ttip uses the microphone when you send Ada a voice note instead of typing.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Ttip reads a photo you choose so you can send account details or a wallet QR code without typing them.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Ttip saves your transaction receipts to your photos so you can share them.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Ttip uses Face ID to unlock the app.</string>
 </dict>
 </plist>

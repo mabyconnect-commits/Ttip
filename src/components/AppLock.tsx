@@ -8,10 +8,24 @@ import { PinPad } from "@/components/PinPad";
 import { Icon } from "@/components/Icon";
 
 const KEY = "ttip_unlocked";
+/** When the app was last put away. Used to decide whether to re-lock. */
+const AWAY_KEY = "ttip_away_at";
+
+/**
+ * How long the app may sit in the background before it locks again.
+ *
+ * The lock used to hold for a whole browser session, which in the native shell
+ * means until the app is killed — so a phone handed over, or picked up off a
+ * table hours later, opened straight onto someone's balance and their Send out
+ * screen. Two minutes covers the ordinary interruptions (a call, copying an
+ * account number out of WhatsApp, a bank OTP) without leaving the door open.
+ */
+const RELOCK_AFTER_MS = 2 * 60_000;
 
 export function unlockSession() {
   try {
     sessionStorage.setItem(KEY, "1");
+    sessionStorage.removeItem(AWAY_KEY);
   } catch {}
 }
 
@@ -38,6 +52,46 @@ export function AppLock({ children }: { children: React.ReactNode }) {
     })();
     setLocked(hasPin && !unlocked);
     setReady(true);
+  }, [hasPin]);
+
+  /**
+   * Lock again when the app comes back from being away.
+   *
+   * `visibilitychange` is what fires in both places this has to work: the
+   * native shell backgrounding, and a browser tab being switched away from.
+   * The timestamp is written on the way out rather than a timer being run,
+   * because a backgrounded app gets no timers.
+   */
+  useEffect(() => {
+    if (!hasPin) return;
+
+    const onHidden = () => {
+      try {
+        sessionStorage.setItem(AWAY_KEY, String(Date.now()));
+      } catch {}
+    };
+    const onVisible = () => {
+      let away = 0;
+      try {
+        away = Number(sessionStorage.getItem(AWAY_KEY) ?? 0);
+      } catch {}
+      if (away && Date.now() - away >= RELOCK_AFTER_MS) {
+        try {
+          sessionStorage.removeItem(KEY);
+          sessionStorage.removeItem(AWAY_KEY);
+        } catch {}
+        setLocked(true);
+      }
+    };
+
+    const onChange = () => (document.visibilityState === "hidden" ? onHidden() : onVisible());
+    document.addEventListener("visibilitychange", onChange);
+    // Safari on iOS fires pagehide where other browsers fire visibilitychange.
+    window.addEventListener("pagehide", onHidden);
+    return () => {
+      document.removeEventListener("visibilitychange", onChange);
+      window.removeEventListener("pagehide", onHidden);
+    };
   }, [hasPin]);
 
   async function onComplete(pin: string) {

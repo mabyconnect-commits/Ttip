@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  Debug-build overrides, merged only into a debug APK and never into a release.
+
+  Cleartext http so the shell can be pointed at a laptop on the LAN
+  (CAP_SERVER_URL=http://192.168.x.x:3000). The debug source set also carries
+  its own res/xml/network_security_config.xml, which replaces the release one
+  by virtue of being in this build type — so trusting a proxy certificate for
+  traffic inspection likewise never reaches a user.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:usesCleartextTraffic="true" />
+</manifest>

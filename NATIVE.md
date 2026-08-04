@@ -116,11 +116,43 @@ npm run cap:ios            # opens Xcode
 
 ---
 
+## Security posture of the shell
+
+The app is a WebView holding a signed-in wallet session, so the hardening is
+about that session and that connection.
+
+| What | Where | Why |
+| --- | --- | --- |
+| No backup, no device transfer | `AndroidManifest.xml` `allowBackup=false` + `res/xml/data_extraction_rules.xml` | The WebView cookie store holds the session. A cloud backup or a phone-to-phone transfer of it is a copy of someone's wallet access. |
+| HTTPS only, system trust store only | `res/xml/network_security_config.xml` | A user-installed certificate — the kind a "speed up your internet" app talks people into — could otherwise read and rewrite the whole session. |
+| No remote debugging in release | `capacitor.config.ts` `webContentsDebuggingEnabled: false` | Otherwise anyone with a USB cable can open DevTools against the signed-in session and call the API as that user. |
+| Production logging only | `capacitor.config.ts` `loggingBehavior` | Keeps session detail out of logcat. |
+| Locks itself when put away | `src/components/AppLock.tsx` | The PIN lock held for a whole session — i.e. until the app was killed. It now re-locks after 2 minutes in the background, so a handed-over phone doesn't open on a balance. |
+| Portrait only | manifest `screenOrientation` + `Info.plist` | Every screen is laid out for one hand; sideways stretched the PIN pad into something nobody designed. |
+| iOS permission strings | `Info.plist` | iOS **kills** an app that touches the mic or photo library without a reason string. Voice notes to Ada would have crashed the app on iPhone. |
+
+Debug builds relax the first two on purpose (`android/app/src/debug/`), so the
+CI debug APK can still be pointed at a laptop over http.
+
+### App Links / Universal Links — needs one value from you
+
+The manifest and `Info.plist` claim `ttip.site`, and the site serves both
+association files. They stay switched off until you set:
+
+| Variable | Where to get it | Effect |
+| --- | --- | --- |
+| `ANDROID_CERT_SHA256` | Play Console → Setup → App integrity → **app signing key** SHA-256 (not the upload key) | `/.well-known/assetlinks.json` starts authorising the app |
+| `APPLE_APP_ID` | `<TEAM ID>.site.ttip.app`, Team ID from Apple Developer → Membership | `/.well-known/apple-app-site-association` starts authorising the app |
+
+iOS also needs the **Associated Domains** capability in Xcode with
+`applinks:ttip.site`. Until both halves are in place a ttip.site link opens the
+browser exactly as it does today — nothing breaks while it's outstanding.
+
 ## Store submission checklist
 
 - [ ] App icon + splash generated (`npm run cap:assets`) — done, from the Ttip logo.
-- [ ] Camera usage strings present (Android `CAMERA` permission; iOS
-      `NSCameraUsageDescription`) — done, for the QR scanner.
+- [ ] Camera, microphone and photo usage strings present — done (QR scanner,
+      voice notes to Ada, photos of account details, saving receipts).
 - [ ] Bundle id `site.ttip.app` matches your App Store Connect / Play Console app.
 - [ ] Privacy policy + support URL live (Apple & Google both require them).
 - [ ] Data-safety / privacy-nutrition forms filled (collects identity for KYC,

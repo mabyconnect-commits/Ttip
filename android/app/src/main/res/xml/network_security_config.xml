@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  HTTPS only, and only against the system's own trust store.
+
+  A wallet's whole conversation with its server — the session cookie, the
+  balances, a payout being authorised — travels over this connection. Trusting
+  user-installed certificates would mean any proxy someone was talked into
+  installing could read and rewrite it, which is precisely how a phone gets
+  turned against its owner on a public network.
+
+  Debug builds relax this (see src/debug/AndroidManifest.xml) so the app can
+  still be pointed at a laptop over http during development.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

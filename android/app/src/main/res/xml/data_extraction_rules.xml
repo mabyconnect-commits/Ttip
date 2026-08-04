@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ backup and device-transfer rules.
+
+  Nothing leaves the device. The WebView's cookie store holds the signed-in
+  session, so a backup of this app's data is a copy of somebody's wallet
+  access — and cloud backup and device-to-device transfer are exactly the
+  places we cannot vouch for where it lands. Signing in again takes seconds;
+  the alternative does not.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+        <exclude domain="file" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+        <exclude domain="file" />
+    </device-transfer>
+</data-extraction-rules>
