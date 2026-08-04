@@ -10,6 +10,7 @@ import { BackHeader, GradientButton, Sheet, Avatar } from "@/components/ui";
 import { Icon } from "@/components/Icon";
 import { formatFiat, formatCrypto } from "@/lib/format";
 import { Receipt } from "@/components/Receipt";
+import { PinPrompt } from "@/components/PinPrompt";
 
 interface Contact {
   name: string;
@@ -39,6 +40,8 @@ export default function TtipPage() {
   const [emoji, setEmoji] = useState("⚡");
   const [pickOpen, setPickOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [pinOpen, setPinOpen] = useState(false);
+  const [pinError, setPinError] = useState(false);
   const [receipt, setReceipt] = useState<any>(null);
 
   const funding = pickFunding(state.portfolio.assets);
@@ -58,10 +61,17 @@ export default function TtipPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
-  async function send() {
+  /** Checks the tip is sendable, then opens the PIN pad. Nothing moves yet. */
+  function review() {
     if (!recipient) return toast("Choose someone to Ttip", "bad");
     if (amount <= 0) return toast("Enter an amount", "bad");
     if (cost > fundBal) return toast(`Not enough ${funding} to cover this tip`, "bad");
+    setPinError(false);
+    setPinOpen(true);
+  }
+
+  async function send(pin: string) {
+    if (!recipient) return;
     setLoading(true);
     try {
       const res: any = await action("/api/send", {
@@ -72,9 +82,18 @@ export default function TtipPage() {
         fundingSymbol: funding,
         note: note || undefined,
         emoji,
+        pin,
       });
+      setPinOpen(false);
       setReceipt(res.receipt);
     } catch (e: any) {
+      // A rejected PIN re-arms the pad; anything else is a real failure and
+      // closing it is the honest response.
+      if (/pin/i.test(e?.message ?? "")) {
+        setPinError(true);
+      } else {
+        setPinOpen(false);
+      }
       toast(e.message, "bad");
     } finally {
       setLoading(false);
@@ -83,6 +102,17 @@ export default function TtipPage() {
 
   return (
     <div className="flex flex-col flex-1 px-[22px] min-h-0">
+      {/* A tip is irreversible once it lands, so it asks for the PIN a bank
+          payout does. Someone with no PIN yet is sent to Security to set one. */}
+      <PinPrompt
+        open={pinOpen}
+        onClose={() => setPinOpen(false)}
+        onPin={send}
+        error={pinError}
+        busy={loading}
+        title="Confirm this Ttip"
+        subtitle={recipient ? `${formatFiat(amount, fiat)} to ${recipient.name}` : undefined}
+      />
       <BackHeader title="Ttip" right={<button onClick={() => setPickOpen(true)} className="w-9 h-9 rounded-full border border-white/10 flex items-center justify-center text-white/70"><Icon name="grid" size={16} /></button>} />
 
       <div className="flex-1 overflow-y-auto no-scrollbar">
@@ -154,7 +184,7 @@ export default function TtipPage() {
       </div>
 
       <div className="pb-6 pt-1">
-        <GradientButton onClick={send} loading={loading} disabled={!recipient || amount <= 0}>
+        <GradientButton onClick={review} loading={loading} disabled={!recipient || amount <= 0}>
           Ttip {formatFiat(amount, fiat, { decimals: 0 })}
         </GradientButton>
       </div>

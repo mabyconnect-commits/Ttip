@@ -59,6 +59,11 @@ export async function POST(req: Request) {
     const input = schema.parse(await req.json());
 
     if (input.mode === "ttip") {
+      // A Ttip is irreversible the moment it lands in someone else's balance —
+      // there is no provider to recall it from and no counterparty obliged to
+      // give it back. That makes it exactly as final as a bank payout, so it
+      // asks for the same PIN. Being free is not the same as being reversible.
+      await requireWithdrawPin(userId, input.pin);
       return handleTtip(userId, user, input);
     }
     // Fail closed: withdrawals move real money — refuse unless live or demo.
