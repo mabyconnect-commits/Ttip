@@ -124,6 +124,46 @@ export const FAMILY_NETWORK: Record<ChainFamily, string> = {
   bitcoin: "Bitcoin",
 };
 
+/**
+ * The asset someone named, by symbol or by its full name.
+ *
+ * "Send 0.05 Solana" names SOL as surely as "0.05 SOL" does, and a voice note
+ * will always give you the word rather than the ticker. Without this, a crypto
+ * request carrying no wallet address fell through to the naira parser and came
+ * back as a ₦5 bank transfer, complete with a list of the user's bank
+ * beneficiaries — which is a long way from what they asked for.
+ */
+const ASSET_WORDS: [RegExp, string][] = [
+  [/\bsol(ana)?\b/i, "SOL"],
+  [/\busdc\b|\busd\s*coin\b/i, "USDC"],
+  [/\busdt\b|\btether\b/i, "USDT"],
+  [/\bbtc\b|\bbitcoins?\b/i, "BTC"],
+  [/\beth(er(eum)?)?\b/i, "ETH"],
+  [/\bbnb\b|\bbinance\s*coin\b/i, "BNB"],
+  [/\bxrp\b|\bripple\b/i, "XRP"],
+];
+
+/**
+ * Returns a symbol only from `allowed` when given — the assets that can
+ * actually be sent on the chain in hand — so naming one we can't send there
+ * stays a question rather than becoming a wrong guess.
+ */
+export function parseCryptoAsset(text: string, allowed?: readonly string[]): string | undefined {
+  const q = (text ?? "").trim();
+  if (!q) return undefined;
+  for (const [pattern, symbol] of ASSET_WORDS) {
+    if (!pattern.test(q)) continue;
+    if (allowed && !allowed.includes(symbol)) continue;
+    return symbol;
+  }
+  return undefined;
+}
+
+/** True when the message names any crypto asset at all. */
+export function mentionsCrypto(text: string): boolean {
+  return !!parseCryptoAsset(text);
+}
+
 /** Shorten an address for display without hiding the ends people check. */
 export function shortAddress(a: string): string {
   return a.length <= 20 ? a : `${a.slice(0, 10)}…${a.slice(-8)}`;

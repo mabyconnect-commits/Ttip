@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseCryptoAddress, classify, shortAddress } from "../src/lib/assistant/crypto-address";
+import { parseCryptoAddress, classify, shortAddress, parseCryptoAsset, mentionsCrypto } from "../src/lib/assistant/crypto-address";
 
 /**
  * Crypto is the one transfer with no recall, no provider to phone and no name
@@ -98,4 +98,29 @@ test("shortening keeps both ends, which are what people check", () => {
   assert.ok(s.length < EVM.length);
   // Short ones are left alone.
   assert.equal(shortAddress("0x1234"), "0x1234");
+});
+
+test("an asset is recognised by name, not just by ticker", () => {
+  // A voice note says "Solana", never "SOL". Missing that sent "0.05 Solana"
+  // into the naira parser, which offered a ₦0.05 BANK transfer.
+  assert.equal(parseCryptoAsset("Send the 0.05 Solana to the address I pasted"), "SOL");
+  assert.equal(parseCryptoAsset("0.05 SOL"), "SOL");
+  assert.equal(parseCryptoAsset("send 20 usdt"), "USDT");
+  assert.equal(parseCryptoAsset("send 20 tether"), "USDT");
+  assert.equal(parseCryptoAsset("0.001 bitcoin"), "BTC");
+  assert.equal(parseCryptoAsset("some ethereum"), "ETH");
+});
+
+test("an asset is only offered when it can be sent on that chain", () => {
+  // Naming something they can't send there has to stay a question, not become
+  // a guess that puts the money on the wrong chain.
+  assert.equal(parseCryptoAsset("send 0.05 solana", ["USDC", "USDT"]), undefined);
+  assert.equal(parseCryptoAsset("send some usdc", ["USDC", "USDT"]), "USDC");
+});
+
+test("an ordinary naira message names no crypto at all", () => {
+  for (const t of ["send 5000 to 9077984753 Opay", "what are your fees", "1,500", ""]) {
+    assert.equal(mentionsCrypto(t), false, t);
+  }
+  assert.equal(mentionsCrypto("send 0.05 solana"), true);
 });

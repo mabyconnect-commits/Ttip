@@ -19,9 +19,10 @@ import {
   MAX_PIN_ATTEMPTS,
   setDraftAmount,
   setDraftBank,
+  setDraftAsset,
   createCryptoDraft,
 } from "@/lib/telegram-transfer";
-import { parseCryptoAddress, FAMILY_ASSETS, FAMILY_NETWORK, shortAddress, type ChainFamily } from "@/lib/assistant/crypto-address";
+import { parseCryptoAddress, parseCryptoAsset, mentionsCrypto, classify, FAMILY_ASSETS, FAMILY_NETWORK, shortAddress, type ChainFamily } from "@/lib/assistant/crypto-address";
 import { decodeQr } from "@/lib/assistant/qr";
 import { answerFaq } from "@/lib/assistant/faq";
 import { assistantRules, ttipKnowledge } from "@/lib/assistant/knowledge";
@@ -410,19 +411,25 @@ async function handleCryptoAddress(
   }
 
   // A named asset wins; otherwise only pick when there's nothing to pick between.
-  const named = held.find((sym) => new RegExp(`(^|\\W)${sym}(\\W|$)`, "i").test(text));
+  // By ticker or by name — a voice note says "Solana", never "SOL".
+  const named = parseCryptoAsset(text, held);
   const asset = named ?? (held.length === 1 ? held[0] : null);
+  const amount = parseAmount(text);
+
   if (!asset) {
+    // The ADDRESS is remembered even though the asset isn't. Storing nothing
+    // here is what broke the QR flow: the address was thrown away with the
+    // question, so "0.05 Solana" came back to a bot holding nothing, fell
+    // through to the naira parser and was offered as a ₦5 bank transfer.
+    await createCryptoDraft({ userId, chatId, amount, asset: null, network, address });
     await say(
       chatId,
       `That's a **${network}** address — \`${shortAddress(address)}\`.\n\n` +
         `Which do you want to send: ${held.join(", ")}?`,
     );
-    // Remembered without an asset would be ambiguous, so nothing is stored yet.
     return true;
   }
 
-  const amount = parseAmount(text);
   await createCryptoDraft({ userId, chatId, amount, asset, network, address });
 
   if (!amount) {
@@ -444,11 +451,21 @@ async function handleCryptoAddress(
  * and it is their chance to catch a digit the transcriber invented.
  */
 function missingPiece(d: {
+  kind?: string;
   amount: unknown;
   accountNumber: string | null;
   bankName: string | null;
   resolvedName: string | null;
+  asset?: string | null;
+  network?: string | null;
+  address?: string | null;
 }): string {
+  if (d.kind === "crypto") {
+    const where = `**${d.network}** — \`${shortAddress(d.address ?? "")}\``;
+    if (!d.asset) return `Holding that address: ${where}.\n\nWhich asset should I send?`;
+    if (d.amount === null) return `**${d.asset}** to ${where}.\n\nHow much ${d.asset} should I send?`;
+    return `**${d.asset}** to ${where}.`;
+  }
   const who = `**${d.accountNumber}**${d.bankName ? ` at **${d.bankName}**` : ""}${
     d.resolvedName ? ` (${d.resolvedName})` : ""
   }`;
@@ -477,10 +494,31 @@ async function handleTransferIntent(chatId: number, userId: string, text: string
       NIGERIAN_BANKS.map((b) => b.name),
     );
     let d = pending;
+    // Which asset, on a chain where they hold more than one. The address is
+    // already held, so this is the only piece the answer has to carry.
+    let addedAsset = false;
+    if (pending.kind === "crypto" && !pending.asset && pending.address) {
+      const family = classify(pending.address)?.family;
+      const held = family
+        ? (
+            await prisma.balance.findMany({
+              where: { userId, kind: "crypto", symbol: { in: FAMILY_ASSETS[family] } },
+              select: { symbol: true, amount: true },
+            })
+          )
+            .filter((b) => Number(b.amount) > 0)
+            .map((b) => b.symbol)
+        : undefined;
+      const asset = parseCryptoAsset(text, held);
+      if (asset) {
+        d = await setDraftAsset(chatId, asset);
+        addedAsset = true;
+      }
+    }
     if (add.bank) d = (await setDraftBank(chatId, add.bank)) ?? d;
     if (add.amount) d = await setDraftAmount(chatId, add.amount);
 
-    if (add.bank || add.amount) {
+    if (addedAsset || add.bank || add.amount) {
       const state = { ...d, amount: d.amount === null ? null : Number(d.amount) };
       await say(chatId, draftGap(state) ? missingPiece(d) : draftPrompt(d));
       return true;
@@ -533,6 +571,22 @@ async function handleTransferIntent(chatId: number, userId: string, text: string
 
   const intent = parseTransferIntent(text);
   if (!intent || !intent.amount) return false;
+
+  // "Send the 0.05 Solana to the address I pasted" is not a naira transfer.
+  //
+  // Without this it became one: no account number in the message, so the bank
+  // path took it, listed the user's bank beneficiaries and offered to send
+  // ₦0.05. An asset named with no wallet address to send it to is a question
+  // about the address, never an invitation to pay a bank account.
+  if (!intent.account && mentionsCrypto(text)) {
+    const asset = parseCryptoAsset(text);
+    await say(
+      chatId,
+      `That's ${intent.amount} **${asset}** — to send it I need the wallet address.\n\n` +
+        `Paste it here, or send a photo of the QR code, and I'll show you the address in full before anything moves.`,
+    );
+    return true;
+  }
 
   const fiat = "NGN";
 
@@ -735,7 +789,11 @@ export async function POST(req: Request) {
     // Only when the draft is actually awaiting a PIN. A draft still waiting to
     // be told the amount — or which bank — would otherwise swallow "1200" as a
     // PIN, deleting the message and failing with a wrong-PIN error.
-    if (draft && draft.amount !== null && (draft.kind === "crypto" || draft.bankName)) {
+    if (
+      draft &&
+      draft.amount !== null &&
+      (draft.kind === "crypto" ? !!draft.asset : !!draft.bankName)
+    ) {
       const wiped = messageId ? await deleteMessage(chatId, messageId) : false;
       await handlePin(chatId, text, draft, wiped);
       return NextResponse.json({ ok: true });

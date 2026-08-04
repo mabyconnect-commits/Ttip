@@ -27,8 +27,24 @@ import { transferFee } from "./pricing";
  * transfer the user was just shown — never to a stale one still lying around.
  */
 
-/** How long a pending transfer waits for its PIN. */
+/** How long a READY transfer waits for its PIN. */
 const DRAFT_TTL_MS = 5 * 60_000;
+/**
+ * How long a half-built one is held.
+ *
+ * Longer, and safely so: an incomplete draft cannot be sent — sendDraft refuses
+ * it and the webhook won't read a PIN against it — so the only thing this
+ * changes is whether the user is still remembered when they come back. Five
+ * minutes is the right window for "type your PIN"; it is far too short for a
+ * conversation held in voice notes, where expiring meant forgetting the address
+ * again and asking for everything from the top.
+ */
+const PARTIAL_TTL_MS = 30 * 60_000;
+
+/** A draft that still needs something can be held for longer, because it can't move money. */
+function expiryFor(complete: boolean): Date {
+  return new Date(Date.now() + (complete ? DRAFT_TTL_MS : PARTIAL_TTL_MS));
+}
 /** Wrong PINs before the draft is torn down. */
 const MAX_ATTEMPTS = 3;
 
@@ -69,7 +85,8 @@ export interface CryptoDraftInput {
   userId: string;
   chatId: number | string;
   amount?: number | null;
-  asset: string;
+  /** Null while we know the address but not yet which asset to send on it. */
+  asset: string | null;
   network: string;
   address: string;
 }
@@ -88,7 +105,8 @@ export async function createCryptoDraft(input: CryptoDraftInput) {
     userId: input.userId,
     kind: "crypto",
     amount: input.amount ?? null,
-    fiat: input.asset,
+    // `fiat` is the unit the amount is counted in — the asset, for a chain.
+    fiat: input.asset ?? input.network,
     asset: input.asset,
     network: input.network,
     address: input.address,
@@ -97,7 +115,7 @@ export async function createCryptoDraft(input: CryptoDraftInput) {
     accountName: null,
     resolvedName: null,
     attempts: 0,
-    expiresAt: new Date(Date.now() + DRAFT_TTL_MS),
+    expiresAt: expiryFor(!!input.asset && input.amount != null),
   };
   await prisma.telegramDraft.upsert({ where: { chatId }, create: { chatId, ...data }, update: data });
 }
@@ -129,7 +147,7 @@ export async function createDraft(input: DraftInput) {
     accountName: resolved ?? `${input.bankName ?? ""} ${input.accountNumber}`.trim(),
     resolvedName: resolved,
     attempts: 0,
-    expiresAt: new Date(Date.now() + DRAFT_TTL_MS),
+    expiresAt: expiryFor(!!input.bankName && input.amount != null),
   };
 
   // One live draft per chat: the newest request replaces anything older, so a
@@ -165,9 +183,29 @@ export async function clearDraft(chatId: number | string): Promise<void> {
  * the camera was meant to remove.
  */
 export async function setDraftAmount(chatId: number | string, amount: number) {
+  const id = String(chatId);
+  const draft = await prisma.telegramDraft.findUnique({ where: { chatId: id } });
+  const complete = draft?.kind === "crypto" ? !!draft.asset : !!draft?.bankName;
   return prisma.telegramDraft.update({
-    where: { chatId: String(chatId) },
-    data: { amount, attempts: 0, expiresAt: new Date(Date.now() + DRAFT_TTL_MS) },
+    where: { chatId: id },
+    data: { amount, attempts: 0, expiresAt: expiryFor(complete) },
+  });
+}
+
+/**
+ * Fill in the asset on a crypto draft that was only missing that.
+ *
+ * A QR gives you an address, not what to send on it — and on a chain where the
+ * user holds several assets, "which one?" is a real question. It used to be
+ * asked with nothing remembered, so the answer arrived with no address to
+ * attach to and a spoken "0.05 Solana" fell through to the naira parser.
+ */
+export async function setDraftAsset(chatId: number | string, asset: string) {
+  const id = String(chatId);
+  const draft = await prisma.telegramDraft.findUnique({ where: { chatId: id } });
+  return prisma.telegramDraft.update({
+    where: { chatId: id },
+    data: { asset, fiat: asset, attempts: 0, expiresAt: expiryFor(draft?.amount != null) },
   });
 }
 
@@ -190,7 +228,7 @@ export async function setDraftBank(chatId: number | string, bankName: string) {
       resolvedName: resolved,
       accountName: resolved ?? `${bankName} ${draft.accountNumber}`,
       attempts: 0,
-      expiresAt: new Date(Date.now() + DRAFT_TTL_MS),
+      expiresAt: expiryFor(draft.amount != null),
     },
   });
 }
@@ -282,6 +320,15 @@ export async function sendDraft(
 ): Promise<SendOutcome> {
   const amount = Number(draft.amount);
   const money = (n: number) => `${draft.fiat === "NGN" ? "₦" : draft.fiat + " "}${n.toLocaleString("en-US")}`;
+
+  // Same for a crypto draft that knows the address but not what to send on it.
+  if (draft.kind === "crypto" && !draft.asset) {
+    return {
+      ok: false,
+      wrongPin: false,
+      message: `I still don't know which asset to send to that address — tell me which and I'll set it up.`,
+    };
+  }
 
   // A bank draft can now exist before its bank is known — the account arrives
   // in one breath and the bank in the next. Half a destination must never

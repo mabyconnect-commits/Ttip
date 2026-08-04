@@ -57,7 +57,11 @@ function normalize(s: string): string {
  * Handles "7,500", "₦7500", "7.5k", "50 thousand", "$20".
  */
 export function parseAmount(text: string): number | null {
-  const q = normalize(text);
+  // A spoken decimal comes back as a word. "0.05 SOL" said out loud is
+  // transcribed "0Point05 Solana", and the parser then skipped the 0 and read
+  // the 05 — turning 0.05 into 5, a hundredfold error on a number nobody
+  // checked because nobody typed it.
+  const q = normalize(text).replace(/(\d)\s*(?:point|dot)\s*(\d)/g, "$1.$2");
   // The scale must be a word of its own. Without the \b, the "M" of
   // "9136214038 Moniepoint" read as "million" and an account number became an
   // amount of ₦9,136,214,038,000,000 — and, worse, gave a message that named no

@@ -20,6 +20,8 @@ export interface DraftState {
   amount: number | null;
   accountNumber?: string | null;
   bankName?: string | null;
+  /** Crypto only: what to send to the address. A QR never carries it. */
+  asset?: string | null;
 }
 
 /** What this message adds to the draft. Empty when it adds nothing. */
@@ -63,7 +65,10 @@ export function fillFromReply(
 }
 
 /** What the draft still needs, or null when it's ready to confirm. */
-export function draftGap(draft: DraftState): "bank" | "amount" | null {
+export function draftGap(draft: DraftState): "bank" | "asset" | "amount" | null {
+  // A chain has no bank to name, but it does have the question of WHAT to send
+  // to the address — a QR carries the destination, never the asset.
+  if (draft.kind === "crypto" && !draft.asset) return "asset";
   if (draft.kind !== "crypto" && !draft.bankName) return "bank";
   if (draft.amount === null) return "amount";
   return null;

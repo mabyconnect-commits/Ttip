@@ -103,8 +103,8 @@ test("a piece already known is never overwritten", () => {
   assert.equal(draftGap(d), null);
 });
 
-test("a crypto draft waits only on the amount", () => {
-  const d: DraftState = { kind: "crypto", amount: null, accountNumber: null, bankName: null };
+test("a crypto draft never waits on a bank", () => {
+  const d: DraftState = { kind: "crypto", amount: null, accountNumber: null, bankName: null, asset: "SOL" };
   assert.equal(draftGap(d), "amount", "a chain has no bank to ask for");
   // A bank name in a crypto message means nothing and must not be recorded.
   assert.deepEqual(fill(d, "opay"), {});
@@ -213,4 +213,13 @@ test("nothing is rebuilt from a conversation with no account in it", () => {
   ];
   const built = assembleFromHistory(turns, NAMES, (t) => parseAccountNumber(t) ?? undefined);
   assert.equal(built.account, undefined);
+});
+
+test("a crypto draft waits on the asset before the amount", () => {
+  // A QR carries an address, never what to send to it. That question used to be
+  // asked with the address thrown away, so the answer landed on nothing.
+  const d: DraftState = { kind: "crypto", amount: null, asset: null };
+  assert.equal(draftGap(d), "asset");
+  assert.equal(draftGap({ ...d, asset: "SOL" }), "amount");
+  assert.equal(draftGap({ ...d, asset: "SOL", amount: 0.05 }), null);
 });
