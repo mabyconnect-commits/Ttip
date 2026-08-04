@@ -175,7 +175,7 @@ const INTENTS: Intent[] = [
   {
     match: ["referral", "refer", "invite", "commission"],
     answer: () =>
-      `You earn ${(REFERRAL_EARN_PCT * 100).toFixed(0)}% of the platform revenue on everything the people you invite do — ongoing, not a one-off. ` +
+      `You earn ${(REFERRAL_EARN_PCT * 100).toFixed(0)}% of the swap fees and crypto withdrawal fees paid by the people you invite — ongoing, not a one-off. ` +
       `They get ${money(DEPOSIT_BONUS_NGN)} once their first deposit of $${DEPOSIT_BONUS_MIN_USD} or more has stayed on Ttip for ${DEPOSIT_BONUS_HOLD_HOURS} hours. Your link is under Referrals.`,
   },
   {
@@ -228,7 +228,7 @@ const INTENTS: Intent[] = [
       `${COMPANY.product} turns crypto into spendable cash across Africa. You can deposit crypto or naira, ` +
       `buy and sell BTC, ETH, USDT and more, swap between them, and cash out straight to your bank in seconds. ` +
       `You can also pay bills — airtime, data, electricity, TV, internet — send money instantly to another ` +
-      `${COMPANY.product} user by @username, and earn cashback on every trade plus ${(REFERRAL_EARN_PCT * 100).toFixed(0)}% of the fees from ` +
+      `${COMPANY.product} user by @username, and earn cashback on every trade plus ${(REFERRAL_EARN_PCT * 100).toFixed(0)}% of the swap and crypto-withdrawal fees from ` +
       `anyone you invite. Payouts run in ${supportedPayoutCurrencies().join(", ")}.`,
   },
   {

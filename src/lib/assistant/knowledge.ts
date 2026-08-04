@@ -138,8 +138,10 @@ To move up, go to Account → KYC and add the next document.
 - Cashback: ${(CASHBACK_PCT * 100).toFixed(2)}% of every buy and sell, claimable once it
   reaches ₦${CASHBACK_MIN_CLAIM.toLocaleString()}. The pot is held in
   ${REWARDS_BASE_FIAT} and converted at the live rate if you display another currency.
-- Referrals: you earn ${(REFERRAL_EARN_PCT * 100).toFixed(0)}% of the platform revenue on
-  everything the people you invite do — ongoing, not a one-off.
+- Referrals: you earn ${(REFERRAL_EARN_PCT * 100).toFixed(0)}% of the SWAP FEES and CRYPTO
+  WITHDRAWAL FEES paid by the people you invite — ongoing, not a one-off. It does
+  not pay on the rate spread, on bank cash-outs or on deposits, so never tell
+  someone they earn on "everything" their friends do.
 - First-deposit bonus: a referred user gets ₦${DEPOSIT_BONUS_NGN.toLocaleString()} after
   their first deposit of $${DEPOSIT_BONUS_MIN_USD} or more has stayed on the platform for
   ${DEPOSIT_BONUS_HOLD_HOURS} hours. Withdrawing before then means no bonus.

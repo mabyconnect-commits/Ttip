@@ -53,7 +53,15 @@ export async function POST(req: Request) {
     let free = false; // whether a free-swap allowance was consumed
     let fiatVolume = 0; // naira value of the trade, for cashback
     let cashbackFiat = "";
-    let revenueFiat = 0; // platform spread on this trade, for referral earnings
+    let revenueFiat = 0; // platform revenue on this trade, for reporting
+    // What a referrer earns a share of. Deliberately NOT the same number.
+    //
+    // Referral pays out on the FEE, never the spread. The spread is what pays
+    // for the float, the provider and the risk of holding the other side of a
+    // trade — sharing a quarter of it away is how a referral programme quietly
+    // turns volume into losses. An explicit fee is margin we can afford to
+    // share; a spread is not.
+    let referralBaseFiat = 0;
 
     if (cryptoFrom && !cryptoTo) {
       // crypto → fiat (off-ramp): our sell rate, margin baked in.
@@ -89,6 +97,8 @@ export async function POST(req: Request) {
       fiatVolume = await convert(amount, fromSymbol, user.defaultFiat);
       cashbackFiat = user.defaultFiat;
       revenueFiat = fiatVolume * feePct;
+      // The one swap that charges a visible fee — so the one that pays a referrer.
+      referralBaseFiat = revenueFiat;
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -104,8 +114,9 @@ export async function POST(req: Request) {
       if (fiatVolume > 0 && cashbackFiat) {
         const source = cryptoFrom && !cryptoTo ? "swap sell" : !cryptoFrom && cryptoTo ? "swap buy" : "swap";
         await accrueCashback(tx, userId, fiatVolume, { fiat: cashbackFiat, source });
-        // Referrer's share of the platform revenue on that swap.
-        await accrueReferralEarning(tx, userId, revenueFiat, { fiat: cashbackFiat, source });
+        // Referrer's share — of the swap FEE only. On- and off-ramps earn
+        // nothing here because their only revenue is the spread.
+        await accrueReferralEarning(tx, userId, referralBaseFiat, { fiat: cashbackFiat, source });
       }
 
       const updated = await tx.user.update({

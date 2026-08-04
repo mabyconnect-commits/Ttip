@@ -66,7 +66,7 @@ export default function AccountPage() {
           </span>
           <div className="flex-1 text-left">
             <div className="font-grotesk font-semibold text-[15px]">Refer &amp; Earn</div>
-            <div className="text-white/55 text-[12px]">Earn 25% of your friends&apos; fees — for life</div>
+            <div className="text-white/55 text-[12px]">Earn 25% of your friends&apos; swap fees — for life</div>
           </div>
           <Icon name="chevronRight" size={18} className="text-white/40" />
         </button>

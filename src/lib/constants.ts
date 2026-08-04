@@ -196,7 +196,7 @@ export const BILL_FIAT = "NGN";
 // Referrals: a referrer earns this share of the platform revenue (fees + spread)
 // on every transaction their referred users make — an ongoing lifetime cut, not
 // a one-off. Override with REFERRAL_EARN_PCT.
-export const REFERRAL_EARN_PCT = 0.25; // 25% of downline fees
+export const REFERRAL_EARN_PCT = 0.25; // 25% of a downline's SWAP + CRYPTO-WITHDRAWAL fees
 
 // First-deposit bonus: a referred user earns this once, HOLD hours after their
 // first deposit worth at least MIN_USD — but only if they still hold that value

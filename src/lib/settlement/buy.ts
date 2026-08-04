@@ -155,7 +155,8 @@ export async function finalizeBuy(
       // Cashback on the naira volume of the buy, and the referrer's share of the spread.
       const raw = settlement.raw as { fiatAmount?: number; fiat?: string; spreadFiat?: number } | null;
       if (raw?.fiatAmount) await accrueCashback(tx, userId, raw.fiatAmount, { fiat: raw.fiat ?? "NGN", source: "buy" });
-      if (raw?.spreadFiat) await accrueReferralEarning(tx, userId, raw.spreadFiat, { fiat: raw.fiat ?? "NGN", source: "buy" });
+      // No referral earning on a buy: its revenue is entirely spread, and
+      // referrals pay on explicit fees only (swaps, crypto withdrawals).
       return { updated: true, credited: true };
     }
 

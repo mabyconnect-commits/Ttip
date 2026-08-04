@@ -75,7 +75,7 @@ export async function POST(req: Request) {
     await requireWithdrawPin(userId, input.pin);
 
     if (input.mode === "wallet") {
-      return handleWalletSend(userId, user.kycTier, input);
+      return handleWalletSend(userId, user.kycTier, user.defaultFiat, input);
     }
     return handleBankSend(userId, user, input);
   });
@@ -187,7 +187,7 @@ async function handleTtip(
   });
 }
 
-async function handleWalletSend(userId: string, kycTier: number, input: z.infer<typeof schema>) {
+async function handleWalletSend(userId: string, kycTier: number, defaultFiat: string, input: z.infer<typeof schema>) {
   const symbol = input.symbol;
   const amount = input.amount;
   if (!symbol || !amount) throw new ApiError("Enter an amount", 400);
@@ -278,6 +278,24 @@ async function handleWalletSend(userId: string, kycTier: number, input: z.infer<
     });
   } catch (e: any) {
     throw new ApiError(e.message ?? "Withdrawal failed", 502);
+  }
+
+  // The referrer's share of the withdrawal fee.
+  //
+  // Only when the withdrawal actually completed — a queued one may still fail,
+  // and paying out on revenue we haven't earned is how a rewards pot ends up
+  // larger than the margin behind it. Valued in the user's own currency so the
+  // pot adds up in one honest number.
+  if (result.status === "completed") {
+    try {
+      const feeFiat = await convert(WITHDRAW_FEE_USDT, "USDT", defaultFiat);
+      await prisma.$transaction(async (tx) => {
+        await accrueReferralEarning(tx, userId, feeFiat, { fiat: defaultFiat, source: "crypto withdrawal" });
+      });
+    } catch (e) {
+      // A rewards accrual must never fail a withdrawal that already went out.
+      console.error("[send] referral accrual failed on crypto withdrawal", e);
+    }
   }
 
   const state = await getAppState(userId);
@@ -573,13 +591,17 @@ async function handleBankSend(
     }
   }
 
-  // The fiat has left the float — draw it down, reward cashback on the sale, and
-  // pay the referrer their share of the revenue (spread + transfer fee).
+  // The fiat has left the float — draw it down and reward cashback on the sale.
+  //
+  // No referral earning here. A bank cash-out's revenue is the spread plus a
+  // transfer fee that barely covers what the provider charges us; paying a
+  // quarter of that away made the referral programme cost more than the
+  // transaction earned. Referrals now pay on swap fees and crypto withdrawal
+  // fees only.
   if (payoutStatus === "completed") {
     await prisma.$transaction(async (tx) => {
       await debitFloat(tx, fiat, fiatAmount);
       await accrueCashback(tx, userId, grossFiat, { fiat, source: "cash out" });
-      await accrueReferralEarning(tx, userId, spreadFiat + fee, { fiat, source: "cash out" });
     });
   }
 

@@ -74,7 +74,7 @@ export default function ReferralsPage() {
           </div>
           <div className="font-grotesk font-bold text-[22px] tracking-[-0.5px]">Refer & earn {pct}%</div>
           <div className="font-sans text-[13px] text-white/55 mt-1.5 max-w-[280px] mx-auto">
-            Earn {pct}% of the fees on every trade your friends make — for life. They get {formatFiat(bonus, "NGN", { decimals: 0 })} once their first deposit of ${data?.depositBonusMinUsd ?? 10} or more stays {data?.depositBonusHoldHours ?? 72}h on Ttip.
+            Earn {pct}% of the swap and crypto-withdrawal fees your friends pay — for life. They get {formatFiat(bonus, "NGN", { decimals: 0 })} once their first deposit of ${data?.depositBonusMinUsd ?? 10} or more stays {data?.depositBonusHoldHours ?? 72}h on Ttip.
           </div>
         </div>
 
