@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { BackHeader } from "@/components/ui";
 import { Icon } from "@/components/Icon";
 import { Campaigns } from "@/components/admin/Campaigns";
+import { TelegramCard } from "@/components/admin/TelegramCard";
 
 /**
  * Admin: funding audit + clawback, as buttons.
@@ -248,6 +249,8 @@ export default function AdminFundingPage() {
                 </div>
               </>
             )}
+
+            <TelegramCard />
 
             <Campaigns />
 
