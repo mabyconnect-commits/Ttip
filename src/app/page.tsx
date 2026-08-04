@@ -12,7 +12,9 @@ export default async function Landing() {
   return (
     <div className="min-h-dvh bg-ink text-white overflow-x-hidden">
       {/* nav */}
-      <header className="sticky top-0 z-30 backdrop-blur-md bg-ink/70 border-b border-white/[.06]">
+      {/* The nav extends into the notch so its blur reaches the top of the
+          screen, rather than the logo sitting under the clock. */}
+      <header className="sticky top-0 z-30 backdrop-blur-md bg-ink/70 border-b border-white/[.06] pt-[env(safe-area-inset-top)]">
         <div className="max-w-[1080px] mx-auto px-5 h-[60px] flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <Image src="/ttip-logo.png" alt="Ttip" width={30} height={30} className="rounded-[9px]" />

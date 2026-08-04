@@ -128,6 +128,21 @@ input[type="number"] {
   flex-direction: column;
   position: relative;
   background: #07080d;
+
+  /*
+   * Keep the app out from under the notch.
+   *
+   * Installed to an iPhone home screen we run with viewport-fit=cover and a
+   * black-translucent status bar, which means the page is drawn UNDER the
+   * clock and the battery — deliberately, so the background reaches the top of
+   * the screen. Nothing was reserving that space back, so the header sat
+   * beneath the status bar and the user's own name was overprinted by the time.
+   *
+   * These insets are 0 in a browser tab and on Android, so this changes nothing
+   * anywhere except where the problem actually is.
+   */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 @media (min-width: 500px) {

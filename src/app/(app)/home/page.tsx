@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useApp } from "@/context/AppContext";
 import { TabBar } from "@/components/TabBar";
+import { GettingStarted } from "@/components/GettingStarted";
 import { AssetIcon } from "@/components/AssetIcon";
 import { Avatar, Sheet } from "@/components/ui";
 import { Icon, type IconName } from "@/components/Icon";
@@ -78,6 +79,9 @@ export default function HomePage() {
           </div>
           <div className="font-sans text-[12.5px] text-white/40 mt-2">≈ {formatUsd(portfolio.totalUsd)}</div>
         </div>
+
+        {/* First-run steps. Renders nothing once the account is set up. */}
+        <GettingStarted />
 
         {/* add money / send */}
         <div className="grid grid-cols-2 gap-2.5 px-5 mt-3">

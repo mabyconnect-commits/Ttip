@@ -370,9 +370,15 @@ export function Assistant() {
 
   return (
     <>
-      {/* launcher — pinned inside the 480px app column, clear of the tab bar */}
+      {/* Launcher — pinned inside the 480px app column, clear of the tab bar.
+          Offset by the home-indicator inset too, or on a notched phone the tab
+          bar sits higher than the launcher expects and it lands on the quick
+          actions. */}
       {!open && (
-        <div className="fixed bottom-[96px] left-1/2 -translate-x-1/2 w-full max-w-[480px] px-4 flex justify-end pointer-events-none z-40">
+        <div
+          className="fixed left-1/2 -translate-x-1/2 w-full max-w-[480px] px-4 flex justify-end pointer-events-none z-40"
+          style={{ bottom: "calc(96px + env(safe-area-inset-bottom))" }}
+        >
           <button
             onClick={() => setOpen(true)}
             aria-label={`Ask ${NAME}`}

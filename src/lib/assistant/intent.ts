@@ -131,6 +131,23 @@ export function parseTarget(text: string): string | null {
  * mistaken for an instruction to move money.
  */
 export function parseTransferIntent(text: string): TransferIntent | null {
+  const parts = transferParts(text);
+  if (!parts || parts.amount === null) return null;
+  return { amount: parts.amount, target: parts.target, account: parts.account };
+}
+
+/**
+ * A transfer request with its pieces separated, amount OPTIONAL.
+ *
+ * "Send to 9136214038 Moniepoint" is unmistakably someone trying to pay
+ * someone, and it needs to be recognised as such even though it never says how
+ * much — otherwise the follow-up that supplies the amount has nothing to attach
+ * itself to. parseTransferIntent stays strict: it still refuses to return an
+ * intent without an amount, because that's what decides whether money moves.
+ */
+export function transferParts(
+  text: string,
+): { amount: number | null; target: string | null; account?: string } | null {
   const q = normalize(text);
   if (!VERBS.some((v) => new RegExp(`(^|\\W)${v}(\\W|$)`).test(q))) return null;
 
@@ -141,10 +158,7 @@ export function parseTransferIntent(text: string): TransferIntent | null {
   // 10-digit NUBAN can never be mistaken for what to send.
   const account = parseAccountNumber(q);
   const forAmount = account ? q.replace(account, " ") : q;
-  const amount = parseAmount(forAmount);
-  if (amount === null) return null;
-
-  return { amount, target: parseTarget(q), account };
+  return { amount: parseAmount(forAmount), target: parseTarget(q), account };
 }
 
 
@@ -224,3 +238,119 @@ export function parseBillIntent(text: string): BillIntent | null {
   if (wantsData) return { category: "data", network, phone };
   return null;
 }
+
+/* ------------------------------------------------------------------------ */
+/* Transfers spread across turns                                            */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * A transfer the user built up over several messages.
+ *
+ * Real conversations don't arrive in one sentence. Someone pastes an account,
+ * Ada asks how much, and they reply "1000" — and parseTransferIntent sees a
+ * bare number with no verb and returns nothing. The result was Ada describing a
+ * transfer in prose while no confirm card was ever created: the model would say
+ * "tap confirm and enter your PIN" and there was nothing on screen to tap. One
+ * user, reasonably, typed their PIN into the chat instead.
+ *
+ * So the last message is allowed to complete an earlier one — but narrowly:
+ *
+ *  - the last message must be an ANSWER, not a new sentence. Once its amount
+ *    and account are removed, almost nothing may be left. "1000" completes a
+ *    transfer; "what's 1000 naira in dollars" does not.
+ *  - it must contribute the missing piece itself, so an unrelated message can
+ *    never re-fire a transfer the user already finished.
+ *  - the earlier message it completes must have been a transfer request, verb
+ *    and all.
+ *
+ * The user still sees the amount and the bank-confirmed name on the card, and
+ * still enters a PIN. This decides whether a card appears — not whether money
+ * moves.
+ */
+export interface FollowUpIntent extends TransferIntent {
+  /**
+   * The messages this was assembled from, joined. The caller parses the bank
+   * name out of this rather than the last message alone — "Moniepoint" is
+   * usually typed with the account, one turn before the amount.
+   */
+  sourceText: string;
+}
+
+export function parseFollowUpIntent(
+  history: { role: "user" | "assistant"; content: string }[],
+): FollowUpIntent | null {
+  const last = history[history.length - 1];
+  if (!last || last.role !== "user") return null;
+
+  // A complete request needs no help.
+  const direct = parseTransferIntent(last.content);
+  if (direct) return { ...direct, sourceText: last.content };
+
+  const amount = parseAmount(last.content);
+  const account = parseAccountNumber(last.content);
+  if (!amount && !account) return null;
+  if (!isBareAnswer(last.content, amount, account)) return null;
+
+  // Walk back over the recent user turns for the request this answers.
+  const earlier = history
+    .slice(0, -1)
+    .filter((m) => m.role === "user")
+    .slice(-3)
+    .reverse();
+
+  for (const msg of earlier) {
+    // Looser than parseTransferIntent on purpose: the earlier message is
+    // usually the one MISSING the amount, which is why we're here at all.
+    const prior = transferParts(msg.content);
+    if (!prior) continue;
+    // It has to name a destination, or there's nothing to complete.
+    if (!prior.account && !prior.target) continue;
+
+    const finalAmount = amount ?? prior.amount;
+    if (finalAmount === null) continue;
+
+    const merged: FollowUpIntent = {
+      // Whatever the last message supplied wins — it's the newer instruction.
+      amount: finalAmount,
+      target: prior.target,
+      account: account ?? prior.account,
+      sourceText: `${msg.content} ${last.content}`,
+    };
+
+    // Only accept when the last message actually completed something. If the
+    // earlier request was already whole, this is a new message about an old
+    // transfer, not an answer to a question.
+    const wasIncomplete = prior.amount === null || (!prior.account && !prior.target);
+    const contributed = (amount && amount !== prior.amount) || (account && account !== prior.account);
+    if (wasIncomplete || contributed) return merged;
+  }
+
+  return null;
+}
+
+/**
+ * Is this message just the answer to a question?
+ *
+ * "1000", "₦1,000", "9136214038 Moniepoint" — yes. Anything with a sentence
+ * around it is a new thought and must not silently complete an old transfer.
+ */
+function isBareAnswer(text: string, amount: number | null, account?: string): boolean {
+  let rest = normalize(text);
+  if (account) rest = rest.replace(/[\s-]/g, " ").replace(new RegExp(account.split("").join("[\\s-]*")), " ");
+  if (amount !== null) rest = rest.replace(/(?:[₦$£€]\s*)?\d[\d,]*(?:\.\d+)?\s*(k|m|thousand|million)?/g, " ");
+
+  // Filler that doesn't make it a sentence: a bank name, "naira", "please".
+  const words = rest
+    .replace(/[^a-z0-9 ]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((w) => !FILLER.has(w));
+
+  return words.length <= 3;
+}
+
+const FILLER = new Set([
+  "naira", "ngn", "please", "pls", "abeg", "ok", "okay", "yes", "yeah", "sure",
+  "send", "it", "to", "the", "my", "account", "bank", "and", "thanks", "thank",
+  "mfb", "microfinance", "plc", "limited", "ltd",
+]);

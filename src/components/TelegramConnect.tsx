@@ -27,6 +27,8 @@ export function TelegramConnect() {
   const { toast } = useApp();
   const [status, setStatus] = useState<Status | null>(null);
   const [busy, setBusy] = useState(false);
+  /** The minted deep link, once we have one. Rendered as a tappable link. */
+  const [link, setLink] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/telegram/link", { cache: "no-store" })
@@ -37,15 +39,33 @@ export function TelegramConnect() {
 
   if (!status?.available) return null;
 
+  /**
+   * Fetch the deep link, then hand the user a real link to tap.
+   *
+   * It used to call window.open() after awaiting the fetch, and on iPhone that
+   * silently does nothing: Safari only allows a new window from inside the
+   * gesture that started it, and an await has already ended that gesture. The
+   * button said "Opening…" and Telegram never opened — on Safari and on Chrome
+   * for iOS, which is Safari underneath.
+   *
+   * So the tap fetches, and then a genuine <a> appears for the user to tap.
+   * That's an ordinary navigation, which no browser blocks. A one-off
+   * location.href attempt goes first because when it works it saves a tap.
+   */
   async function connect() {
     setBusy(true);
     try {
       const res = await fetch("/api/telegram/link", { method: "POST" });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? "Couldn't create the link");
-      // Same tab would leave the PWA; a new one keeps the app where it was.
-      window.open(data.url, "_blank", "noopener");
-      toast("Opening Telegram — tap Start to finish", "good");
+
+      setLink(data.url);
+      try {
+        window.location.href = data.url;
+      } catch {
+        /* the visible link below is the fallback */
+      }
+
       // The webhook does the binding on Telegram's side, so re-read on return
       // rather than assuming it worked.
       setTimeout(() => {
@@ -117,12 +137,24 @@ export function TelegramConnect() {
             One tap connects this chat so Ada knows who you are. You&apos;ll never type your PIN,
             password or BVN into Telegram — she will never ask.
           </p>
+          {/* A real link, because iOS blocks a window opened after an await.
+              Tapping this is an ordinary navigation and always works. */}
+          {link && (
+            <a
+              href={link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full mt-3 h-10 rounded-xl bg-brand-cyan text-ink text-[13px] font-grotesk font-semibold flex items-center justify-center gap-2 active:scale-[.99]"
+            >
+              <Icon name="telegram" size={15} /> Open Telegram to finish
+            </a>
+          )}
           <button
             onClick={connect}
             disabled={busy}
             className="w-full mt-3 h-10 rounded-xl bg-brand-cyan/15 border border-brand-cyan/40 text-brand-cyan text-[13px] font-semibold active:scale-[.99] disabled:opacity-50"
           >
-            {busy ? "Opening…" : "Connect Telegram"}
+            {busy ? "Getting your link…" : link ? "Get a new link" : "Connect Telegram"}
           </button>
         </>
       )}

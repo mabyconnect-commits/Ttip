@@ -7,7 +7,7 @@ import { ttipKnowledge, assistantRules, ASSISTANT_NAME } from "@/lib/assistant/k
 import { buildUserContext } from "@/lib/assistant/context";
 import { cleanAssistantText } from "@/lib/assistant/sanitize";
 import { answerFaq } from "@/lib/assistant/faq";
-import { parseTransferIntent, parseBillIntent, parseBankName } from "@/lib/assistant/intent";
+import { parseFollowUpIntent, parseBillIntent, parseBankName, transferParts } from "@/lib/assistant/intent";
 import { NIGERIAN_BANKS } from "@/lib/banks";
 import { resolveAccountName } from "@/lib/settlement";
 import { buildBillDraft } from "@/lib/assistant/bill-draft";
@@ -129,7 +129,12 @@ export async function POST(req: Request) {
     // every check it always did. The destination can only be something they
     // already saved, so an account number typed into a chat window (which is
     // exactly how people get talked into paying a scammer) can never be used.
-    const intent = parseTransferIntent(question);
+    // Read the request from the CONVERSATION, not just the last line. People
+    // paste an account, get asked how much, and reply "1000" — and a bare
+    // number has no verb, so nothing was ever drafted. Ada would then describe
+    // the transfer in prose and tell them to tap a confirm button that had
+    // never been rendered.
+    const intent = parseFollowUpIntent(messages);
     if (intent) {
       const [me, saved, pastPayouts] = await Promise.all([
         prisma.user.findUnique({ where: { id: userId }, select: { defaultFiat: true, bankName: true } }),
@@ -173,7 +178,7 @@ export async function POST(req: Request) {
       // check the Send out screen does.
       if (intent.account) {
         const known = beneficiaries.find((b) => b.detail === intent.account);
-        const named = parseBankName(question, NIGERIAN_BANKS.map((b) => b.name));
+        const named = parseBankName(intent.sourceText, NIGERIAN_BANKS.map((b) => b.name));
         const bankName = named ?? known?.handle ?? null;
 
         if (!bankName) {
@@ -239,6 +244,19 @@ export async function POST(req: Request) {
           bankName: match.handle ?? me?.bankName ?? null,
         },
       );
+    }
+
+    // A transfer request that's only missing the amount — "send to 9077984753
+    // Opay". Answered here rather than left to the model, because the exact
+    // question asked is what the follow-up parser then completes, and because
+    // without an API key this used to escalate to "email the team" over a
+    // perfectly ordinary request.
+    const partial = transferParts(question);
+    if (partial && partial.amount === null && (partial.account || partial.target)) {
+      const where = partial.account
+        ? `${partial.account}${parseBankName(question, NIGERIAN_BANKS.map((b) => b.name)) ? ` at ${parseBankName(question, NIGERIAN_BANKS.map((b) => b.name))}` : ""}`
+        : partial.target!;
+      return streamText(`How much should I send to ${where}?`, false);
     }
 
     // No key? Answer from the built-in knowledge rather than telling the user
