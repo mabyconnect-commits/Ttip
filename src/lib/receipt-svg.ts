@@ -1,6 +1,6 @@
 import "server-only";
 import { COMPANY } from "./company";
-import { ensureReceiptFont, RECEIPT_FONT } from "./receipt-fonts";
+import { ensureReceiptFont, receiptLogo, RECEIPT_FONT } from "./receipt-fonts";
 
 /**
  * A receipt drawn on the SERVER, as a real image.
@@ -76,10 +76,10 @@ function statusColour(status: string): string {
 
 const FONT = `${RECEIPT_FONT}, DejaVu Sans, sans-serif`;
 
-export function receiptSvg(r: ServerReceipt): string {
+export function receiptSvg(r: ServerReceipt, logo?: string | null): string {
   const rows = r.rows.filter((x) => x.value).map((x) => ({ ...x, value: clamp(x.value) }));
   const heights = rows.map((row) => (row.value.length > LONG_VALUE ? TALL_ROW_H : ROW_H));
-  const cardTop = 168;
+  const cardTop = 182;
   const cardH = 40 + heights.reduce((a, b) => a + b, 0);
   const H = cardTop + cardH + 132;
 
@@ -112,13 +112,14 @@ export function receiptSvg(r: ServerReceipt): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
   <rect width="${W}" height="${H}" fill="${BG}"/>
 
-  <text x="${PAD}" y="58" font-family="${FONT}" font-size="22" font-weight="700" fill="${FG}">${esc(COMPANY.product)}</text>
+  ${logo ? `<image x="${PAD}" y="30" width="40" height="40" href="${logo}" preserveAspectRatio="xMidYMid meet"/>` : ""}
+  <text x="${logo ? PAD + 54 : PAD}" y="58" font-family="${FONT}" font-size="22" font-weight="700" fill="${FG}">${esc(COMPANY.product)}</text>
   <text x="${W - PAD}" y="58" font-family="${FONT}" font-size="17" fill="${statusColour(
     r.status,
   )}" text-anchor="end">${esc(r.status)}</text>
 
-  <text x="${PAD}" y="126" font-family="${FONT}" font-size="52" font-weight="700" fill="${FG}">${esc(r.amount)}</text>
-  <text x="${PAD}" y="156" font-family="${FONT}" font-size="17" fill="${MUTED}">${esc(r.kind)}</text>
+  <text x="${PAD}" y="140" font-family="${FONT}" font-size="52" font-weight="700" fill="${FG}">${esc(r.amount)}</text>
+  <text x="${PAD}" y="170" font-family="${FONT}" font-size="17" fill="${MUTED}">${esc(r.kind)}</text>
 
   <rect x="${PAD}" y="${cardTop}" width="${W - PAD * 2}" height="${cardH}" rx="22" fill="${CARD}"/>
   ${rowSvg}
@@ -143,8 +144,10 @@ export async function renderReceiptPng(r: ServerReceipt): Promise<Buffer | null>
     // No bundled font means no readable image — boxes are worse than no
     // receipt, because the user forwards them believing they say something.
     if (!ensureReceiptFont()) return null;
+    // A missing logo is cosmetic — the receipt still goes out without it.
+    const logo = await receiptLogo();
     const sharp = (await import("sharp")).default;
-    return await sharp(Buffer.from(receiptSvg(r))).png().toBuffer();
+    return await sharp(Buffer.from(receiptSvg(r, logo))).png().toBuffer();
   } catch (e) {
     console.error("[receipt] could not render", e);
     return null;

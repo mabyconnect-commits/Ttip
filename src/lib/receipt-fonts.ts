@@ -87,3 +87,35 @@ export function ensureReceiptFont(): string | null {
 }
 
 export const RECEIPT_FONT = FAMILY;
+
+/**
+ * The Ttip mark, as a base64 data URI to embed in the receipt.
+ *
+ * Embedded rather than referenced: librsvg will not fetch a remote image, and a
+ * receipt that reaches someone with a broken image icon where the logo should
+ * be is worse than one with no logo at all. Read once and kept.
+ *
+ * Downscaled hard — the source is 1254px square and the receipt shows it at 40.
+ */
+let logoCache: string | null = null;
+
+export async function receiptLogo(): Promise<string | null> {
+  if (logoCache !== null) return logoCache || null;
+  const candidates = [
+    join(process.cwd(), "public/icon-192.png"),
+    join(process.cwd(), "public/ttip-logo.png"),
+  ];
+  for (const file of candidates) {
+    try {
+      if (!existsSync(file)) continue;
+      const sharp = (await import("sharp")).default;
+      const png = await sharp(file).resize(96, 96, { fit: "contain" }).png().toBuffer();
+      logoCache = `data:image/png;base64,${png.toString("base64")}`;
+      return logoCache;
+    } catch (e) {
+      console.error("[receipt] logo unavailable", e);
+    }
+  }
+  logoCache = "";
+  return null;
+}

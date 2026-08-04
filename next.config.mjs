@@ -40,7 +40,7 @@ const nextConfig = {
   // .ttf files, so tracing wouldn't include them and every receipt would come
   // out as empty boxes — which is exactly what happened.
   outputFileTracingIncludes: {
-    "/api/telegram/webhook": ["./src/assets/fonts/**"],
+    "/api/telegram/webhook": ["./src/assets/fonts/**", "./public/icon-192.png"],
   },
   poweredByHeader: false,
   images: {
