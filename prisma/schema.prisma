@@ -171,6 +171,23 @@ model TelegramDraft {
   @@index([userId])
 }
 
+/// The recent back-and-forth in a Telegram chat.
+///
+/// The bot is a webhook: each message arrives as its own request with no memory
+/// of the last, so the model was being handed ONE line and nothing else. It
+/// answered every message as if the conversation had just begun — and when a
+/// user asked "have you forgotten just now?", it said it had lost the thread,
+/// because it genuinely had. This is that thread.
+model TelegramTurn {
+  id        String   @id @default(cuid())
+  chatId    String
+  role      String   /// "user" | "assistant"
+  text      String   @db.VarChar(2000)
+  createdAt DateTime @default(now())
+
+  @@index([chatId, createdAt])
+}
+
 model Transaction {
   id           String   @id @default(cuid())
   userId       String

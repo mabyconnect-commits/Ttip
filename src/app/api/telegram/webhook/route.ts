@@ -3,7 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { sendMessage, sendTyping, deleteMessage, downloadFile, sendPhoto, telegramEnabled, telegramWebhookSecret, telegramWelcome } from "@/lib/telegram";
 import { renderReceiptPng } from "@/lib/receipt-svg";
 import { transferFee } from "@/lib/pricing";
-import { parseTransferIntent, parseBankName, parseAmount, parseAccountNumber } from "@/lib/assistant/intent";
+import { parseTransferIntent, parseBankName, parseAmount, parseAccountNumber, transferParts } from "@/lib/assistant/intent";
 import { extractPaymentFromImage, imageMediaType, resolveImageType, isHeic } from "@/lib/assistant/vision";
 import { speechEnabled, transcribe } from "@/lib/assistant/speech";
 import { prisma } from "@/lib/db";
@@ -26,6 +26,8 @@ import { assistantRules, ttipKnowledge } from "@/lib/assistant/knowledge";
 import { cleanAssistantText } from "@/lib/assistant/sanitize";
 import { buildUserContext } from "@/lib/assistant/context";
 import { redeemLinkToken, userForChat, unlinkChat } from "@/lib/telegram-link";
+import { rememberTurn, recentTurns, forgetChat } from "@/lib/telegram-memory";
+import { conversationMessages } from "@/lib/assistant/conversation";
 import { bankAliases } from "@/lib/bank-aliases";
 import { rateLimit } from "@/lib/rate-limit";
 import { COMPANY } from "@/lib/company";
@@ -79,7 +81,26 @@ interface Update {
 /** A message that is nothing but 4–6 digits — i.e. a PIN. */
 const LOOKS_LIKE_PIN = /^\d{4,6}$/;
 
-async function reply(question: string, userId: string | null, ctx: FaqCtx): Promise<string> {
+/**
+ * Say something, and remember having said it.
+ *
+ * Everything Ada says in the money flow goes through here rather than straight
+ * to sendMessage, because the next webhook is a fresh request: if "Got it —
+ * 9136214038 at Moniepoint. How much should I send?" isn't written down, the
+ * answer "1,200" arrives with nothing in front of it and she asks who all over
+ * again. Recording is best-effort and never blocks the message.
+ */
+async function say(chatId: number | string, text: string): Promise<void> {
+  await sendMessage(chatId, text);
+  await rememberTurn(chatId, "assistant", text);
+}
+
+async function reply(
+  chatId: number | string,
+  question: string,
+  userId: string | null,
+  ctx: FaqCtx,
+): Promise<string> {
   const key = process.env.ANTHROPIC_API_KEY;
 
   if (key) {
@@ -127,7 +148,10 @@ async function reply(question: string, userId: string | null, ctx: FaqCtx): Prom
                 `chat under Account → Telegram — one tap, and they never type anything secret into Telegram.`,
           },
         ],
-        messages: [{ role: "user", content: question }],
+        // The conversation so far, not just this one sentence. A webhook is a
+        // fresh request every time; without this the model starts from nothing
+        // on every message and says so.
+        messages: conversationMessages(await recentTurns(chatId), question),
       });
 
       if (res.stop_reason !== "refusal") {
@@ -158,6 +182,9 @@ async function handleStart(chatId: number, arg: string, username?: string): Prom
 
   const res = await redeemLinkToken(arg, chatId, username);
   if (res.ok) {
+    // A new account on this chat starts a new conversation — whatever was said
+    // before belongs to whoever was connected then.
+    await forgetChat(chatId);
     return (
       `Connected ✅ — you're signed in as ${res.name}.\n\n` +
       `You can now ask me about your own account: your balance, your limits, your account number, ` +
@@ -198,7 +225,7 @@ async function handleMedia(chatId: number, m: NonNullable<Update["message"]>): P
   const voice = m.voice ?? m.audio;
   if (voice) {
     if (!speechEnabled()) {
-      await sendMessage(
+      await say(
         chatId,
         "I can't listen to voice notes yet — type it instead and I'll do it right away.",
       );
@@ -208,12 +235,12 @@ async function handleMedia(chatId: number, m: NonNullable<Update["message"]>): P
     const file = await downloadFile(voice.file_id);
     const said = file ? await transcribe(file.buffer, voice.mime_type ?? file.mime ?? "audio/ogg") : null;
     if (!said) {
-      await sendMessage(chatId, "I couldn't make that out — say it again, or type it.");
+      await say(chatId, "I couldn't make that out — say it again, or type it.");
       return "";
     }
     // Echo it back. A misheard amount has to be visible BEFORE the PIN, not
     // discovered afterwards.
-    await sendMessage(chatId, `I heard: *${said}*`);
+    await say(chatId, `I heard: *${said}*`);
     return said;
   }
 
@@ -228,7 +255,7 @@ async function handleMedia(chatId: number, m: NonNullable<Update["message"]>): P
   if (!photoId) return null;
 
   if (!linked) {
-    await sendMessage(
+    await say(
       chatId,
       `I can read account details off a photo, but I need to know whose account is paying first. Open ${COMPANY.domain} → Account → Telegram and tap Connect.`,
     );
@@ -238,7 +265,7 @@ async function handleMedia(chatId: number, m: NonNullable<Update["message"]>): P
   await sendTyping(chatId);
   const file = await downloadFile(photoId);
   if (!file) {
-    await sendMessage(chatId, "I couldn't download that image. Send it again, or type the account number and bank.");
+    await say(chatId, "I couldn't download that image. Send it again, or type the account number and bank.");
     return "";
   }
 
@@ -247,7 +274,7 @@ async function handleMedia(chatId: number, m: NonNullable<Update["message"]>): P
   // good JPEGs with "I couldn't open that image".
   const mediaType = resolveImageType(file.buffer, m.document?.mime_type ?? file.mime);
   if (!mediaType) {
-    await sendMessage(
+    await say(
       chatId,
       isHeic(file.buffer)
         ? "That's an iPhone HEIC photo, which I can't read. In Settings → Camera → Formats pick \"Most Compatible\", or send it as a screenshot instead."
@@ -274,7 +301,7 @@ async function handleMedia(chatId: number, m: NonNullable<Update["message"]>): P
       if (bank) {
         await createDraft({ userId: linked.id, chatId, amount: amt, fiat: "NGN", accountNumber: fromQr, bankName: bank });
         const d = await liveDraft(chatId);
-        if (d) await sendMessage(chatId, amt ? draftPrompt(d) : `Got it — **${fromQr}** at **${bank}**.\n\nHow much should I send?`);
+        if (d) await say(chatId, amt ? draftPrompt(d) : `Got it — **${fromQr}** at **${bank}**.\n\nHow much should I send?`);
         return "";
       }
     }
@@ -282,7 +309,7 @@ async function handleMedia(chatId: number, m: NonNullable<Update["message"]>): P
 
   const found = await extractPaymentFromImage(file.buffer.toString("base64"), mediaType);
   if (!found.accountNumber) {
-    await sendMessage(
+    await say(
       chatId,
       "I couldn't read an account number from that clearly enough to trust it — and I'd rather ask than guess with your money. Type the number and bank, or send a sharper photo.",
     );
@@ -295,7 +322,7 @@ async function handleMedia(chatId: number, m: NonNullable<Update["message"]>): P
   const bank = parseBankName(caption, NIGERIAN_BANKS.map((b) => b.name)) ?? found.bankName;
 
   if (!bank) {
-    await sendMessage(
+    await say(
       chatId,
       `I read the account number **${found.accountNumber}** but not the bank. Which bank is it?`,
     );
@@ -306,7 +333,7 @@ async function handleMedia(chatId: number, m: NonNullable<Update["message"]>): P
     // number they've just photographed is exactly the retyping the camera was
     // supposed to remove — and it's what made Ada look like she'd forgotten.
     await createDraft({ userId: linked.id, chatId, fiat: "NGN", accountNumber: found.accountNumber, bankName: bank });
-    await sendMessage(
+    await say(
       chatId,
       `Got it — **${found.accountNumber}** at **${bank}**${found.printedName ? ` (${found.printedName})` : ""}.\n\nHow much should I send?`,
     );
@@ -315,7 +342,7 @@ async function handleMedia(chatId: number, m: NonNullable<Update["message"]>): P
 
   await createDraft({ userId: linked.id, chatId, amount, fiat: "NGN", accountNumber: found.accountNumber, bankName: bank });
   const draft = await liveDraft(chatId);
-  if (draft) await sendMessage(chatId, draftPrompt(draft));
+  if (draft) await say(chatId, draftPrompt(draft));
   return "";
 }
 
@@ -377,7 +404,7 @@ async function handleCryptoAddress(
   const held = balances.filter((b) => Number(b.amount) > 0).map((b) => b.symbol);
 
   if (!held.length) {
-    await sendMessage(
+    await say(
       chatId,
       `That's a **${network}** address, but you don't hold anything on ${network} to send. ` +
         `Swap into ${FAMILY_ASSETS[family][0]} in the app first.`,
@@ -389,7 +416,7 @@ async function handleCryptoAddress(
   const named = held.find((sym) => new RegExp(`(^|\\W)${sym}(\\W|$)`, "i").test(text));
   const asset = named ?? (held.length === 1 ? held[0] : null);
   if (!asset) {
-    await sendMessage(
+    await say(
       chatId,
       `That's a **${network}** address — \`${shortAddress(address)}\`.\n\n` +
         `Which do you want to send: ${held.join(", ")}?`,
@@ -402,14 +429,14 @@ async function handleCryptoAddress(
   await createCryptoDraft({ userId, chatId, amount, asset, network, address });
 
   if (!amount) {
-    await sendMessage(
+    await say(
       chatId,
       `**${asset}** on **${network}**, to:\n\`${address}\`\n\nHow much ${asset} should I send?`,
     );
     return true;
   }
   const draft = await liveDraft(chatId);
-  if (draft) await sendMessage(chatId, draftPrompt(draft));
+  if (draft) await say(chatId, draftPrompt(draft));
   return true;
 }
 
@@ -431,9 +458,31 @@ async function handleTransferIntent(chatId: number, userId: string, text: string
     const said = asking ? null : parseAmount(text);
     if (said) {
       const filled = await setDraftAmount(chatId, said);
-      await sendMessage(chatId, draftPrompt(filled));
+      await say(chatId, draftPrompt(filled));
       return true;
     }
+  }
+
+  // "Send money to this account number 9136214038, Moniepoint" — a request that
+  // names WHO but not HOW MUCH. parseTransferIntent refuses it for lack of an
+  // amount, so nothing was remembered and the follow-up had nothing to attach
+  // to: Ada asked how much, was told, and then asked who all over again.
+  const parts = transferParts(text);
+  if (parts && parts.amount === null && parts.account) {
+    const bank = parseBankName(text, NIGERIAN_BANKS.map((b) => b.name));
+    if (!bank) {
+      await say(chatId, `Which bank is **${parts.account}**?`);
+      return true;
+    }
+    await createDraft({ userId, chatId, fiat: "NGN", accountNumber: parts.account, bankName: bank });
+    const d = await liveDraft(chatId);
+    await say(
+      chatId,
+      `Got it — **${parts.account}** at **${bank}**${
+        d?.resolvedName ? ` (${d.resolvedName})` : ""
+      }.\n\nHow much should I send?`,
+    );
+    return true;
   }
 
   const intent = parseTransferIntent(text);
@@ -456,7 +505,7 @@ async function handleTransferIntent(chatId: number, userId: string, text: string
         bankName: named.handle!,
       });
       const draft = await liveDraft(chatId);
-      if (draft) await sendMessage(chatId, draftPrompt(draft));
+      if (draft) await say(chatId, draftPrompt(draft));
       return true;
     }
 
@@ -468,7 +517,7 @@ async function handleTransferIntent(chatId: number, userId: string, text: string
     const listed = saved.length
       ? ` You have ${saved.map((b) => b.name).join(", ")} saved — say which one.`
       : "";
-    await sendMessage(
+    await say(
       chatId,
       `I can send that — which account?${listed} Or paste it like *"send ₦${intent.amount.toLocaleString(
         "en-US",
@@ -479,7 +528,7 @@ async function handleTransferIntent(chatId: number, userId: string, text: string
 
   const bankName = parseBankName(text, NIGERIAN_BANKS.map((b) => b.name));
   if (!bankName) {
-    await sendMessage(
+    await say(
       chatId,
       `Which bank is ${intent.account}? Say it like *"send ₦${intent.amount.toLocaleString(
         "en-US",
@@ -491,7 +540,7 @@ async function handleTransferIntent(chatId: number, userId: string, text: string
   await createDraft({ userId, chatId, amount: intent.amount, fiat, accountNumber: intent.account, bankName });
 
   const draft = await liveDraft(chatId);
-  if (draft) await sendMessage(chatId, draftPrompt(draft));
+  if (draft) await say(chatId, draftPrompt(draft));
   return true;
 }
 
@@ -515,7 +564,7 @@ async function handlePin(
 
   if (res.ok) {
     await clearDraft(chatId);
-    await sendMessage(chatId, res.message + notWiped);
+    await say(chatId, res.message + notWiped);
     await sendReceipt(chatId, draft);
     return;
   }
@@ -524,13 +573,13 @@ async function handlePin(
     const attempts = await bumpAttempts(chatId).catch(() => MAX_PIN_ATTEMPTS);
     if (attempts >= MAX_PIN_ATTEMPTS) {
       await clearDraft(chatId);
-      await sendMessage(
+      await say(
         chatId,
         `That PIN was wrong too many times, so I've cancelled the transfer. Nothing was sent. Start again when you're ready.` + notWiped,
       );
       return;
     }
-    await sendMessage(
+    await say(
       chatId,
       `That PIN isn't right — ${MAX_PIN_ATTEMPTS - attempts} ${
         MAX_PIN_ATTEMPTS - attempts === 1 ? "try" : "tries"
@@ -543,7 +592,7 @@ async function handlePin(
   // response — is reported as-is and the draft is dropped so a retyped PIN
   // can't fire it again.
   await clearDraft(chatId);
-  await sendMessage(chatId, res.message + notWiped);
+  await say(chatId, res.message + notWiped);
 }
 
 /**
@@ -673,6 +722,9 @@ export async function POST(req: Request) {
 
     if (command === "/unlink") {
       const done = await unlinkChat(chatId);
+      // The chat is no longer that account's, so what was said about it stops
+      // being ours to remember.
+      await forgetChat(chatId);
       await sendMessage(
         chatId,
         done
@@ -709,6 +761,11 @@ export async function POST(req: Request) {
 
     await sendTyping(chatId);
 
+    // Written down before anything answers it, so the reply — whether it comes
+    // from the parser or the model — has the question in front of it next time.
+    // After the command handlers, so a /start token never lands in the history.
+    await rememberTurn(chatId, "user", text);
+
     // "Send 5k to 9077984753 Opay" — set the transfer up and ask for the PIN.
     // Handled before the model, so the amount and the account come from a
     // parser, never from something the model reconstructed.
@@ -728,7 +785,7 @@ export async function POST(req: Request) {
         }
       : {};
 
-    await sendMessage(chatId, await reply(text.replace(/^\/\w+\s*/, ""), linked?.id ?? null, ctx));
+    await say(chatId, await reply(chatId, text.replace(/^\/\w+\s*/, ""), linked?.id ?? null, ctx));
   } catch (e) {
     console.error("[telegram] reply failed", e);
     await sendMessage(chatId, "Something went wrong on my side — try again in a moment.");
