@@ -1,6 +1,17 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { sendMessage, sendTyping, telegramEnabled, telegramWebhookSecret, telegramWelcome } from "@/lib/telegram";
+import { sendMessage, sendTyping, deleteMessage, telegramEnabled, telegramWebhookSecret, telegramWelcome } from "@/lib/telegram";
+import { parseTransferIntent, parseBankName } from "@/lib/assistant/intent";
+import { NIGERIAN_BANKS } from "@/lib/banks";
+import {
+  createDraft,
+  liveDraft,
+  clearDraft,
+  draftPrompt,
+  sendDraft,
+  bumpAttempts,
+  MAX_PIN_ATTEMPTS,
+} from "@/lib/telegram-transfer";
 import { answerFaq } from "@/lib/assistant/faq";
 import { assistantRules, ttipKnowledge } from "@/lib/assistant/knowledge";
 import { cleanAssistantText } from "@/lib/assistant/sanitize";
@@ -40,11 +51,15 @@ const MAX_TOKENS = 1200;
 
 interface Update {
   message?: {
+    message_id?: number;
     chat?: { id?: number };
     from?: { id?: number; username?: string };
     text?: string;
   };
 }
+
+/** A message that is nothing but 4–6 digits — i.e. a PIN. */
+const LOOKS_LIKE_PIN = /^\d{4,6}$/;
 
 async function reply(question: string, userId: string | null, ctx: FaqCtx): Promise<string> {
   const key = process.env.ANTHROPIC_API_KEY;
@@ -69,10 +84,21 @@ async function reply(question: string, userId: string | null, ctx: FaqCtx): Prom
             type: "text",
             text: account
               ? `# This conversation is on Telegram, and the account is linked\n` +
-                `You can see this user's account below and should answer about it directly.\n` +
-                `You cannot perform actions here: no transfers, no swaps, no bill payments, no PIN entry. ` +
-                `Telegram is read-only by design. When they want to DO something, tell them to open ` +
-                `${COMPANY.domain}. Never ask for a PIN, password, BVN or OTP — you never need them.\n\n` +
+                `You can see this user's account below and should answer about it directly.\n\n` +
+                `## Sending money\n` +
+                `Bank transfers DO work here. The user says "send ₦5,000 to 9077984753 Opay"; a parser — ` +
+                `not you — reads the amount and account, confirms the name with the bank, and asks for ` +
+                `their PIN. Their PIN message is deleted from the chat automatically.\n` +
+                `If they want to send but left something out, ask for the missing piece: the amount, the ` +
+                `account number, or the bank. Do not tell them transfers are unavailable here, and never ` +
+                `quote an account number or amount you were not given.\n` +
+                `Swaps, bill payments and crypto withdrawals are still app-only — point those to ` +
+                `${COMPANY.domain}.\n` +
+                `Never ask for a password, BVN or OTP; you never need them. Only ever ask for a PIN as the ` +
+                `final step of a transfer the parser has already set up.\n\n` +
+                `## Formatting\n` +
+                `This is a chat. Keep it short — a couple of lines. **bold** and *italic* render; headings ` +
+                `and tables do not. Never dump the whole account summary unless they asked for it.\n\n` +
                 account
               : `# This conversation is on Telegram, and the account is NOT linked\n` +
                 `You cannot see who this is. Never state a balance, a transaction status or a personal limit. ` +
@@ -131,6 +157,99 @@ async function handleStart(chatId: number, arg: string, username?: string): Prom
   }
 }
 
+/**
+ * "Send 5k to 9077984753 Opay".
+ *
+ * Returns true when it took the message. The amount, the account number and
+ * the bank all come from the parser rather than the model — a number the model
+ * reconstructed is a number that can be reconstructed wrong, and this one moves
+ * money. The bank is then asked who owns the account, and the name goes in the
+ * confirmation, so the user sees who they are actually paying before the PIN.
+ */
+async function handleTransferIntent(chatId: number, userId: string, text: string): Promise<boolean> {
+  const intent = parseTransferIntent(text);
+  if (!intent || !intent.amount) return false;
+
+  const fiat = "NGN";
+
+  if (!intent.account) {
+    await sendMessage(
+      chatId,
+      `I can send that — which account? Paste it like *"send ₦${intent.amount.toLocaleString(
+        "en-US",
+      )} to 9077984753 Opay"* and I'll check the name before anything moves.`,
+    );
+    return true;
+  }
+
+  const bankName = parseBankName(text, NIGERIAN_BANKS.map((b) => b.name));
+  if (!bankName) {
+    await sendMessage(
+      chatId,
+      `Which bank is ${intent.account}? Say it like *"send ₦${intent.amount.toLocaleString(
+        "en-US",
+      )} to ${intent.account} Opay"* and I'll confirm the name first.`,
+    );
+    return true;
+  }
+
+  await createDraft({ userId, chatId, amount: intent.amount, fiat, accountNumber: intent.account, bankName });
+
+  const draft = await liveDraft(chatId);
+  if (draft) await sendMessage(chatId, draftPrompt(draft));
+  return true;
+}
+
+/**
+ * A PIN arrived for a pending transfer. The message is already deleted by the
+ * time we get here — that happens first, unconditionally.
+ */
+async function handlePin(
+  chatId: number,
+  pin: string,
+  draft: NonNullable<Awaited<ReturnType<typeof liveDraft>>>,
+  wiped: boolean,
+): Promise<void> {
+  // If Telegram wouldn't let us delete it, say so plainly rather than let the
+  // user believe a PIN they can still scroll to has been removed.
+  const notWiped = wiped
+    ? ""
+    : `\n\n⚠️ I couldn't delete your PIN message — please delete it yourself.`;
+
+  const res = await sendDraft(draft, pin);
+
+  if (res.ok) {
+    await clearDraft(chatId);
+    await sendMessage(chatId, res.message + notWiped);
+    return;
+  }
+
+  if (res.wrongPin) {
+    const attempts = await bumpAttempts(chatId).catch(() => MAX_PIN_ATTEMPTS);
+    if (attempts >= MAX_PIN_ATTEMPTS) {
+      await clearDraft(chatId);
+      await sendMessage(
+        chatId,
+        `That PIN was wrong too many times, so I've cancelled the transfer. Nothing was sent. Start again when you're ready.` + notWiped,
+      );
+      return;
+    }
+    await sendMessage(
+      chatId,
+      `That PIN isn't right — ${MAX_PIN_ATTEMPTS - attempts} ${
+        MAX_PIN_ATTEMPTS - attempts === 1 ? "try" : "tries"
+      } left. Send it again, or /cancel.` + notWiped,
+    );
+    return;
+  }
+
+  // Anything else — limits, insufficient balance, an ambiguous provider
+  // response — is reported as-is and the draft is dropped so a retyped PIN
+  // can't fire it again.
+  await clearDraft(chatId);
+  await sendMessage(chatId, res.message + notWiped);
+}
+
 export async function POST(req: Request) {
   if (!telegramEnabled()) return NextResponse.json({ ok: true });
 
@@ -149,8 +268,22 @@ export async function POST(req: Request) {
   }
 
   const chatId = update.message?.chat?.id;
+  const messageId = update.message?.message_id;
   const text = (update.message?.text ?? "").trim();
   if (!chatId || !text) return NextResponse.json({ ok: true });
+
+  // A PIN gets deleted from the chat BEFORE anything else happens — before the
+  // rate limiter, before the transfer, before any await that could fail. The
+  // user should never have to remember to remove it, and it must be gone even
+  // if everything after this line goes wrong.
+  if (LOOKS_LIKE_PIN.test(text) && messageId) {
+    const draft = await liveDraft(chatId);
+    if (draft) {
+      const wiped = messageId ? await deleteMessage(chatId, messageId) : false;
+      await handlePin(chatId, text, draft, wiped);
+      return NextResponse.json({ ok: true });
+    }
+  }
 
   try {
     // Per-chat throttle: the model costs money and a bot is trivially spammable.
@@ -182,6 +315,12 @@ export async function POST(req: Request) {
 
     const linked = await userForChat(chatId);
 
+    if (command === "/cancel") {
+      await clearDraft(chatId);
+      await sendMessage(chatId, "Cancelled — nothing was sent.");
+      return NextResponse.json({ ok: true });
+    }
+
     if (command === "/help") {
       await sendMessage(chatId, telegramWelcome(linked?.name));
       return NextResponse.json({ ok: true });
@@ -200,6 +339,14 @@ export async function POST(req: Request) {
     }
 
     await sendTyping(chatId);
+
+    // "Send 5k to 9077984753 Opay" — set the transfer up and ask for the PIN.
+    // Handled before the model, so the amount and the account come from a
+    // parser, never from something the model reconstructed.
+    if (linked) {
+      const handled = await handleTransferIntent(chatId, linked.id, text);
+      if (handled) return NextResponse.json({ ok: true });
+    }
 
     const ctx: FaqCtx = linked
       ? {

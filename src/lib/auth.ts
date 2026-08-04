@@ -23,12 +23,28 @@ export async function verifyPassword(pw: string, hash: string): Promise<boolean>
   return bcrypt.compare(pw, hash);
 }
 
-export async function createSession(userId: string): Promise<void> {
-  const token = await new SignJWT({ sub: userId })
+/** The session cookie's name. Exported so a server-side caller can build one. */
+export const SESSION_COOKIE = COOKIE;
+
+/**
+ * Mint a session token for a user.
+ *
+ * Split out of createSession so a trusted server-side caller can obtain one
+ * without a browser — the Telegram bot uses it to call our own /api/send as the
+ * linked user, which keeps every check in that endpoint (PIN, KYC, limits,
+ * idempotency) instead of growing a second copy of the payout path. `ttl` is
+ * short for that use: the token exists for one internal request.
+ */
+export async function signSessionToken(userId: string, ttl = "30d"): Promise<string> {
+  return new SignJWT({ sub: userId })
     .setProtectedHeader({ alg })
     .setIssuedAt()
-    .setExpirationTime("30d")
+    .setExpirationTime(ttl)
     .sign(secret());
+}
+
+export async function createSession(userId: string): Promise<void> {
+  const token = await signSessionToken(userId);
 
   cookies().set(COOKIE, token, {
     httpOnly: true,

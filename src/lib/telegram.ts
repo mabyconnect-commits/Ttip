@@ -1,5 +1,6 @@
 import "server-only";
 import { COMPANY } from "./company";
+import { toTelegramHtml, toPlainText } from "./telegram-format";
 
 /**
  * Telegram Bot API client — just the two calls the bot needs.
@@ -24,9 +25,9 @@ export function telegramWebhookSecret(): string | null {
   return process.env.TELEGRAM_WEBHOOK_SECRET || null;
 }
 
-async function call(method: string, body: unknown): Promise<void> {
+async function call(method: string, body: unknown): Promise<boolean> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) return;
+  if (!token) return false;
   try {
     const res = await fetch(`${API}/bot${token}/${method}`, {
       method: "POST",
@@ -35,9 +36,12 @@ async function call(method: string, body: unknown): Promise<void> {
     });
     if (!res.ok) {
       console.error(`[telegram] ${method} failed`, res.status, (await res.text()).slice(0, 300));
+      return false;
     }
+    return true;
   } catch (e) {
     console.error(`[telegram] ${method} threw`, e);
+    return false;
   }
 }
 
@@ -68,14 +72,51 @@ export async function botUsername(): Promise<string | null> {
   return null;
 }
 
-/** Send a reply. Plain text — no parse_mode, so nothing a user types can break it. */
+/**
+ * Send a reply, formatted.
+ *
+ * Ada writes Markdown. Telegram renders none of it without a parse_mode, so
+ * `**Tier 2**` used to arrive with the asterisks showing and the whole chat
+ * looked cheap. toTelegramHtml escapes the text before adding any tags, so the
+ * markup can only ever be well-formed (see lib/telegram-format.ts).
+ *
+ * If Telegram still refuses it, the message is re-sent as plain text. A styling
+ * bug must never turn into silence — silence is the one failure a support bot
+ * cannot have.
+ */
 export async function sendMessage(chatId: number | string, text: string): Promise<void> {
-  // Telegram rejects messages over 4096 characters.
-  await call("sendMessage", {
+  // Telegram rejects messages over 4096 characters. Cut the SOURCE, not the
+  // HTML, so the limit can't slice a tag in half.
+  const source = (text ?? "").slice(0, 3800);
+
+  const sent = await call("sendMessage", {
     chat_id: chatId,
-    text: text.slice(0, 4000),
+    text: toTelegramHtml(source),
+    parse_mode: "HTML",
     disable_web_page_preview: true,
   });
+  if (sent) return;
+
+  await call("sendMessage", {
+    chat_id: chatId,
+    text: toPlainText(source),
+    disable_web_page_preview: true,
+  });
+}
+
+/**
+ * Delete a message from the chat.
+ *
+ * This is what makes typing a PIN into Telegram tolerable: the moment we've
+ * read it, the message is removed from the conversation so it isn't sitting in
+ * the user's history — or on the lock screen of whoever picks the phone up next.
+ * Bots may delete incoming messages in private chats, which is exactly our case.
+ *
+ * Returns false if Telegram refused, so the caller can tell the user to delete
+ * it by hand rather than leave them believing it's gone.
+ */
+export async function deleteMessage(chatId: number | string, messageId: number): Promise<boolean> {
+  return call("deleteMessage", { chat_id: chatId, message_id: messageId });
 }
 
 /** The "typing…" indicator, so a slow model answer doesn't look like nothing happened. */
@@ -90,17 +131,32 @@ export async function sendTyping(chatId: number | string): Promise<void> {
  * fixes it. Linked, greeting them by name is what makes the bot feel like their
  * account rather than a leaflet.
  */
+/**
+ * The name to greet someone by.
+ *
+ * Skips a one- or two-letter first word, because that's a title: "Mr
+ * Jenerouszy" was being greeted as "Hi Mr", which reads worse than no name.
+ * Falls back to the second word, then to nothing.
+ */
+function firstName(full: string): string {
+  const parts = full.trim().split(/\s+/).filter(Boolean);
+  const pick = parts.find((p) => p.replace(/\W/g, "").length >= 3);
+  return pick ?? parts[0] ?? "";
+}
+
 export function telegramWelcome(name?: string | null): string {
   const safety = `Never share your PIN, password, BVN or OTP with anyone, including me — I will never ask for them here.`;
 
   if (name) {
     return (
-      `Hi ${name.split(" ")[0]} — Ada here, and I can see your ${COMPANY.product} account.\n\n` +
-      `Ask me things like "what's my balance", "why is my transfer pending", "what's my limit", ` +
-      `"what's my account number" or anything about fees, KYC, bills, referrals and cashback.\n\n` +
-      `Moving money still happens in the app at ${COMPANY.domain} — that's deliberate, so nobody who ` +
-      `picks up your phone can spend from a chat window.\n\n` +
-      `/unlink disconnects this chat from your account at any time.\n\n${safety}`
+      `Hi ${firstName(name)} — Ada here, and I can see your ${COMPANY.product} account.\n\n` +
+      `**Send money**\n` +
+      `Just say *"send ₦5,000 to 9077984753 Opay"*. I'll confirm the account name, then you reply with ` +
+      `your PIN — and I delete your PIN from this chat the second I read it.\n\n` +
+      `**Ask me anything**\n` +
+      `"What's my balance", "why is my transfer pending", "what's my limit", "what's my account number", ` +
+      `or anything about fees, KYC, bills, referrals and cashback.\n\n` +
+      `/cancel drops a pending transfer · /unlink disconnects this chat\n\n${safety}`
     );
   }
 

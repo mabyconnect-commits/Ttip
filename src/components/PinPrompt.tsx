@@ -22,6 +22,7 @@ export function PinPrompt({
   subtitle,
   error,
   busy = false,
+  above = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -33,6 +34,8 @@ export function PinPrompt({
   error?: boolean;
   /** True while the transfer is in flight. */
   busy?: boolean;
+  /** Raise above a full-screen overlay (Ada's chat panel). */
+  above?: boolean;
 }) {
   const { state } = useApp();
   const router = useRouter();
@@ -55,7 +58,7 @@ export function PinPrompt({
 
   if (!state.user.hasPin) {
     return (
-      <Sheet open={open} onClose={onClose} title="Set a transaction PIN">
+      <Sheet open={open} onClose={onClose} above={above} title="Set a transaction PIN">
         <p className="text-white/55 text-[13.5px] leading-[1.55]">
           Withdrawals need a PIN. It takes a minute to set, and it&apos;s what stops anyone who picks
           up your unlocked phone from emptying your account.
@@ -71,7 +74,7 @@ export function PinPrompt({
   }
 
   return (
-    <Sheet open={open} onClose={busy ? () => {} : onClose} title={title}>
+    <Sheet open={open} onClose={busy ? () => {} : onClose} above={above} title={title}>
       {subtitle && <p className="text-white/55 text-[13px] mb-4 -mt-1">{subtitle}</p>}
 
       {busy ? (

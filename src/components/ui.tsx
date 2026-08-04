@@ -117,7 +117,27 @@ export function Segmented<T extends string>({
   );
 }
 
-export function Sheet({ open, onClose, children, title }: { open: boolean; onClose: () => void; children: React.ReactNode; title?: string }) {
+export function Sheet({
+  open,
+  onClose,
+  children,
+  title,
+  above,
+}: {
+  open: boolean;
+  onClose: () => void;
+  children: React.ReactNode;
+  title?: string;
+  /**
+   * Raise this sheet above a full-screen overlay.
+   *
+   * Ada's chat panel sits at z-70, so the PIN sheet — at the default z-50 —
+   * opened BEHIND it: the pad was there, invisible and untappable, and the
+   * transfer looked like it had simply ignored the tap. Any sheet opened from
+   * inside an overlay needs this.
+   */
+  above?: boolean;
+}) {
   useEffect(() => {
     if (open) {
       const h = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -127,7 +147,10 @@ export function Sheet({ open, onClose, children, title }: { open: boolean; onClo
   }, [open, onClose]);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={onClose}>
+    <div
+      className={`fixed inset-0 flex items-end justify-center ${above ? "z-[90]" : "z-50"}`}
+      onClick={onClose}
+    >
       <div className="absolute inset-0 bg-black/80 backdrop-blur-md" />
       <div
         className="relative w-full max-w-[480px] bg-[#0B0D14] border-t border-white/10 rounded-t-[26px] p-5 pb-10 animate-sheet max-h-[85dvh] overflow-y-auto no-scrollbar"

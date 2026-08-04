@@ -55,6 +55,7 @@ model User {
   telegramUsername String?
   telegramLinkedAt DateTime?
   telegramTokens   TelegramLinkToken[]
+  telegramDrafts   TelegramDraft[]
   createdAt      DateTime @default(now())
 
   balances     Balance[]
@@ -127,6 +128,33 @@ model TelegramLinkToken {
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// A transfer waiting for a PIN in a Telegram chat.
+///
+/// One live draft per chat, so a PIN typed into the chat can only ever apply to
+/// the transfer the user was just shown — never to an older one still sitting
+/// around. Short-lived and single-use for the same reason.
+model TelegramDraft {
+  id            String   @id @default(cuid())
+  userId        String
+  chatId        String   @unique
+  amount        Decimal  @db.Decimal(18, 2)
+  fiat          String
+  accountNumber String
+  bankName      String
+  accountName   String
+  /// Null when the bank could not confirm the name — the prompt says so.
+  resolvedName  String?
+  /// Wrong-PIN attempts. The draft dies after a few, so a chat can't be used
+  /// to grind PINs.
+  attempts      Int      @default(0)
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

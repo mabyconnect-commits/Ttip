@@ -265,6 +265,9 @@ export function Assistant() {
         onPin={confirmDraft}
         error={pinError}
         busy={sending}
+        // The chat panel below is z-70; without this the pad opens behind it
+        // and the confirm card looks like it ignored the tap.
+        above
         title={draft?.kind === "bill" ? "Confirm this purchase" : "Confirm this transfer"}
         subtitle={
           draft
