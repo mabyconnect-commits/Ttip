@@ -367,16 +367,34 @@ async function handleBankSend(
     if (unit > 0) sources.push({ symbol: b.symbol, amount: held, fiatPerUnit: unit });
   }
 
-  const plan = planFunding(targetFiat, sources, symbol);
+  // The amount typed is what the RECIPIENT gets. The fee is charged ON TOP,
+  // out of the remaining balance — send ₦5,000 and ₦5,000 arrives.
+  //
+  // It used to come out of the transfer itself, so ₦5,000 arrived as ₦4,970 and
+  // the person receiving it had no way to tell that from being short-changed on
+  // purpose. Every bank in the country charges the sender, not the recipient.
+  //
+  // The fee is priced on the amount actually being transferred, which is what
+  // the provider charges us on — not on the total including our own fee.
+  const fee = transferFee(targetFiat, fiat);
+  if (fee === null) {
+    throw new ApiError(`Bank payouts in ${fiat} aren't supported yet — your balance was not charged.`, 400);
+  }
+
+  const fiatAmount = targetFiat; // lands in the recipient's account, exactly
+  const totalFiat = targetFiat + fee; // leaves the sender's wallets
+
+  const plan = planFunding(totalFiat, sources, symbol);
   if (!plan.ok) {
     throw new ApiError(
-      `Not enough across your wallets — you're ${formatShortfall(plan.short, fiat)} short.`,
+      `Not enough across your wallets — you're ${formatShortfall(plan.short, fiat)} short ` +
+        `(${formatShortfall(fee, fiat)} of that is the transfer fee).`,
       400,
     );
   }
 
-  // Gross = what the legs raise. The spread is only taken on the crypto legs;
-  // a naira leg converts 1:1 and carries none.
+  // Gross = what the legs raise, i.e. amount + fee. The spread is only taken on
+  // the crypto legs; a naira leg converts 1:1 and carries none.
   const grossFiat = plan.raised;
   let spreadFiat = 0;
   for (const leg of plan.legs) {
@@ -385,17 +403,6 @@ async function handleBankSend(
     spreadFiat += Math.max(0, market - leg.fiat);
   }
   const marketFiat = grossFiat + spreadFiat;
-
-  // Transfer fee (provider cost + markup), charged to the user like a bank fee.
-  // The net amount is what actually lands in their bank. A currency we can't
-  // price is refused outright — charging 0 would mean absorbing the provider's
-  // fee on every withdrawal in that currency.
-  const fee = transferFee(grossFiat, fiat);
-  if (fee === null) {
-    throw new ApiError(`Bank payouts in ${fiat} aren't supported yet — your balance was not charged.`, 400);
-  }
-  const fiatAmount = grossFiat - fee;
-  if (fiatAmount <= 0) throw new ApiError("Amount is too small to cover the transfer fee", 400);
 
   // KYC tier limits — checked on the gross amount leaving the account.
   const limit = await checkWithdrawalLimit(userId, user.kycTier, grossFiat, fiat);

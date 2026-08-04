@@ -114,6 +114,7 @@ export default function SendOutPage() {
 
   const symIsFiat = sym === fiat;
 
+
   // Preview of which wallets will pay, using the same planner the server runs.
   // Purely informational — the server plans again from real balances.
   const fundingPlan = (() => {
@@ -122,7 +123,9 @@ export default function SendOutPage() {
       .filter((a) => a.amount > 0)
       .map((a) => ({ symbol: a.symbol, amount: a.amount, fiatPerUnit: convert(1, a.symbol, fiat) }))
       .filter((a) => a.fiatPerUnit > 0);
-    return planFunding(convert(amt, sym, fiat), sources, sym);
+    const sending = convert(amt, sym, fiat);
+    const fee = transferFee(sending, fiat) ?? 0;
+    return planFunding(sending + fee, sources, sym);
   })();
   // Only worth showing when more than one wallet is involved.
   const splitFunding = !!fundingPlan?.ok && (fundingPlan?.legs.length ?? 0) > 1;
@@ -133,6 +136,18 @@ export default function SendOutPage() {
   const bal = state.portfolio.assets.find((a) => a.symbol === activeSym)?.amount ?? 0;
   const feeInAsset = activeSym ? convert(WITHDRAW_FEE_USDT, "USDT", activeSym) : 0;
   const maxSendable = Math.max(0, bal - feeInAsset); // Max must leave room for the fee
+  // Max on a bank send must leave room for the fee that now sits on top, or
+  // tapping Max always comes up short. Expressed in the chosen asset.
+  const maxBankSend = (() => {
+    if (mode !== "bank" || !sym) return 0;
+    const unit = convert(1, sym, fiat);
+    if (!(unit > 0)) return bal;
+    const availableFiat = bal * unit;
+    // Two passes: the fee tier depends on the amount, which depends on the fee.
+    const first = availableFiat - (transferFee(availableFiat, fiat) ?? 0);
+    const send = availableFiat - (transferFee(Math.max(0, first), fiat) ?? 0);
+    return Math.max(0, send / unit);
+  })();
 
   // Live preview of what actually arrives (real cross-chain + network fees),
   // debounced. Only for wallet sends once a chain, token, address and amount exist.
@@ -320,7 +335,7 @@ export default function SendOutPage() {
             <input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} inputMode="decimal" placeholder="Amount" className="bg-transparent outline-none text-[26px] font-grotesk font-bold w-full min-w-0" />
             <div className="flex items-center gap-2 shrink-0">
               <span className="text-white/50 font-grotesk font-semibold">{activeSym}</span>
-              <button onClick={() => setAmount(String(mode === "wallet" ? maxSendable : bal))} className="text-brand-cyan font-bold text-[13px]">Max</button>
+              <button onClick={() => setAmount(String(mode === "wallet" ? maxSendable : maxBankSend))} className="text-brand-cyan font-bold text-[13px]">Max</button>
             </div>
           </div>
         )}
@@ -344,8 +359,8 @@ export default function SendOutPage() {
             </>
           )}
           {mode === "bank" && amt > 0 && (() => {
-            const gross = convert(amt, sym, fiat);
-            const fee = transferFee(gross, fiat);
+            const sending = convert(amt, sym, fiat);
+            const fee = transferFee(sending, fiat);
             if (fee === null) {
               return (
                 <div className="text-[12px] text-bad leading-snug">
@@ -353,11 +368,14 @@ export default function SendOutPage() {
                 </div>
               );
             }
-            const net = Math.max(0, gross - fee);
+            const total = sending + fee;
             return (
               <>
+                {/* The amount typed is what ARRIVES. The fee is on top, out of
+                    the remaining balance — like every bank in the country. */}
+                <div className="flex justify-between"><span>They receive</span><b className="text-good font-grotesk">{formatFiat(sending, fiat)}</b></div>
                 <div className="flex justify-between"><span>Transfer fee</span><b className="text-white font-grotesk">{formatFiat(fee, fiat)}</b></div>
-                <div className="flex justify-between"><span>You receive</span><b className="text-good font-grotesk">≈ {formatFiat(net, fiat)}</b></div>
+                <div className="flex justify-between"><span>Total from your balance</span><b className="text-white font-grotesk">{formatFiat(total, fiat)}</b></div>
               </>
             );
           })()}
