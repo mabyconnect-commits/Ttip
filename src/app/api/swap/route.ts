@@ -17,6 +17,7 @@ const schema = z.object({
   fromSymbol: z.string(),
   toSymbol: z.string(),
   amount: z.number().positive("Enter an amount"), // always the "from" amount
+  /** Accepted and ignored — see the note where the wallet is credited. */
   payoutToBank: z.boolean().optional(),
 });
 
@@ -25,7 +26,7 @@ export async function POST(req: Request) {
     const userId = await getUserId();
     if (!userId) return unauthorized();
 
-    const { fromSymbol, toSymbol, amount, payoutToBank } = schema.parse(await req.json());
+    const { fromSymbol, toSymbol, amount } = schema.parse(await req.json());
     if (fromSymbol === toSymbol) throw new ApiError("Pick two different assets", 400);
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -104,11 +105,16 @@ export async function POST(req: Request) {
     const result = await prisma.$transaction(async (tx) => {
       await adjust(tx, userId, fromSymbol, -amount);
 
-      // If swapping crypto -> fiat with bank payout, the fiat leaves the wallet.
-      const settledToBank = payoutToBank && !isCrypto(toSymbol);
-      if (!settledToBank) {
-        await adjust(tx, userId, toSymbol, net);
-      }
+      // A swap always credits the wallet.
+      //
+      // `payoutToBank` used to skip this credit and record the transaction as
+      // settled to the user's bank — but nothing here pays anyone out. Only
+      // /api/send does that, and it was never called. So the crypto was
+      // debited, no naira was credited, and no payout existed: the money
+      // simply stopped. The flag is now ignored rather than rejected, so an
+      // older client that still sends it gets a swap that works.
+      const settledToBank = false;
+      await adjust(tx, userId, toSymbol, net);
 
       // Cashback on the fiat volume of any swap (a buy, a sell, or a crypto swap).
       if (fiatVolume > 0 && cashbackFiat) {

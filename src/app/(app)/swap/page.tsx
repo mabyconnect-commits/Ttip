@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import { usePrices } from "@/lib/usePrices";
 import { apiGet } from "@/lib/client";
-import { BackHeader, GradientButton } from "@/components/ui";
+import { BackHeader, GradientButton, Sheet } from "@/components/ui";
 import { Icon } from "@/components/Icon";
 import { AssetIcon } from "@/components/AssetIcon";
 import { formatFiat, formatCrypto } from "@/lib/format";
@@ -27,10 +27,10 @@ export default function SwapPage() {
   const [from, setFrom] = useState(params.get("from") || "USDT");
   const [to, setTo] = useState(state.user.defaultFiat);
   const [amount, setAmount] = useState("");
-  const [payoutToBank, setPayoutToBank] = useState(false);
   const [pickFrom, setPickFrom] = useState(false);
   const [pickTo, setPickTo] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [receipt, setReceipt] = useState<any>(null);
   const [lock, setLock] = useState(60);
 
@@ -90,15 +90,30 @@ export default function SwapPage() {
   function flip() {
     setFrom(to);
     setTo(from);
-    setPayoutToBank(false);
+  }
+
+  /**
+   * A swap is not undoable, so it doesn't happen on one tap.
+   *
+   * It used to: the button called the API, and a user watched 0.671472 USDT
+   * become ₦915.23 with nothing in between — "I click swap e just happen
+   * immediately". A conversion at a rate with a margin in it deserves the same
+   * beat as every other money screen: see what you pay, see what you get, then
+   * agree to it.
+   */
+  function review() {
+    if (amt <= 0) return toast("Enter an amount", "bad");
+    if (amt > bal) return toast(`Insufficient ${from} balance`, "bad");
+    if (!(unitToPerFrom > 0)) return toast("Rate unavailable — try again in a moment", "bad");
+    setConfirming(true);
   }
 
   async function doSwap() {
-    if (amt <= 0) return toast("Enter an amount", "bad");
-    if (amt > bal) return toast(`Insufficient ${from} balance`, "bad");
+    if (amt <= 0 || amt > bal) return;
     setLoading(true);
     try {
-      const res: any = await action("/api/swap", { fromSymbol: from, toSymbol: to, amount: amt, payoutToBank: toIsFiat && payoutToBank });
+      const res: any = await action("/api/swap", { fromSymbol: from, toSymbol: to, amount: amt });
+      setConfirming(false);
       setReceipt(res.receipt);
     } catch (e: any) {
       toast(e.message, "bad");
@@ -194,10 +209,22 @@ export default function SwapPage() {
               {isOfficial ? "Included in rate" : free ? `Free — ${state.user.freeSwapsLeft} left today` : `${(SWAP_FEE_PCT * 100).toFixed(1)}%`}
             </b>
           </Row>
+          {/*
+            "Payout to bank" used to sit here as a one-tap toggle. It debited
+            the crypto, credited nothing, and marked the transaction as settled
+            to the user's bank — while no payout was ever initiated, because
+            only /api/send can pay one out. Money in, nothing out.
+
+            A swap now always lands in the Ttip wallet, and cashing out is Send
+            out, which has the PIN, the limits and the actual payout.
+          */}
           {toIsFiat && (
-            <Row label="Payout to">
-              <button onClick={() => setPayoutToBank((v) => !v)} className="font-grotesk font-semibold text-[13px]" style={{ color: payoutToBank ? "#3DF5B0" : "#2AC8FF" }}>
-                {payoutToBank ? `${state.user.bankAccount} · instant` : "Ttip wallet"}
+            <Row label="Goes to">
+              <button
+                onClick={() => router.push("/send-out")}
+                className="font-grotesk font-semibold text-[13px] text-brand-cyan"
+              >
+                Your {to} balance · cash out →
               </button>
             </Row>
           )}
@@ -205,10 +232,62 @@ export default function SwapPage() {
       </div>
 
       <div className="pb-6 pt-2">
-        <GradientButton onClick={doSwap} loading={loading} disabled={amt <= 0 || amt > bal}>
-          {amt > bal ? "Insufficient balance" : `Swap ${from} → ${to} · settles in ~5s`}
+        <GradientButton onClick={review} disabled={amt <= 0 || amt > bal}>
+          {amt > bal ? "Insufficient balance" : `Review swap · ${from} → ${to}`}
         </GradientButton>
       </div>
+
+      {/* The beat before it happens. */}
+      <Sheet open={confirming} onClose={() => !loading && setConfirming(false)} title="Confirm swap">
+        <div className="flex flex-col gap-3">
+          <div className="bg-surface border border-white/[.08] rounded-2xl p-4 flex flex-col gap-3">
+            <div className="flex justify-between items-baseline">
+              <span className="font-sans text-[12.5px] text-white/45">You pay</span>
+              <b className="font-grotesk font-bold text-[17px]">
+                {fromIsFiat ? formatFiat(amt, from) : `${formatCrypto(amt, from)} ${from}`}
+              </b>
+            </div>
+            <div className="flex justify-between items-baseline">
+              <span className="font-sans text-[12.5px] text-white/45">You get</span>
+              <b className="font-grotesk font-bold text-[17px] text-good">
+                {toIsFiat ? formatFiat(net, to) : `${formatCrypto(net, to)} ${to}`}
+              </b>
+            </div>
+            <div className="h-px bg-white/[.07]" />
+            <Row label="Rate">
+              <b className="text-white font-grotesk text-[13px]">
+                1 {from} = {toIsFiat ? formatFiat(unitToPerFrom, to) : `${formatCrypto(unitToPerFrom, to)} ${to}`}
+              </b>
+            </Row>
+            <Row label="Fee">
+              <b className="font-grotesk text-[13px]" style={{ color: free || isOfficial ? "#3DF5B0" : "#fff" }}>
+                {isOfficial ? "Included in rate" : free ? "Free" : `${(SWAP_FEE_PCT * 100).toFixed(1)}%`}
+              </b>
+            </Row>
+            <Row label="Goes to">
+              <b className="font-grotesk text-[13px]">Your {to} balance</b>
+            </Row>
+          </div>
+
+          {/* Said plainly, because the number on the receipt can differ from the
+              number here and finding that out afterwards feels like a trick. */}
+          <p className="font-sans text-[11.5px] text-white/45 leading-[1.5] px-1">
+            Rates move. The exact amount is set the moment you confirm and shown on your receipt.
+            A swap can&apos;t be undone.
+          </p>
+
+          <GradientButton onClick={doSwap} loading={loading}>
+            {`Swap ${from} → ${to}`}
+          </GradientButton>
+          <button
+            onClick={() => setConfirming(false)}
+            disabled={loading}
+            className="h-[46px] rounded-2xl border border-white/12 font-grotesk font-semibold text-[14px] text-white/70 active:scale-[.98] disabled:opacity-40"
+          >
+            Cancel
+          </button>
+        </div>
+      </Sheet>
 
       <AssetPicker open={pickFrom} onClose={() => setPickFrom(false)} onPick={(s) => { if (s === to) setTo(from); setFrom(s); setPickFrom(false); }} symbols={ALL_SYMS.filter((s) => s !== to)} balances={state.portfolio} title="Swap from" />
       <AssetPicker open={pickTo} onClose={() => setPickTo(false)} onPick={(s) => { if (s === from) setFrom(to); setTo(s); setPickTo(false); }} symbols={ALL_SYMS.filter((s) => s !== from)} balances={state.portfolio} title="Swap to" />
