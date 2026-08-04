@@ -68,3 +68,65 @@ export function draftGap(draft: DraftState): "bank" | "amount" | null {
   if (draft.amount === null) return "amount";
   return null;
 }
+
+/**
+ * "Go on then" — a message that asks to proceed rather than saying anything new.
+ *
+ * Kept tight on purpose. This is what lets a transfer be rebuilt from the
+ * conversation, and a loose match would put a confirmation card in front of
+ * someone who was only chatting.
+ */
+const PROCEED =
+  /^(?:ok(?:ay)?|yes|yeah|yep|sure|alright|please|abeg)?\s*(?:go\s*ahead|go\s*on|proceed|continue|confirm|do\s*it|send\s*(?:it|now|am|that)?|now)\b|^(?:ok(?:ay)?|yes|yeah|yep|sure)[\s.!]*$/i;
+
+export function wantsToProceed(text: string): boolean {
+  return PROCEED.test((text ?? "").trim());
+}
+
+/**
+ * Rebuild a transfer from what was already said.
+ *
+ * A conversation can arrive at all three pieces and still have nothing to show
+ * for it — the account in one message, the bank in the next, the amount in a
+ * third, and then a gap where the user goes away and comes back. Ada could see
+ * the history and say "I've got all three pieces: ₦1,500 to 9136214038,
+ * Moniepoint", and still not be able to put a confirmation in front of anyone,
+ * because only a parser can set one up and the parser was only ever shown the
+ * newest message.
+ *
+ * So when someone asks to go ahead, the pieces are read back out of the
+ * conversation. Newest first, so a corrected amount wins over the one it
+ * replaced. Nothing is sent by this — it produces a confirmation the user still
+ * has to approve with their PIN.
+ */
+export function assembleFromHistory(
+  turns: readonly { role: string; text: string }[],
+  banks: readonly string[],
+  parseAccount: (text: string) => string | undefined,
+): { account?: string; bank?: string; amount?: number } {
+  const out: { account?: string; bank?: string; amount?: number } = {};
+
+  for (let i = turns.length - 1; i >= 0; i -= 1) {
+    const text = (turns[i]?.text ?? "").trim();
+    if (!text) continue;
+
+    if (!out.account) {
+      const account = parseAccount(text);
+      if (account) out.account = account;
+    }
+    if (!out.bank) {
+      const bank = parseBankName(text, banks);
+      if (bank) out.bank = bank;
+    }
+    // An amount is only ever taken from something the USER said. Ada's own
+    // messages quote figures back — a fee, a balance, an example — and a number
+    // she wrote must never become the number that gets sent.
+    if (!out.amount && turns[i].role === "user" && !ASKING.test(text)) {
+      const amount = parseAmount(text);
+      if (amount) out.amount = amount;
+    }
+    if (out.account && out.bank && out.amount) break;
+  }
+
+  return out;
+}

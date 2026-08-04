@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fillFromReply, draftGap, type DraftState } from "../src/lib/assistant/draft-fill";
-import { transferParts, parseBankName } from "../src/lib/assistant/intent";
+import { fillFromReply, draftGap, wantsToProceed, assembleFromHistory, type DraftState } from "../src/lib/assistant/draft-fill";
+import { transferParts, parseBankName, parseAccountNumber } from "../src/lib/assistant/intent";
 import { NIGERIAN_BANKS } from "../src/lib/banks";
 
 /**
@@ -114,4 +114,66 @@ test("a crypto draft waits only on the amount", () => {
 test("an account number is not mistaken for an amount", () => {
   const d: DraftState = { kind: "bank", amount: null, accountNumber: "9136214038", bankName: "Opay (Paycom)" };
   assert.deepEqual(fill(d, "9136214038"), {});
+});
+
+test("a transfer can be rebuilt from the conversation when asked to go ahead", () => {
+  // The real thread: the account, then the bank, then the amount — and then a
+  // gap. Ada could see all three and say so, and still had no way to put a
+  // confirmation in front of anyone.
+  const turns = [
+    { role: "user", text: "Send money to this account number 9136214038. Money point. Money point." },
+    { role: "assistant", text: "Which bank is 9136214038?" },
+    { role: "user", text: "Money points." },
+    { role: "assistant", text: "Got it — 9136214038 at Moniepoint. How much should I send?" },
+    { role: "user", text: "I mean 1,500." },
+    { role: "assistant", text: "₦1,500 to Moniepoint, noted." },
+  ];
+  assert.ok(wantsToProceed("go ahead"));
+  const built = assembleFromHistory(turns, NAMES, (t) => parseAccountNumber(t) ?? undefined);
+  assert.equal(built.account, "9136214038");
+  assert.match(built.bank ?? "", /Moniepoint/);
+  assert.equal(built.amount, 1500);
+});
+
+test("only a clear go-ahead rebuilds anything", () => {
+  for (const yes of ["send it", "go ahead", "yes", "ok", "do it", "proceed", "confirm", "send now"]) {
+    assert.ok(wantsToProceed(yes), yes);
+  }
+  // The message that actually followed the dead conversation was "Busy?" — a
+  // question, and nobody's instruction to move money.
+  for (const no of ["Busy?", "what are your fees", "how much is the fee", "hello", "why is it pending", ""]) {
+    assert.ok(!wantsToProceed(no), no);
+  }
+});
+
+test("an amount is never taken from something Ada said", () => {
+  // She quotes fees, balances and examples back. A number she wrote must never
+  // become the number that leaves the account.
+  const turns = [
+    { role: "user", text: "send to 9136214038 Moniepoint" },
+    { role: "assistant", text: "The fee would be ₦12, and your balance is ₦915." },
+  ];
+  const built = assembleFromHistory(turns, NAMES, (t) => parseAccountNumber(t) ?? undefined);
+  assert.equal(built.account, "9136214038");
+  assert.match(built.bank ?? "", /Moniepoint/);
+  assert.equal(built.amount, undefined, "must not lift a figure out of her own message");
+});
+
+test("the newest amount wins over the one it replaced", () => {
+  const turns = [
+    { role: "user", text: "send 5,000 to 9136214038 Moniepoint" },
+    { role: "assistant", text: "Got it." },
+    { role: "user", text: "actually make it 1,500" },
+  ];
+  const built = assembleFromHistory(turns, NAMES, (t) => parseAccountNumber(t) ?? undefined);
+  assert.equal(built.amount, 1500);
+});
+
+test("nothing is rebuilt from a conversation with no account in it", () => {
+  const turns = [
+    { role: "user", text: "what are your fees" },
+    { role: "assistant", text: "Bank transfers cost ₦12 up to ₦5,000." },
+  ];
+  const built = assembleFromHistory(turns, NAMES, (t) => parseAccountNumber(t) ?? undefined);
+  assert.equal(built.account, undefined);
 });

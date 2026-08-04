@@ -155,3 +155,17 @@ test("a bank named alongside the number is picked up", () => {
   assert.equal(parseBankName("send 5000 to 0123456789 kuda", banks), "Kuda Bank");
   assert.equal(parseBankName("send 5000 to 0123456789", banks), undefined);
 });
+
+test("a bank's initial is not a scale — an account number is not an amount", () => {
+  // "9136214038 Moniepoint": the M of Moniepoint read as "million", turning an
+  // account number into ₦9,136,214,038,000,000 and giving a message that named
+  // no amount one that looked deliberate.
+  assert.equal(parseAmount("send to 9136214038 Moniepoint"), null);
+  assert.equal(parseAmount("9136214038 Moniepoint"), null);
+  assert.equal(parseAmount("8113866493 Kuda"), null);
+  // …while the real scales still work.
+  assert.equal(parseAmount("send 5k"), 5000);
+  assert.equal(parseAmount("5 k"), 5000);
+  assert.equal(parseAmount("pay 2 million"), 2_000_000);
+  assert.equal(parseAmount("1.5m please"), 1_500_000);
+});

@@ -58,7 +58,11 @@ function normalize(s: string): string {
  */
 export function parseAmount(text: string): number | null {
   const q = normalize(text);
-  const re = /(?:[₦$£€]\s*)?(\d[\d,]*(?:\.\d+)?)\s*(k|m|thousand|million)?/g;
+  // The scale must be a word of its own. Without the \b, the "M" of
+  // "9136214038 Moniepoint" read as "million" and an account number became an
+  // amount of ₦9,136,214,038,000,000 — and, worse, gave a message that named no
+  // amount at all one that looked deliberate.
+  const re = /(?:[₦$£€]\s*)?(\d[\d,]*(?:\.\d+)?)\s*(k|m|thousand|million)?\b/g;
 
   for (const m of q.matchAll(re)) {
     const digits = m[1].replace(/,/g, "");

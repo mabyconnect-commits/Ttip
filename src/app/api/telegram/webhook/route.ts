@@ -4,7 +4,7 @@ import { sendMessage, sendTyping, deleteMessage, downloadFile, sendPhoto, telegr
 import { renderReceiptPng } from "@/lib/receipt-svg";
 import { transferFee } from "@/lib/pricing";
 import { parseTransferIntent, parseBankName, parseAmount, parseAccountNumber, transferParts } from "@/lib/assistant/intent";
-import { fillFromReply, draftGap } from "@/lib/assistant/draft-fill";
+import { fillFromReply, draftGap, wantsToProceed, assembleFromHistory } from "@/lib/assistant/draft-fill";
 import { extractPaymentFromImage, imageMediaType, resolveImageType, isHeic } from "@/lib/assistant/vision";
 import { speechEnabled, transcribe } from "@/lib/assistant/speech";
 import { prisma } from "@/lib/db";
@@ -501,6 +501,34 @@ async function handleTransferIntent(chatId: number, userId: string, text: string
     const d = await liveDraft(chatId);
     if (d) await say(chatId, missingPiece(d));
     return true;
+  }
+
+  // "Go ahead" — with nothing pending, but a conversation that already settled
+  // every detail. Ada could see all three pieces in the history and say so, and
+  // still not be able to put a confirmation in front of anyone, because only
+  // this code can create one and it was only ever shown the newest message.
+  if (!pending && wantsToProceed(text)) {
+    const from = assembleFromHistory(
+      await recentTurns(chatId),
+      NIGERIAN_BANKS.map((b) => b.name),
+      (t) => parseAccountNumber(t) ?? undefined,
+    );
+    if (from.account) {
+      await createDraft({
+        userId,
+        chatId,
+        amount: from.amount ?? null,
+        fiat: "NGN",
+        accountNumber: from.account,
+        bankName: from.bank ?? null,
+      });
+      const d = await liveDraft(chatId);
+      if (d) {
+        const state = { ...d, amount: d.amount === null ? null : Number(d.amount) };
+        await say(chatId, draftGap(state) ? missingPiece(d) : draftPrompt(d));
+        return true;
+      }
+    }
   }
 
   const intent = parseTransferIntent(text);
