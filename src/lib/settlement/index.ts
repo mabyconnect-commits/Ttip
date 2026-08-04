@@ -4,8 +4,8 @@ import { prisma } from "../db";
 import { kindOf } from "../wallet";
 import { payoutProvider, isLive } from "./config";
 import { sandboxPayout } from "./sandbox";
-import { flutterwavePayout, flutterwaveResolveAccount } from "./flutterwave";
-import { paystackPayout, paystackResolveAccount } from "./paystack";
+import { flutterwavePayout, flutterwaveResolveAccount, flutterwaveTransferStatus } from "./flutterwave";
+import { paystackPayout, paystackResolveAccount, paystackTransferStatus } from "./paystack";
 import { monnifyPayout } from "./monnify";
 import { coralpayPayout } from "./coralpay";
 import { adjustTreasury } from "./treasury";
@@ -169,6 +169,50 @@ export async function payoutFiat(req: PayoutRequest): Promise<PayoutResult> {
  * crypto that was debited when the payout was requested. Idempotent: acting on
  * an already-finalized settlement is a no-op.
  */
+/**
+ * Ask the provider what actually happened to a payout, and settle it if it's
+ * done.
+ *
+ * The webhook is the fast path, not the only path. When it doesn't arrive —
+ * not configured, blocked by the network, delivered to a sibling product that
+ * shares the account, or simply lost — nothing else ever moved the payout on,
+ * so the transaction stayed "pending" and the user's receipt said "Processing"
+ * for ever. This is the fallback that doesn't need anyone to call us.
+ *
+ * Returns the status now known. Cheap and safe to call on a read: it only ever
+ * talks to the provider for a payout that is still pending, and finalizePayout
+ * is idempotent, so a webhook and a poll racing each other settle once.
+ */
+export async function refreshPayoutStatus(
+  reference: string,
+  userId?: string,
+): Promise<"pending" | "completed" | "failed" | null> {
+  if (!reference) return null;
+
+  const settlement = await prisma.settlement.findFirst({
+    where: { kind: "payout", reference, ...(userId ? { userId } : {}) },
+    select: { status: true },
+  });
+  if (!settlement) return null;
+  if (settlement.status !== "pending") {
+    return settlement.status === "completed" ? "completed" : "failed";
+  }
+
+  const provider = payoutProvider();
+  const status =
+    provider === "flutterwave"
+      ? await flutterwaveTransferStatus(reference)
+      : provider === "paystack"
+        ? await paystackTransferStatus(reference)
+        : null;
+
+  if (status === "completed" || status === "failed") {
+    await finalizePayout({ reference }, status);
+    return status;
+  }
+  return "pending";
+}
+
 export async function finalizePayout(
   match: { externalId?: string; reference?: string },
   status: "completed" | "failed",

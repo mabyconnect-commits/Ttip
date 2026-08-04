@@ -214,6 +214,40 @@ export async function flutterwaveBillPay(req: BillRequest): Promise<BillResult> 
 }
 
 /**
+ * Re-query a TRANSFER's status by our own reference.
+ *
+ * A live transfer comes back NEW or PENDING, and the only thing that ever moved
+ * it on was the provider's webhook. When that webhook doesn't arrive — not
+ * configured, blocked, delivered to a sibling product, lost — the payout stays
+ * "pending" for ever and the user's receipt says "Processing" indefinitely,
+ * which is what they see and report. Asking the provider directly is the
+ * fallback that doesn't depend on anyone calling us.
+ *
+ * Docs: https://developer.flutterwave.com/reference/get-all-transfers
+ */
+export async function flutterwaveTransferStatus(reference: string): Promise<PayoutResult["status"] | null> {
+  const cfg = flutterwaveConfig();
+  if (!cfg || !reference) return null;
+  try {
+    const res = await fwFetch(`${cfg.baseUrl}/transfers?reference=${encodeURIComponent(reference)}`, {
+      headers: { Authorization: `Bearer ${cfg.secretKey}` },
+    });
+    const json = (await res.json().catch(() => ({}))) as {
+      status?: string;
+      data?: { status?: string; reference?: string }[] | { status?: string; reference?: string };
+    };
+    if (!res.ok || json.status !== "success") return null;
+    // The list form is what `?reference=` returns; tolerate a bare object too.
+    const row = Array.isArray(json.data) ? json.data[0] : json.data;
+    if (!row?.status) return null;
+    return mapStatus(row.status);
+  } catch (e) {
+    console.error("[flutterwave] transfer status failed", e);
+    return null;
+  }
+}
+
+/**
  * Re-query a bill's delivery status by our reference. Used to settle a bill that
  * came back "processing", and by the reconcile path.
  * Docs: https://developer.flutterwave.com/reference/get-a-bill-payment-status

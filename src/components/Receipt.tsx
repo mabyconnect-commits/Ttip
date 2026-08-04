@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { COMPANY } from "@/lib/company";
 import { buildReceiptImage, type ReceiptField } from "@/lib/receipt-image";
 import { buildReceiptPdf } from "@/lib/receipt-pdf";
@@ -70,8 +70,48 @@ export function Receipt({
     .toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: true })
     .toUpperCase()}`;
 
-  const pending = status === "pending";
-  const statusLabel = pending ? "Processing" : "Successful";
+  /**
+   * The status, kept live while the receipt is on screen.
+   *
+   * A live bank payout is accepted as "pending" and confirmed a moment later,
+   * so this used to be a snapshot of the worst instant: "Processing", for ever,
+   * long after the money had landed — and permanently so if the provider's
+   * webhook never arrived. While it says Processing, the receipt asks; the
+   * endpoint also re-queries the provider, so a missing webhook stops being the
+   * end of the story.
+   */
+  const [live, setLive] = useState<"completed" | "pending" | "failed" | null>(null);
+  const settled = live ?? status ?? "completed";
+  const pending = settled === "pending";
+  const failed = settled === "failed";
+  const statusLabel = failed ? "Not sent" : pending ? "Processing" : "Successful";
+
+  useEffect(() => {
+    if (!reference || (status ?? "completed") !== "pending" || live) return;
+    let alive = true;
+    let tries = 0;
+    // Every few seconds for about two minutes. Beyond that it isn't "settling
+    // in a moment" any more, and the transaction list is the place to look.
+    const timer = setInterval(async () => {
+      tries += 1;
+      if (tries > 40 || !alive) return clearInterval(timer);
+      try {
+        const r = await fetch(`/api/transactions/status?reference=${encodeURIComponent(reference)}`);
+        const j = await r.json().catch(() => null);
+        const s = j?.status;
+        if (alive && (s === "completed" || s === "failed")) {
+          setLive(s);
+          clearInterval(timer);
+        }
+      } catch {
+        /* offline, or the tab is asleep — try again on the next tick */
+      }
+    }, 3000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [reference, status, live]);
 
   /** Every row that goes into the shared file, including date and reference. */
   const shareFields: ReceiptField[] = [
@@ -83,7 +123,7 @@ export function Receipt({
   const payload = {
     amount: hero,
     badge: badge ?? COMPANY.product,
-    status: { label: statusLabel, tone: pending ? ("pending" as const) : ("good" as const) },
+    status: { label: statusLabel, tone: pending || failed ? ("pending" as const) : ("good" as const) },
     fields: shareFields,
     date: when,
   };
@@ -194,8 +234,8 @@ export function Receipt({
           <div
             className="inline-flex items-center gap-2 mt-4 rounded-full px-3.5 py-1.5 text-[12px] font-medium"
             style={{
-              background: pending ? "rgba(255,196,107,.12)" : "rgba(61,245,176,.12)",
-              color: pending ? "#FFC46B" : "#3DF5B0",
+              background: failed ? "rgba(255,122,138,.12)" : pending ? "rgba(255,196,107,.12)" : "rgba(61,245,176,.12)",
+              color: failed ? "#FF7A8A" : pending ? "#FFC46B" : "#3DF5B0",
             }}
           >
             <span className="w-[6px] h-[6px] rounded-full" style={{ background: "currentColor" }} />

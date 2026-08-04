@@ -3,7 +3,7 @@ import { getUserId } from "@/lib/auth";
 import { handler, ok, unauthorized } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
 import { explorerTxUrl } from "@/lib/chains";
-import { reconcilePendingWithdrawals } from "@/lib/settlement";
+import { reconcilePendingWithdrawals, refreshPayoutStatus } from "@/lib/settlement";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +21,24 @@ export async function GET(req: Request) {
     // have since settled (or failed → refund), so the list is current even when
     // the reconciliation cron runs infrequently. Cheap no-op if none are pending.
     await reconcilePendingWithdrawals(10, userId).catch(() => {});
+
+    // Same for bank payouts. These only ever moved on the provider's webhook,
+    // so a webhook that never arrived left "Processing" on the screen for ever.
+    // A handful of the newest pending ones is enough to keep the list honest
+    // without turning a page load into a fan-out of provider calls.
+    await Promise.allSettled(
+      (
+        await prisma.transaction.findMany({
+          where: { userId, type: "withdraw_bank", status: "pending" },
+          orderBy: { createdAt: "desc" },
+          take: 5,
+          select: { meta: true },
+        })
+      ).map((t) => {
+        const ref = (t.meta as { reference?: string } | null)?.reference;
+        return ref ? refreshPayoutStatus(ref, userId) : Promise.resolve(null);
+      }),
+    ).catch(() => {});
 
     const params = new URL(req.url).searchParams;
     const limit = Number(params.get("limit") ?? 30);

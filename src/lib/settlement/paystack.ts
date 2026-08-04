@@ -110,3 +110,29 @@ export async function paystackPayout(req: PayoutRequest): Promise<PayoutResult> 
     raw: transfer.json,
   };
 }
+
+/**
+ * Re-query a transfer's status by our own reference.
+ *
+ * Same reason as the Flutterwave one: a transfer starts "pending" and only the
+ * webhook ever moves it. If that webhook never lands, the receipt says
+ * "Processing" for ever. Asking Paystack directly doesn't depend on anyone
+ * calling us back.
+ *
+ * Docs: https://paystack.com/docs/api/transfer/#verify
+ */
+export async function paystackTransferStatus(reference: string): Promise<PayoutResult["status"] | null> {
+  const cfg = paystackConfig();
+  if (!cfg || !reference) return null;
+  try {
+    const res = await fetch(`${cfg.baseUrl}/transfer/verify/${encodeURIComponent(reference)}`, {
+      headers: { Authorization: `Bearer ${cfg.secretKey}` },
+    });
+    const json = (await res.json().catch(() => ({}))) as { status?: boolean; data?: { status?: string } };
+    if (!res.ok || !json.status || !json.data?.status) return null;
+    return mapStatus(json.data.status);
+  } catch (e) {
+    console.error("[paystack] transfer status failed", e);
+    return null;
+  }
+}
