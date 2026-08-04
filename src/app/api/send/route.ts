@@ -13,6 +13,9 @@ import { payoutFiat, finalizePayout, payoutProvider, ensureFloat, debitFloat, cr
 import { chainIdForNetwork } from "@/lib/chains";
 import { quoteSell, transferFee } from "@/lib/pricing";
 import { planFunding, type FundingSource } from "@/lib/funding-plan";
+// Shared with Ada's account snapshot, so "what can you spend" has exactly one
+// answer — an assistant that disagrees with the checkout is worse than silent.
+import { sellValue } from "@/lib/spendable";
 import { referenceFiat } from "@/lib/rate";
 import { accrueCashback } from "@/lib/cashback";
 import { checkWithdrawalLimit } from "@/lib/kyc/limits";
@@ -343,16 +346,6 @@ function autoKey(userId: string, account: string, amount: number, symbol: string
     .update([userId, account, amount, symbol, fiat, bucket].join("|"))
     .digest("hex")
     .slice(0, 32);
-}
-
-async function sellValue(amount: number, symbol: string, fiat: string): Promise<number> {
-  if (!(amount > 0)) return 0;
-  if (symbol === fiat || !isCrypto(symbol)) {
-    return symbol === fiat ? amount : await referenceFiat(amount, symbol, fiat);
-  }
-  const market = await referenceFiat(amount, symbol, fiat);
-  const marketRate = market / amount;
-  return quoteSell({ asset: symbol, fiat, amountAsset: amount, marketRate }).userFiat;
 }
 
 function formatShortfall(short: number, fiat: string): string {

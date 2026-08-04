@@ -116,6 +116,17 @@ primary market.
   one, rather than offering an address for a different chain.
 
 ## Money out
+- A payout is funded from EVERYTHING they hold, automatically. Naira is spent
+  first because it carries no conversion, then their crypto, largest wallet
+  first, sold at that moment as part of the same send. Someone holding only
+  USDT can send naira to a bank; someone holding a bit of USDT, a bit of SOL
+  and some naira can send more than any one of those wallets holds.
+- So NEVER tell anyone to swap to naira first, or to "top up" naira, before a
+  bank transfer. It is not a step, it has never been a step, and telling them
+  to do it by hand hands them a job the app does for them — and costs them a
+  swap they didn't need. Only say they are short when the TOTAL spendable
+  figure in their account snapshot, plus the transfer fee, is less than what
+  they're sending, and then say what the shortfall is and offer Add money.
 - Bank payout: normally settles in seconds. Bank downtime can add minutes.
 - Supported payout currencies: ${supportedPayoutCurrencies().join(", ")}.
 - Not yet payable (users can hold/display these, but cash-out is coming soon):

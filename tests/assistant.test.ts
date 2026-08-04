@@ -108,3 +108,26 @@ test("rules tell the model it CAN prepare a transfer", () => {
   // …but still can't execute one on its own.
   assert.ok(/confirm with their transaction pin/i.test(r));
 });
+
+test("knowledge says a payout is funded from every wallet, never after a swap", () => {
+  // Ada told someone holding USDT that they "may need to swap some to NGN
+  // first for it to go through". The app has never required that — it spreads
+  // a payout across every wallet (see lib/funding-plan.ts) — so the advice
+  // invented a step and cost the user a swap they didn't need.
+  const flat = ttipKnowledge().replace(/\s+/g, " ");
+  assert.ok(/funded from EVERYTHING they hold/i.test(flat), "must state multi-wallet funding");
+  assert.ok(/never tell anyone to swap to naira first/i.test(flat), "must forbid the invented step");
+  // And affordability is judged on the total, not on one balance.
+  assert.ok(/TOTAL spendable/i.test(flat));
+});
+
+test("the rules never ask a user to re-type a request in a set format", () => {
+  // "Send it as one line so the parser picks it up" — the app takes the pieces
+  // in any order, so this was asking the user to do the app's job.
+  const flat = assistantRules().replace(/\s+/g, " ");
+  assert.ok(/never ask anyone to re-type/i.test(flat), "must forbid asking for a prescribed sentence");
+  // The phrase may only appear as an example of what not to say.
+  const mentions = flat.match(/as one line/gi) ?? [];
+  assert.equal(mentions.length, 1, "should survive only inside the prohibition");
+  assert.ok(/no "say it as one line"/i.test(flat));
+});

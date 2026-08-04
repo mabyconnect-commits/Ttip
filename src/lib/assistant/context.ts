@@ -2,6 +2,7 @@ import "server-only";
 import { prisma } from "../db";
 import { kycTierDef } from "../constants";
 import { bankAliases } from "../bank-aliases";
+import { spendableFiat } from "../spendable";
 
 /**
  * The account snapshot Ada is given about the person she's talking to.
@@ -68,6 +69,16 @@ export async function buildUserContext(userId: string): Promise<string> {
     .map((b) => `${trim(Number(b.amount))} ${b.symbol}`)
     .join(", ");
 
+  /**
+   * What those holdings are worth to spend, together.
+   *
+   * Without this, Ada reads "0.67 USDT, no naira" and concludes the user must
+   * swap to naira before sending — which is wrong, and which the app has never
+   * required: a payout is funded from every wallet at once. Giving her the one
+   * number the funding actually uses is what stops her inventing that advice.
+   */
+  const money = await spendableFiat(user.balances, user.defaultFiat).catch(() => null);
+
   const aliases = bankAliases(user.nairaBank);
 
   const lines: string[] = [
@@ -88,6 +99,15 @@ export async function buildUserContext(userId: string): Promise<string> {
     }`,
     `Transaction PIN set: ${user.pinHash ? "yes" : "no"}`,
     `Holdings: ${holdings || "empty"}`,
+    money
+      ? `Spendable on a ${money.fiat} payout — the app funds one from ALL of these together, ` +
+        `converting as it sends, so the user NEVER has to swap to ${money.fiat} first:\n` +
+        money.wallets
+          .map((w) => `  ${trim(w.amount)} ${w.symbol} ≈ ${money.fiat} ${trim(w.fiat)}`)
+          .join("\n") +
+        `\n  TOTAL ≈ ${money.fiat} ${trim(money.total)} (at today's sell rate, before the transfer fee). ` +
+        `Judge "can they afford it" against this total plus the fee, never against one wallet.`
+      : `Spendable total: unavailable right now — do not guess whether they can afford something.`,
     addresses.length
       ? `Crypto deposit addresses (their own — quote these EXACTLY, never alter a character, and always name the network alongside):\n` +
         addresses.map((a) => `  ${a.symbol} on ${a.network}: ${a.address}`).join("\n")
