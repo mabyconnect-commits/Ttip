@@ -143,7 +143,10 @@ model TelegramDraft {
   id            String   @id @default(cuid())
   userId        String
   chatId        String   @unique
-  amount        Decimal  @db.Decimal(18, 2)
+  /// Null while we still need to be told how much. A photo of an account gives
+  /// us the recipient but rarely the amount, and the user supplies that in the
+  /// next message — which they should not have to repeat the account for.
+  amount        Decimal? @db.Decimal(18, 2)
   fiat          String
   accountNumber String
   bankName      String

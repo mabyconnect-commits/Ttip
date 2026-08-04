@@ -56,7 +56,8 @@ export function telegramMaxTransfer(): number | null {
 export interface DraftInput {
   userId: string;
   chatId: number | string;
-  amount: number;
+  /** Omitted when we know WHO but not yet HOW MUCH. */
+  amount?: number | null;
   fiat: string;
   accountNumber: string;
   bankName: string;
@@ -69,7 +70,7 @@ export async function createDraft(input: DraftInput) {
 
   const data = {
     userId: input.userId,
-    amount: input.amount,
+    amount: input.amount ?? null,
     fiat: input.fiat,
     accountNumber: input.accountNumber,
     bankName: input.bankName,
@@ -102,6 +103,20 @@ export async function liveDraft(chatId: number | string) {
 
 export async function clearDraft(chatId: number | string): Promise<void> {
   await prisma.telegramDraft.deleteMany({ where: { chatId: String(chatId) } });
+}
+
+/**
+ * Fill in the amount on a draft that was only missing that.
+ *
+ * The photo told us who; this message tells us how much. Asking the user to
+ * repeat an account number they've already shown us is exactly the retyping
+ * the camera was meant to remove.
+ */
+export async function setDraftAmount(chatId: number | string, amount: number) {
+  return prisma.telegramDraft.update({
+    where: { chatId: String(chatId) },
+    data: { amount, attempts: 0, expiresAt: new Date(Date.now() + DRAFT_TTL_MS) },
+  });
 }
 
 /** The confirmation text shown before the PIN is asked for. */

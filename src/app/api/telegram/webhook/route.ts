@@ -14,6 +14,7 @@ import {
   sendDraft,
   bumpAttempts,
   MAX_PIN_ATTEMPTS,
+  setDraftAmount,
 } from "@/lib/telegram-transfer";
 import { answerFaq } from "@/lib/assistant/faq";
 import { assistantRules, ttipKnowledge } from "@/lib/assistant/knowledge";
@@ -269,6 +270,10 @@ async function handleMedia(chatId: number, m: NonNullable<Update["message"]>): P
     return "";
   }
   if (!amount) {
+    // Remember WHO while we ask HOW MUCH. Making the user repeat an account
+    // number they've just photographed is exactly the retyping the camera was
+    // supposed to remove — and it's what made Ada look like she'd forgotten.
+    await createDraft({ userId: linked.id, chatId, fiat: "NGN", accountNumber: found.accountNumber, bankName: bank });
     await sendMessage(
       chatId,
       `Got it — **${found.accountNumber}** at **${bank}**${found.printedName ? ` (${found.printedName})` : ""}.\n\nHow much should I send?`,
@@ -316,6 +321,22 @@ async function matchBeneficiary(userId: string, text: string) {
 }
 
 async function handleTransferIntent(chatId: number, userId: string, text: string): Promise<boolean> {
+  // A recipient we're already holding — from a photo, or from a request that
+  // named the account but not the amount. Answering "1,200" should finish it,
+  // not start the conversation again.
+  const pending = await liveDraft(chatId);
+  if (pending && pending.amount === null) {
+    // A question that happens to contain a number is not an answer to "how
+    // much?" — "what's 1000 naira in dollars" must not become a transfer.
+    const asking = /\b(what|why|how|when|where|which|can i|do i|is it|does)\b/i.test(text);
+    const said = asking ? null : parseAmount(text);
+    if (said) {
+      const filled = await setDraftAmount(chatId, said);
+      await sendMessage(chatId, draftPrompt(filled));
+      return true;
+    }
+  }
+
   const intent = parseTransferIntent(text);
   if (!intent || !intent.amount) return false;
 
@@ -470,7 +491,10 @@ export async function POST(req: Request) {
   // if everything after this line goes wrong.
   if (LOOKS_LIKE_PIN.test(text) && messageId) {
     const draft = await liveDraft(chatId);
-    if (draft) {
+    // Only when the draft is actually awaiting a PIN. A draft still waiting to
+    // be told the amount would otherwise swallow "1200" as a PIN — deleting the
+    // message and failing the transfer with a wrong-PIN error.
+    if (draft && draft.amount !== null) {
       const wiped = messageId ? await deleteMessage(chatId, messageId) : false;
       await handlePin(chatId, text, draft, wiped);
       return NextResponse.json({ ok: true });
