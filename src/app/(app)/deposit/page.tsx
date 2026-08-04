@@ -179,23 +179,37 @@ export default function DepositPage() {
 
               {/* The bank charges us to collect this money, so the deposit fee
                   has to be stated up front — not discovered in the balance. */}
-              {depFee && depFee.pct > 0 && (
-                <div className="mt-3 flex flex-col gap-1.5 text-[12.5px] text-white/55 px-1">
-                  <div className="flex justify-between">
-                    <span>Deposit fee</span>
-                    <b className="text-white font-grotesk">
-                      {(depFee.pct * 100).toFixed(1)}%
-                      {depFee.cap !== null && ` · max ${formatFiat(depFee.cap, fiat, { decimals: 0 })}`}
-                    </b>
+              {depFee && (() => {
+                const flat = depFee.flat;
+                const fee =
+                  flat !== undefined ? flat : Math.min(Math.ceil(10000 * depFee.pct), depFee.cap ?? Infinity);
+                // Free deposits deserve to be said out loud — it's a reason to
+                // fund the account, not a line to hide.
+                if (fee <= 0) {
+                  return (
+                    <div className="mt-3 flex justify-between text-[12.5px] text-white/55 px-1">
+                      <span>Deposit fee</span>
+                      <b className="text-good font-grotesk">Free</b>
+                    </div>
+                  );
+                }
+                return (
+                  <div className="mt-3 flex flex-col gap-1.5 text-[12.5px] text-white/55 px-1">
+                    <div className="flex justify-between">
+                      <span>Deposit fee</span>
+                      <b className="text-white font-grotesk">
+                        {flat !== undefined
+                          ? `${formatFiat(flat, fiat, { decimals: 0 })} per deposit`
+                          : `${(depFee.pct * 100).toFixed(1)}%${depFee.cap !== null ? ` · max ${formatFiat(depFee.cap, fiat, { decimals: 0 })}` : ""}`}
+                      </b>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Send {formatFiat(10000, fiat, { decimals: 0 })}, you get</span>
+                      <b className="text-good font-grotesk">{formatFiat(10000 - fee, fiat, { decimals: 0 })}</b>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span>Send {formatFiat(10000, fiat, { decimals: 0 })}, you get</span>
-                    <b className="text-good font-grotesk">
-                      {formatFiat(10000 - Math.min(Math.ceil(10000 * depFee.pct), depFee.cap ?? Infinity), fiat, { decimals: 0 })}
-                    </b>
-                  </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
           ) : state.user.kycStatus === "verified" ? (
             <div className="bg-surface border border-white/[.08] rounded-[22px] p-5">

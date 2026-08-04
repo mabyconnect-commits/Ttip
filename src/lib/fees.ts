@@ -106,10 +106,33 @@ export function providerCollectionFee(amountFiat: number, currency: string, pct:
   return cap === null ? raw : Math.min(raw, cap);
 }
 
-/** The markup added on top of the provider's collection cost (default 20%). */
+/**
+ * Markup on top of the provider's collection cost. DEFAULT 0 — recover the
+ * cost, don't profit on it.
+ *
+ * A deposit fee is the one charge levied at the moment someone is trying to
+ * GIVE you money, and it's the gateway to every other stream: that ₦10,000,
+ * once swapped, earns ~1.8% spread — many times the cost of collecting it.
+ * Marking the collection up taxes the thing you want more of.
+ */
 export function depositFeeMarkup(): number {
   const raw = Number(process.env.DEPOSIT_FEE_MARKUP);
-  return Number.isFinite(raw) && raw >= 0 ? raw : 0.2;
+  return Number.isFinite(raw) && raw >= 0 ? raw : 0;
+}
+
+/**
+ * A FLAT deposit fee, which is how dedicated virtual accounts are usually
+ * billed — a fixed amount per inflow, not a percentage. When set, it replaces
+ * the percentage entirely.
+ *
+ * `DEPOSIT_FEE_FLAT_<CODE>`, e.g. DEPOSIT_FEE_FLAT_NGN=50. Set it to 0 to make
+ * deposits free.
+ */
+export function depositFeeFlat(currency: string): number | null {
+  const raw = process.env[`DEPOSIT_FEE_FLAT_${(currency ?? "").toUpperCase()}`];
+  if (raw === undefined) return null;
+  const v = Number(raw);
+  return Number.isFinite(v) && v >= 0 ? v : null;
 }
 
 /**
@@ -126,6 +149,12 @@ export function depositFeeMarkup(): number {
  */
 export function depositFee(amountFiat: number, currency: string, pct: number): number {
   if (!(amountFiat > 0)) return 0;
+
+  // A flat fee, when configured, wins — it's how virtual-account inflows are
+  // actually billed, and it's what users expect from a Nigerian bank transfer.
+  const flat = depositFeeFlat(currency);
+  if (flat !== null) return Math.min(flat, amountFiat);
+
   const cost = providerCollectionFee(amountFiat, currency, pct);
   const withMarkup = Math.ceil(cost * (1 + depositFeeMarkup()));
   return Math.min(withMarkup, amountFiat);
@@ -141,13 +170,17 @@ export function depositFee(amountFiat: number, currency: string, pct: number): n
  * screen the quoted fee has to be the charged fee.
  */
 export interface DepositFeeSchedule {
-  /** Fraction of the deposit, markup included. */
+  /** Fraction of the deposit, markup included. 0 when a flat fee applies. */
   pct: number;
   /** Maximum fee in that currency, markup included; null when uncapped. */
   cap: number | null;
+  /** A fixed fee per deposit, when configured. Overrides `pct`. */
+  flat?: number;
 }
 
 export function depositFeeSchedule(currency: string, pct: number): DepositFeeSchedule {
+  const flat = depositFeeFlat(currency);
+  if (flat !== null) return { pct: 0, cap: null, flat };
   const markup = 1 + depositFeeMarkup();
   const cap = collectionFeeCap(currency);
   return { pct: pct * markup, cap: cap === null ? null : Math.ceil(cap * markup) };

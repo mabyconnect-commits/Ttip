@@ -62,7 +62,7 @@ export interface AppState {
   config?: {
     payments: "live" | "demo" | "disabled";
     /** Deposit fee resolved on the server, so the quote matches the charge. */
-    depositFee?: { pct: number; cap: number | null };
+    depositFee?: { pct: number; cap: number | null; flat?: number };
   };
   receipt?: any;
 }

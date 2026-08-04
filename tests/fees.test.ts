@@ -78,15 +78,37 @@ test("the markup is applied identically in every currency", () => {
 // A fiat deposit used to credit the full amount while the provider still billed
 // us ~1.5% to collect it, so every deposit drained the float.
 
-test("a fiat deposit is charged the provider's cost plus the markup", () => {
-  // ₦10,000 at 1.5% = ₦150 cost, +20% markup = ₦180.
-  assert.equal(depositFee(10000, "NGN", 0.015), 180);
+test("a fiat deposit recovers the provider's cost, with no markup by default", () => {
+  // ₦10,000 at 1.5% = ₦150 cost. Marking that up taxes the one action we most
+  // want people to take, so the default markup is 0.
+  assert.equal(depositFee(10000, "NGN", 0.015), 150);
+});
+
+test("a flat deposit fee overrides the percentage", () => {
+  // Virtual-account inflows are billed per transfer, not as a percentage.
+  process.env.DEPOSIT_FEE_FLAT_NGN = "50";
+  try {
+    assert.equal(depositFee(10000, "NGN", 0.015), 50);
+    assert.equal(depositFee(1_000_000, "NGN", 0.015), 50, "flat means flat");
+    assert.equal(depositFeeSchedule("NGN", 0.015).flat, 50);
+  } finally {
+    delete process.env.DEPOSIT_FEE_FLAT_NGN;
+  }
+});
+
+test("deposits can be made free outright", () => {
+  process.env.DEPOSIT_FEE_FLAT_NGN = "0";
+  try {
+    assert.equal(depositFee(10000, "NGN", 0.015), 0);
+  } finally {
+    delete process.env.DEPOSIT_FEE_FLAT_NGN;
+  }
 });
 
 test("the deposit fee is capped, so a large deposit isn't gouged", () => {
   // Flutterwave caps NGN collection at ₦2,000 however large the transfer, so an
   // uncapped 1.5% on ₦1,000,000 would charge ₦18,000 against a ₦2,000 cost.
-  assert.equal(depositFee(1_000_000, "NGN", 0.015), Math.ceil(2000 * 1.2));
+  assert.equal(depositFee(1_000_000, "NGN", 0.015), 2000);
   assert.ok(depositFee(1_000_000, "NGN", 0.015) < 1_000_000 * 0.015);
 });
 
@@ -107,7 +129,7 @@ test("the quoted schedule matches what is actually charged", () => {
 
 test("an uncapped currency charges the straight percentage", () => {
   assert.equal(depositFeeSchedule("GHS", 0.02).cap, null);
-  assert.equal(depositFee(1000, "GHS", 0.02), Math.ceil(1000 * 0.02 * 1.2));
+  assert.equal(depositFee(1000, "GHS", 0.02), Math.ceil(1000 * 0.02));
 });
 
 // ---- bill service fee -------------------------------------------------------
