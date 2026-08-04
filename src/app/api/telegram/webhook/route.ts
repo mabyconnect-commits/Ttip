@@ -4,6 +4,7 @@ import { sendMessage, sendTyping, deleteMessage, downloadFile, sendPhoto, telegr
 import { renderReceiptPng } from "@/lib/receipt-svg";
 import { transferFee } from "@/lib/pricing";
 import { parseTransferIntent, parseBankName, parseAmount, parseAccountNumber, transferParts } from "@/lib/assistant/intent";
+import { fillFromReply, draftGap } from "@/lib/assistant/draft-fill";
 import { extractPaymentFromImage, imageMediaType, resolveImageType, isHeic } from "@/lib/assistant/vision";
 import { speechEnabled, transcribe } from "@/lib/assistant/speech";
 import { prisma } from "@/lib/db";
@@ -17,6 +18,7 @@ import {
   bumpAttempts,
   MAX_PIN_ATTEMPTS,
   setDraftAmount,
+  setDraftBank,
   createCryptoDraft,
 } from "@/lib/telegram-transfer";
 import { parseCryptoAddress, FAMILY_ASSETS, FAMILY_NETWORK, shortAddress, type ChainFamily } from "@/lib/assistant/crypto-address";
@@ -131,6 +133,10 @@ async function reply(
                 `If they want to send but left something out, ask for the missing piece: the amount, the ` +
                 `account number, or the bank. Do not tell them transfers are unavailable here, and never ` +
                 `quote an account number or amount you were not given.\n` +
+                `The app holds what it already has and takes the pieces in any order, across as many ` +
+                `messages as it takes — so NEVER ask them to repeat it "as one line", in a format, or ` +
+                `any other shape, and never mention a parser. Ask the one short question and stop. If a ` +
+                `confirmation didn't appear, say what you still need, not how to phrase it.\n` +
                 `Crypto sends work here too: the user pastes a wallet address or sends a photo of ` +
                 `a QR code, and says how much. Never read, repeat or complete a wallet address ` +
                 `yourself — a decoder and a parser handle those, and a single wrong character ` +
@@ -296,12 +302,12 @@ async function handleMedia(chatId: number, m: NonNullable<Update["message"]>): P
     // A QR that isn't a wallet address may still be a bank account written out.
     const fromQr = parseAccountNumber(qr);
     if (fromQr) {
-      const bank = parseBankName(`${caption} ${qr}`, NIGERIAN_BANKS.map((b) => b.name));
+      const bank = parseBankName(`${caption} ${qr}`, NIGERIAN_BANKS.map((b) => b.name)) ?? null;
       const amt = parseAmount(caption);
-      if (bank) {
+      {
         await createDraft({ userId: linked.id, chatId, amount: amt, fiat: "NGN", accountNumber: fromQr, bankName: bank });
         const d = await liveDraft(chatId);
-        if (d) await say(chatId, amt ? draftPrompt(d) : `Got it — **${fromQr}** at **${bank}**.\n\nHow much should I send?`);
+        if (d) await say(chatId, bank && amt ? draftPrompt(d) : missingPiece(d));
         return "";
       }
     }
@@ -321,28 +327,19 @@ async function handleMedia(chatId: number, m: NonNullable<Update["message"]>): P
   const amount = parseAmount(caption) ?? found.amount;
   const bank = parseBankName(caption, NIGERIAN_BANKS.map((b) => b.name)) ?? found.bankName;
 
-  if (!bank) {
-    await say(
-      chatId,
-      `I read the account number **${found.accountNumber}** but not the bank. Which bank is it?`,
-    );
-    return "";
-  }
-  if (!amount) {
-    // Remember WHO while we ask HOW MUCH. Making the user repeat an account
-    // number they've just photographed is exactly the retyping the camera was
-    // supposed to remove — and it's what made Ada look like she'd forgotten.
-    await createDraft({ userId: linked.id, chatId, fiat: "NGN", accountNumber: found.accountNumber, bankName: bank });
-    await say(
-      chatId,
-      `Got it — **${found.accountNumber}** at **${bank}**${found.printedName ? ` (${found.printedName})` : ""}.\n\nHow much should I send?`,
-    );
-    return "";
-  }
-
-  await createDraft({ userId: linked.id, chatId, amount, fiat: "NGN", accountNumber: found.accountNumber, bankName: bank });
+  // Whatever the photo gave us is held — even just the number. Asking a
+  // question and remembering nothing is what made the next answer land
+  // nowhere; the account, the bank and the amount can now arrive in any order.
+  await createDraft({
+    userId: linked.id,
+    chatId,
+    amount,
+    fiat: "NGN",
+    accountNumber: found.accountNumber,
+    bankName: bank ?? null,
+  });
   const draft = await liveDraft(chatId);
-  if (draft) await say(chatId, draftPrompt(draft));
+  if (draft) await say(chatId, draft.bankName && draft.amount !== null ? draftPrompt(draft) : missingPiece(draft));
   return "";
 }
 
@@ -440,6 +437,26 @@ async function handleCryptoAddress(
   return true;
 }
 
+/**
+ * Ask for the one thing still missing — and show what is already held.
+ *
+ * Repeating the account back matters: it is how the user knows Ada kept it,
+ * and it is their chance to catch a digit the transcriber invented.
+ */
+function missingPiece(d: {
+  amount: unknown;
+  accountNumber: string | null;
+  bankName: string | null;
+  resolvedName: string | null;
+}): string {
+  const who = `**${d.accountNumber}**${d.bankName ? ` at **${d.bankName}**` : ""}${
+    d.resolvedName ? ` (${d.resolvedName})` : ""
+  }`;
+  if (!d.bankName) return `Got it — **${d.accountNumber}**.\n\nWhich bank is it?`;
+  if (d.amount === null) return `Got it — ${who}.\n\nHow much should I send?`;
+  return `Got it — ${who}.`;
+}
+
 async function handleTransferIntent(chatId: number, userId: string, text: string): Promise<boolean> {
   // A wallet address anywhere in the message routes to the crypto path. Checked
   // before the naira parser, because a NUBAN can't look like a chain address but
@@ -447,18 +464,25 @@ async function handleTransferIntent(chatId: number, userId: string, text: string
   const crypto = parseCryptoAddress(text);
   if (crypto) return handleCryptoAddress(chatId, userId, crypto.address, crypto.family, text);
 
-  // A recipient we're already holding — from a photo, or from a request that
-  // named the account but not the amount. Answering "1,200" should finish it,
-  // not start the conversation again.
+  // A transfer we're part-way through — from a photo, or from a request that
+  // gave one piece at a time. Whatever this message adds gets filled in, in
+  // whatever order it arrives: an account, then a bank, then an amount, or any
+  // other way round. Every question Ada asks has to be answerable with just
+  // the answer.
   const pending = await liveDraft(chatId);
-  if (pending && pending.amount === null) {
-    // A question that happens to contain a number is not an answer to "how
-    // much?" — "what's 1000 naira in dollars" must not become a transfer.
-    const asking = /\b(what|why|how|when|where|which|can i|do i|is it|does)\b/i.test(text);
-    const said = asking ? null : parseAmount(text);
-    if (said) {
-      const filled = await setDraftAmount(chatId, said);
-      await say(chatId, draftPrompt(filled));
+  if (pending && draftGap({ ...pending, amount: pending.amount === null ? null : Number(pending.amount) })) {
+    const add = fillFromReply(
+      { ...pending, amount: pending.amount === null ? null : Number(pending.amount) },
+      text,
+      NIGERIAN_BANKS.map((b) => b.name),
+    );
+    let d = pending;
+    if (add.bank) d = (await setDraftBank(chatId, add.bank)) ?? d;
+    if (add.amount) d = await setDraftAmount(chatId, add.amount);
+
+    if (add.bank || add.amount) {
+      const state = { ...d, amount: d.amount === null ? null : Number(d.amount) };
+      await say(chatId, draftGap(state) ? missingPiece(d) : draftPrompt(d));
       return true;
     }
   }
@@ -469,19 +493,13 @@ async function handleTransferIntent(chatId: number, userId: string, text: string
   // to: Ada asked how much, was told, and then asked who all over again.
   const parts = transferParts(text);
   if (parts && parts.amount === null && parts.account) {
-    const bank = parseBankName(text, NIGERIAN_BANKS.map((b) => b.name));
-    if (!bank) {
-      await say(chatId, `Which bank is **${parts.account}**?`);
-      return true;
-    }
+    // The bank may be missing, and that is fine — the account is held either
+    // way. Asking "which bank?" while remembering nothing is what left the
+    // answer with nothing to attach to.
+    const bank = parseBankName(text, NIGERIAN_BANKS.map((b) => b.name)) ?? null;
     await createDraft({ userId, chatId, fiat: "NGN", accountNumber: parts.account, bankName: bank });
     const d = await liveDraft(chatId);
-    await say(
-      chatId,
-      `Got it — **${parts.account}** at **${bank}**${
-        d?.resolvedName ? ` (${d.resolvedName})` : ""
-      }.\n\nHow much should I send?`,
-    );
+    if (d) await say(chatId, missingPiece(d));
     return true;
   }
 
@@ -526,21 +544,14 @@ async function handleTransferIntent(chatId: number, userId: string, text: string
     return true;
   }
 
-  const bankName = parseBankName(text, NIGERIAN_BANKS.map((b) => b.name));
-  if (!bankName) {
-    await say(
-      chatId,
-      `Which bank is ${intent.account}? Say it like *"send ₦${intent.amount.toLocaleString(
-        "en-US",
-      )} to ${intent.account} Opay"* and I'll confirm the name first.`,
-    );
-    return true;
-  }
-
+  // The bank can be missing here too — "send 1,500 to 9136214038" is a
+  // perfectly normal thing to say. Hold the amount and the account, ask the
+  // one question, and the next word finishes it.
+  const bankName = parseBankName(text, NIGERIAN_BANKS.map((b) => b.name)) ?? null;
   await createDraft({ userId, chatId, amount: intent.amount, fiat, accountNumber: intent.account, bankName });
 
   const draft = await liveDraft(chatId);
-  if (draft) await say(chatId, draftPrompt(draft));
+  if (draft) await say(chatId, bankName ? draftPrompt(draft) : missingPiece(draft));
   return true;
 }
 
@@ -694,9 +705,9 @@ export async function POST(req: Request) {
   if (LOOKS_LIKE_PIN.test(text) && messageId) {
     const draft = await liveDraft(chatId);
     // Only when the draft is actually awaiting a PIN. A draft still waiting to
-    // be told the amount would otherwise swallow "1200" as a PIN — deleting the
-    // message and failing the transfer with a wrong-PIN error.
-    if (draft && draft.amount !== null) {
+    // be told the amount — or which bank — would otherwise swallow "1200" as a
+    // PIN, deleting the message and failing with a wrong-PIN error.
+    if (draft && draft.amount !== null && (draft.kind === "crypto" || draft.bankName)) {
       const wiped = messageId ? await deleteMessage(chatId, messageId) : false;
       await handlePin(chatId, text, draft, wiped);
       return NextResponse.json({ ok: true });

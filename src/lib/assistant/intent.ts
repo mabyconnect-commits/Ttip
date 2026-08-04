@@ -19,6 +19,8 @@
  * Dependency-free so it's unit-testable.
  */
 
+import { spokenBank } from "./bank-spoken";
+
 export interface TransferIntent {
   /** Amount in the user's display currency. */
   amount: number;
@@ -106,7 +108,10 @@ export function parseBankName(text: string, banks: readonly string[]): string | 
       .trim();
     if (key.length >= 3 && new RegExp(`(^|\\W)${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\W|$)`).test(q)) return b;
   }
-  return undefined;
+  // Then how people actually say it — "Money point", "o pay", "GT bank". A
+  // voice note becomes text through a transcriber that has never heard of
+  // Moniepoint, and that gap turned a one-sentence transfer into five.
+  return spokenBank(text, banks);
 }
 
 /** The destination, if the message names one. */

@@ -60,7 +60,8 @@ export interface DraftInput {
   amount?: number | null;
   fiat: string;
   accountNumber: string;
-  bankName: string;
+  /** Null while we know the account but not yet the bank. */
+  bankName: string | null;
 }
 
 /** A crypto send: an address on a network, and an asset to send. */
@@ -101,9 +102,18 @@ export async function createCryptoDraft(input: CryptoDraftInput) {
   await prisma.telegramDraft.upsert({ where: { chatId }, create: { chatId, ...data }, update: data });
 }
 
-/** Looks the account up at the bank, then stores it as the chat's live draft. */
+/**
+ * Looks the account up at the bank, then stores it as the chat's live draft.
+ *
+ * The bank may be missing: someone reads out an account number and names the
+ * bank in the next breath. Holding what we have and asking for the rest is the
+ * only way that conversation can work — asking a question and remembering
+ * nothing is what made Ada seem to forget the number she had just repeated.
+ */
 export async function createDraft(input: DraftInput) {
-  const resolved = await resolveAccountName(input.bankName, input.accountNumber, input.fiat).catch(() => null);
+  const resolved = input.bankName
+    ? await resolveAccountName(input.bankName, input.accountNumber, input.fiat).catch(() => null)
+    : null;
   const chatId = String(input.chatId);
 
   const data = {
@@ -116,7 +126,7 @@ export async function createDraft(input: DraftInput) {
     fiat: input.fiat,
     accountNumber: input.accountNumber,
     bankName: input.bankName,
-    accountName: resolved ?? `${input.bankName} ${input.accountNumber}`,
+    accountName: resolved ?? `${input.bankName ?? ""} ${input.accountNumber}`.trim(),
     resolvedName: resolved,
     attempts: 0,
     expiresAt: new Date(Date.now() + DRAFT_TTL_MS),
@@ -158,6 +168,30 @@ export async function setDraftAmount(chatId: number | string, amount: number) {
   return prisma.telegramDraft.update({
     where: { chatId: String(chatId) },
     data: { amount, attempts: 0, expiresAt: new Date(Date.now() + DRAFT_TTL_MS) },
+  });
+}
+
+/**
+ * Fill in the bank on a draft that was only missing that.
+ *
+ * The name lookup happens here rather than at creation, because until there is
+ * a bank there is nobody to ask who owns the number.
+ */
+export async function setDraftBank(chatId: number | string, bankName: string) {
+  const id = String(chatId);
+  const draft = await prisma.telegramDraft.findUnique({ where: { chatId: id } });
+  if (!draft?.accountNumber) return draft;
+
+  const resolved = await resolveAccountName(bankName, draft.accountNumber, draft.fiat).catch(() => null);
+  return prisma.telegramDraft.update({
+    where: { chatId: id },
+    data: {
+      bankName,
+      resolvedName: resolved,
+      accountName: resolved ?? `${bankName} ${draft.accountNumber}`,
+      attempts: 0,
+      expiresAt: new Date(Date.now() + DRAFT_TTL_MS),
+    },
   });
 }
 
@@ -248,6 +282,17 @@ export async function sendDraft(
 ): Promise<SendOutcome> {
   const amount = Number(draft.amount);
   const money = (n: number) => `${draft.fiat === "NGN" ? "₦" : draft.fiat + " "}${n.toLocaleString("en-US")}`;
+
+  // A bank draft can now exist before its bank is known — the account arrives
+  // in one breath and the bank in the next. Half a destination must never
+  // reach the payout path, whatever asked it to.
+  if (draft.kind !== "crypto" && !draft.bankName) {
+    return {
+      ok: false,
+      wrongPin: false,
+      message: `I still don't know which bank ${draft.accountNumber ?? "that account"} is with — tell me the bank and I'll set it up.`,
+    };
+  }
 
   const cap = telegramMaxTransfer();
   // The cap is a naira ceiling; a crypto amount is not naira, so it is governed
