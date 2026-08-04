@@ -125,3 +125,33 @@ test("every network is recognised", () => {
     assert.equal(parseBillIntent(text)?.network, net, text);
   }
 });
+
+/* ---- pasting an account number straight into the chat ---- */
+
+import { parseAccountNumber, parseBankName } from "../src/lib/assistant/intent";
+
+test("reads an account number pasted into the message", () => {
+  // The market case: photograph a vendor's account, paste it, send.
+  const i = parseTransferIntent("send 5k to this account 0123456789");
+  assert.ok(i);
+  assert.equal(i.amount, 5000);
+  assert.equal(i.account, "0123456789");
+});
+
+test("a pasted account number is never read as the amount", () => {
+  const i = parseTransferIntent("send 5000 to 0123456789");
+  assert.ok(i);
+  assert.equal(i.amount, 5000, "0123456789 must not become the amount");
+  assert.equal(i.account, "0123456789");
+});
+
+test("an 11-digit phone number is not an account number", () => {
+  assert.equal(parseAccountNumber("send to 08113866493"), undefined);
+});
+
+test("a bank named alongside the number is picked up", () => {
+  const banks = ["Opay (Paycom)", "GTBank", "Access Bank", "Kuda Bank"];
+  assert.equal(parseBankName("send 5000 to 0123456789 opay", banks), "Opay (Paycom)");
+  assert.equal(parseBankName("send 5000 to 0123456789 kuda", banks), "Kuda Bank");
+  assert.equal(parseBankName("send 5000 to 0123456789", banks), undefined);
+});

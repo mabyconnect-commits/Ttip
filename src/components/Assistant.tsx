@@ -46,6 +46,8 @@ interface TransferDraft {
   beneficiaryName: string;
   accountNumber: string;
   bankName: string | null;
+  /** The name the BANK returned. Null when it couldn't be confirmed. */
+  resolvedName?: string | null;
 }
 
 interface Msg {
@@ -370,8 +372,21 @@ export function Assistant() {
                       <div className="text-white/60 text-[12px] mt-0.5">
                         {m.draft.kind === "bill"
                           ? `${m.draft.provider} · ${m.draft.phone}${m.draft.category === "data" ? ` · ₦${m.draft.amountNgn.toLocaleString()}` : ""}`
-                          : `${m.draft.beneficiaryName} · ${m.draft.accountNumber}`}
+                          : `${m.draft.beneficiaryName} · ${m.draft.accountNumber}${m.draft.bankName ? ` · ${m.draft.bankName}` : ""}`}
                       </div>
+                      {/* A pasted account the bank couldn't confirm is the one
+                          case worth stopping on — say so instead of implying
+                          the name was checked. */}
+                      {m.draft.kind === "transfer" && m.draft.resolvedName === null && (
+                        <div className="mt-2 text-warn text-[11.5px] leading-[1.4]">
+                          Account name not confirmed — check the number is right.
+                        </div>
+                      )}
+                      {m.draft.kind === "transfer" && m.draft.resolvedName && (
+                        <div className="mt-2 text-good text-[11.5px]">
+                          Bank confirms: {m.draft.resolvedName}
+                        </div>
+                      )}
                       <div className="mt-2 text-good font-grotesk font-semibold text-[12.5px]">
                         Review &amp; confirm with PIN →
                       </div>

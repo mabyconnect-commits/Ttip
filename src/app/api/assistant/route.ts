@@ -7,7 +7,9 @@ import { ttipKnowledge, assistantRules, ASSISTANT_NAME } from "@/lib/assistant/k
 import { buildUserContext } from "@/lib/assistant/context";
 import { cleanAssistantText } from "@/lib/assistant/sanitize";
 import { answerFaq } from "@/lib/assistant/faq";
-import { parseTransferIntent, parseBillIntent } from "@/lib/assistant/intent";
+import { parseTransferIntent, parseBillIntent, parseBankName } from "@/lib/assistant/intent";
+import { NIGERIAN_BANKS } from "@/lib/banks";
+import { resolveAccountName } from "@/lib/settlement";
 import { buildBillDraft } from "@/lib/assistant/bill-draft";
 import { bankAliases } from "@/lib/bank-aliases";
 import { prisma } from "@/lib/db";
@@ -160,6 +162,48 @@ export async function POST(req: Request) {
 
       const beneficiaries = [...saved.map((b) => ({ name: b.name, detail: b.detail, handle: b.handle })), ...history];
       const fiat = me?.defaultFiat ?? "NGN";
+
+      // A NUBAN pasted straight into the chat — photograph a vendor's account at
+      // the market, paste it, "send 5k to this account". This is the point of
+      // sending through Ada, so it can't be limited to accounts already saved.
+      //
+      // The safety here isn't refusing the number; it's RESOLVING it. The bank
+      // is asked who owns the account and the name is put on the confirmation,
+      // so the user sees who they're actually paying before the PIN — the same
+      // check the Send out screen does.
+      if (intent.account) {
+        const known = beneficiaries.find((b) => b.detail === intent.account);
+        const named = parseBankName(question, NIGERIAN_BANKS.map((b) => b.name));
+        const bankName = named ?? known?.handle ?? null;
+
+        if (!bankName) {
+          return streamText(
+            `Which bank is ${intent.account}? Say it like "send ${fiat} ${intent.amount.toLocaleString("en-US")} to ${intent.account} Opay" and I'll check the name before anything moves.`,
+            false,
+          );
+        }
+
+        const resolved = await resolveAccountName(bankName, intent.account, fiat).catch(() => null);
+        const payee = resolved ?? known?.name ?? null;
+
+        return streamText(
+          resolved
+            ? `${intent.account} at ${bankName} is ${resolved}. Sending ${fiat} ${intent.amount.toLocaleString("en-US")} — check the name and confirm with your PIN.`
+            : `Ready to send ${fiat} ${intent.amount.toLocaleString("en-US")} to ${intent.account} at ${bankName}. ` +
+              `I couldn't confirm the account name, so check the number carefully before you confirm.`,
+          false,
+          {
+            kind: "transfer",
+            amount: intent.amount,
+            fiat,
+            beneficiaryName: payee ?? `${bankName} ${intent.account}`,
+            accountNumber: intent.account,
+            bankName,
+            /** Null when the bank couldn't confirm it — the UI warns. */
+            resolvedName: resolved,
+          },
+        );
+      }
       const wanted = (intent.target ?? "").replace(/^@/, "").toLowerCase();
       // Match on the person's name, the account number, OR the bank — "my
       // GTBank account" names the bank, not the payee, and that's how people

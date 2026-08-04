@@ -24,6 +24,10 @@ export interface TransferIntent {
   amount: number;
   /** Raw destination text, e.g. "gtbank", "@kola", "my sister". */
   target: string | null;
+  /** A 10-digit NUBAN pasted straight into the message. */
+  account?: string;
+  /** A bank named alongside it, e.g. "0123456789 Opay". */
+  bank?: string;
 }
 
 const VERBS = [
@@ -70,6 +74,41 @@ export function parseAmount(text: string): number | null {
   return null;
 }
 
+/**
+ * A 10-digit Nigerian account number pasted into the message.
+ *
+ * This is the market case: photograph a vendor's account, paste it in, "send 5k
+ * to this account". Deliberately strict about length — 10 digits is a NUBAN,
+ * and anything else is far more likely to be an amount or a phone number.
+ */
+export function parseAccountNumber(text: string): string | undefined {
+  const q = normalize(text).replace(/[\s-]/g, "");
+  // Not preceded or followed by another digit, so a longer number isn't sliced.
+  const m = q.match(/(?<!\d)(\d{10})(?!\d)/);
+  if (!m) return undefined;
+  // A Nigerian mobile number is 11 digits starting 0 — already excluded by the
+  // length check, but a 10-digit string starting 0 is still a valid NUBAN.
+  return m[1];
+}
+
+/** A bank named in the message, matched against the ones we can pay. */
+export function parseBankName(text: string, banks: readonly string[]): string | undefined {
+  const q = normalize(text);
+  // Longest name first, so "Access Bank" wins over "Access".
+  const sorted = [...banks].sort((a, b) => b.length - a.length);
+  for (const b of sorted) {
+    // "Opay (Paycom)" is written as "opay"; "Access Bank" as "access". Drop the
+    // parenthetical alias and the generic words, then match what's left.
+    const key = normalize(b)
+      .replace(/\(.*?\)/g, " ")
+      .replace(/\b(bank|plc|limited|ltd|mfb|microfinance)\b/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (key.length >= 3 && new RegExp(`(^|\\W)${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\W|$)`).test(q)) return b;
+  }
+  return undefined;
+}
+
 /** The destination, if the message names one. */
 export function parseTarget(text: string): string | null {
   const q = normalize(text);
@@ -98,10 +137,14 @@ export function parseTransferIntent(text: string): TransferIntent | null {
   // A question about how transfers work is not a request to make one.
   if (/\b(how|what|why|where|can i|do i|does|explain|cost|fee|fees|limit)\b/.test(q)) return null;
 
-  const amount = parseAmount(q);
+  // Read the amount from the text WITHOUT the account number, so a pasted
+  // 10-digit NUBAN can never be mistaken for what to send.
+  const account = parseAccountNumber(q);
+  const forAmount = account ? q.replace(account, " ") : q;
+  const amount = parseAmount(forAmount);
   if (amount === null) return null;
 
-  return { amount, target: parseTarget(q) };
+  return { amount, target: parseTarget(q), account };
 }
 
 
