@@ -169,3 +169,23 @@ test("a bank's initial is not a scale — an account number is not an amount", (
   assert.equal(parseAmount("pay 2 million"), 2_000_000);
   assert.equal(parseAmount("1.5m please"), 1_500_000);
 });
+
+test("a number welded to letters is not an amount", () => {
+  // A wallet address ending in digits was read as an amount: "…4438f440" became
+  // 440. A QR could therefore produce a figure nobody said, on the one kind of
+  // transfer that cannot be reversed.
+  assert.equal(parseAmount("0x742d35Cc6634C0532925a3b844Bc454e4438f440"), null);
+  assert.equal(parseAmount("1A1zP1eP5QGefi2DMPTfTL5SLmv7Divf12"), null);
+  assert.equal(parseAmount("solana:HynExSGr3kqifPWGWKjgowbFZtjSxCkdkTyo4FdsNg25"), null);
+  assert.equal(parseAmount("send to HynExSGr3kqifPWGWKjgowbFZtjSxCkdkTyo4FdsNgzb"), null);
+});
+
+test("the naira still reads without its symbol", () => {
+  // Ruling out digits stuck to letters must not lose "N5000", which is how the
+  // naira gets typed on a keyboard without ₦.
+  assert.equal(parseAmount("N5000"), 5000);
+  assert.equal(parseAmount("N5,000"), 5000);
+  assert.equal(parseAmount("NGN 5,000"), 5000);
+  assert.equal(parseAmount("₦7,500"), 7500);
+  assert.equal(parseAmount("$20"), 20);
+});

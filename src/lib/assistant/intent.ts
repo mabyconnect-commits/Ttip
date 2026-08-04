@@ -61,12 +61,22 @@ export function parseAmount(text: string): number | null {
   // transcribed "0Point05 Solana", and the parser then skipped the 0 and read
   // the 05 — turning 0.05 into 5, a hundredfold error on a number nobody
   // checked because nobody typed it.
-  const q = normalize(text).replace(/(\d)\s*(?:point|dot)\s*(\d)/g, "$1.$2");
-  // The scale must be a word of its own. Without the \b, the "M" of
-  // "9136214038 Moniepoint" read as "million" and an account number became an
-  // amount of ₦9,136,214,038,000,000 — and, worse, gave a message that named no
-  // amount at all one that looked deliberate.
-  const re = /(?:[₦$£€]\s*)?(\d[\d,]*(?:\.\d+)?)\s*(k|m|thousand|million)?\b/g;
+  const q = normalize(text)
+    .replace(/(\d)\s*(?:point|dot)\s*(\d)/g, "$1.$2")
+    // "N5,000" and "NGN 5000" are how the naira is typed without its symbol.
+    // Stripped here so the rule below — a number must not be welded to letters
+    // — doesn't throw them away with the addresses.
+    .replace(/\b(?:ngn|n)\s*(?=\d)/g, " ");
+
+  // A number has to stand on its own.
+  //
+  // Digits stuck to letters belong to something else: a wallet address, an id,
+  // a token. "0x742d…438f440" ends in 440 and was read as an amount of 440, and
+  // a Solana address ending in digits did the same — so a QR could produce a
+  // figure nobody had said, on a transfer that cannot be reversed. The scale
+  // suffix must be a word of its own too: the "M" of "9136214038 Moniepoint"
+  // was read as "million", turning an account number into ₦9,136,214,038,000,000.
+  const re = /(?<![A-Za-z0-9.])(?:[₦$£€]\s*)?(\d[\d,]*(?:\.\d+)?)\s*(k|m|thousand|million)?(?![A-Za-z0-9])/g;
 
   for (const m of q.matchAll(re)) {
     const digits = m[1].replace(/,/g, "");
