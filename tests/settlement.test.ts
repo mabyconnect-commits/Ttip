@@ -64,6 +64,112 @@ test("parseDextopusDeposit marks a non-completed event pending", () => {
   assert.equal(d.status, "pending");
 });
 
+/* ------------------------------------------------------------------------
+   Regression: a user sent 0.4 SOL and was credited 0.4 USDC.
+
+   Two faults combined. The parser fell back from settlementAmountFormatted to
+   originAmountFormatted independently of the asset, so a settlement symbol
+   could carry an origin amount; and the webhook route then forced
+   deposit.asset to the treasury symbol without touching deposit.amount.
+   Either fault alone turns 0.4 SOL (~$60) into 0.4 USDC (~$0.40).
+   ------------------------------------------------------------------------ */
+
+test("parseDextopusDeposit keeps the origin and settlement pairs separate", () => {
+  const d = parseDextopusDeposit({
+    event: "deposit.completed",
+    data: {
+      userId: "user_sol",
+      requestId: "req_sol_1",
+      depositAddress: "SoLaNaAddr",
+      originAsset: "SOL",
+      originAmountFormatted: "0.4",
+      originChainId: "solana",
+      settlementAsset: "USDC",
+      settlementAmountFormatted: "62.1408",
+      settlementChainId: "solana",
+      status: "COMPLETED",
+    },
+  });
+
+  // Credit the settlement side — the real value received.
+  assert.equal(d.asset, "USDC");
+  assert.equal(d.amount, 62.1408);
+  // Carry the origin side for display — never credited.
+  assert.equal(d.originAsset, "SOL");
+  assert.equal(d.originAmount, 0.4);
+  // The bug itself: the credited amount must never be the origin amount.
+  assert.notEqual(d.amount, 0.4);
+});
+
+test("parseDextopusDeposit refuses to pair a settlement asset with an origin amount", () => {
+  // settlementAmountFormatted absent — the old code silently fell through to
+  // originAmountFormatted and produced "0.4 USDC". It must now throw.
+  assert.throws(
+    () =>
+      parseDextopusDeposit({
+        event: "deposit.completed",
+        data: {
+          requestId: "req_sol_2",
+          originAsset: "SOL",
+          originAmountFormatted: "0.4",
+          settlementAsset: "USDC",
+          status: "COMPLETED",
+        },
+      }),
+    /settlementAmountFormatted/,
+  );
+});
+
+test("parseDextopusDeposit will not credit when settlement is missing entirely", () => {
+  assert.throws(
+    () =>
+      parseDextopusDeposit({
+        event: "deposit.completed",
+        data: {
+          requestId: "req_sol_3",
+          originAsset: "SOL",
+          originAmountFormatted: "0.4",
+          status: "COMPLETED",
+        },
+      }),
+    /settlementAsset/,
+  );
+});
+
+test("parseDextopusDeposit handles a same-asset deposit with no conversion", () => {
+  const d = parseDextopusDeposit({
+    event: "deposit.completed",
+    data: {
+      requestId: "req_usdc",
+      originAsset: "USDC",
+      originAmountFormatted: "25",
+      settlementAsset: "USDC",
+      settlementAmountFormatted: "25",
+      status: "COMPLETED",
+    },
+  });
+  assert.equal(d.asset, "USDC");
+  assert.equal(d.amount, 25);
+  assert.equal(d.originAsset, "USDC");
+  assert.equal(d.originAmount, 25);
+});
+
+test("parseDextopusDeposit ignores a malformed origin amount but still credits settlement", () => {
+  const d = parseDextopusDeposit({
+    event: "deposit.completed",
+    data: {
+      requestId: "req_odd",
+      originAsset: "BTC",
+      originAmountFormatted: "not-a-number",
+      settlementAsset: "USDC",
+      settlementAmountFormatted: "1500.5",
+      status: "COMPLETED",
+    },
+  });
+  assert.equal(d.amount, 1500.5);
+  assert.equal(d.originAmount, undefined);
+});
+
 test("verifyDextopusSignature enforces the timestamp.body HMAC scheme", () => {
   process.env.DEXTOPUS_WEBHOOK_SECRET = "whsec_1";
   const body = JSON.stringify({ event: "deposit.completed", data: { requestId: "r" } });

@@ -1,19 +1,40 @@
-/** A crypto deposit, normalized across providers, ready to credit the ledger. */
+/**
+ * A crypto deposit, normalized across providers, ready to credit the ledger.
+ *
+ * A deposit has TWO sides and they must never be mixed:
+ *
+ *   origin      — what the user actually sent (0.4 SOL on Solana)
+ *   settlement  — what actually landed in treasury after the cross-chain
+ *                 conversion (e.g. 62.14 USDC)
+ *
+ * `asset`/`amount` are ALWAYS the settlement pair: that is the real value the
+ * platform received and therefore the only thing safe to credit. The origin
+ * pair is carried alongside purely so the user can be shown what they sent.
+ *
+ * Pairing an asset symbol from one side with an amount from the other is how
+ * 0.4 SOL once got credited as 0.4 USDC. Keep them together.
+ */
 export interface NormalizedDeposit {
   /** Provider id or on-chain tx hash — the idempotency key. Required. */
   externalId: string;
   /** The deposit address that received the funds (used to resolve the user). */
   address: string;
-  /** Asset symbol, e.g. USDT, USDC, BTC. */
+  /** SETTLEMENT asset symbol — what treasury received, e.g. USDC. */
   asset: string;
   /** Chain/network id, e.g. tron, bsc, ethereum, solana. */
   chain: string;
-  /** Amount of `asset` received. */
+  /** SETTLEMENT amount, denominated in `asset`. This is what gets credited. */
   amount: number;
   /** "confirmed" credits immediately; "pending" is recorded but not credited. */
   status: "confirmed" | "pending";
   /** Which provider produced this event. */
   provider: string;
+  /** ORIGIN asset symbol — what the user actually sent, e.g. SOL. Display only. */
+  originAsset?: string;
+  /** ORIGIN amount, denominated in `originAsset`. Display only — never credited. */
+  originAmount?: number;
+  /** The chain the user sent from, when it differs from the settlement chain. */
+  originChain?: string;
   /** Provider-supplied user id (e.g. Dextopus echoes the userId we set). */
   userId?: string;
   /** On-chain tx hash, for a block-explorer trace link. */

@@ -64,31 +64,68 @@ export function verifyDextopusSignature(
 }
 
 /**
- * Map a Dextopus webhook body to a NormalizedDeposit. What lands in your
- * treasury is the *settlement* asset (Dextopus cross-chain-settles the user's
- * origin asset to your configured treasury asset/address), so we credit that.
+ * Map a Dextopus webhook body to a NormalizedDeposit.
+ *
+ * Dextopus cross-chain-settles whatever the user sent (the *origin* asset) into
+ * our configured treasury asset (the *settlement* asset). Those are two
+ * different symbols with two different amounts, and this function keeps them
+ * strictly paired:
+ *
+ *   asset / amount             ← settlementAsset + settlementAmountFormatted
+ *   originAsset / originAmount ← originAsset + originAmountFormatted
+ *
+ * It deliberately does NOT fall back from one side to the other. A settlement
+ * symbol carrying an origin amount is exactly how 0.4 SOL got credited as
+ * 0.4 USDC — an incomplete settlement pair must fail loudly rather than
+ * silently resolve to a wrong number.
+ *
  * Only `deposit.completed` (status COMPLETED) is confirmed.
  */
 export function parseDextopusDeposit(body: unknown): NormalizedDeposit {
   const b = (body ?? {}) as { event?: string; data?: Record<string, unknown> };
   const d = b.data ?? {};
   const externalId = String(d.requestId ?? d.depositId ?? "");
-  const asset = String(d.settlementAsset ?? d.originAsset ?? "").toUpperCase();
-  const amount = Number(d.settlementAmountFormatted ?? d.originAmountFormatted ?? 0);
-  // Where the user actually sent from (origin) is what to show them.
-  const chain = String(d.originChainId ?? d.settlementChainId ?? "");
-  const confirmed = String(d.status ?? "").toUpperCase() === "COMPLETED" || b.event === "deposit.completed";
-  if (!externalId || !asset || !(amount > 0)) {
-    throw new Error("Invalid Dextopus payload: requestId, settlementAsset and a positive amount are required.");
+
+  // Settlement pair — read together, kept together. This is what we credit.
+  const asset = String(d.settlementAsset ?? "").toUpperCase();
+  const amount = Number(d.settlementAmountFormatted ?? NaN);
+
+  // Origin pair — what the user actually sent. Shown to them, never credited.
+  const originAsset = String(d.originAsset ?? "").toUpperCase() || undefined;
+  const rawOrigin = Number(d.originAmountFormatted ?? NaN);
+  const originAmount = Number.isFinite(rawOrigin) && rawOrigin > 0 ? rawOrigin : undefined;
+
+  const settlementChain = String(d.settlementChainId ?? "");
+  const originChain = String(d.originChainId ?? "") || undefined;
+  const confirmed =
+    String(d.status ?? "").toUpperCase() === "COMPLETED" || b.event === "deposit.completed";
+
+  if (!externalId) {
+    throw new Error("Invalid Dextopus payload: requestId is required.");
   }
+  // Both halves of the settlement pair, or nothing. Crediting an amount whose
+  // symbol we aren't certain of loses money in one direction or the other.
+  if (!asset || !Number.isFinite(amount) || !(amount > 0)) {
+    throw new Error(
+      `Invalid Dextopus payload for ${externalId}: settlementAsset and a positive ` +
+        `settlementAmountFormatted are both required. Got settlementAsset=` +
+        `${JSON.stringify(d.settlementAsset)} settlementAmountFormatted=` +
+        `${JSON.stringify(d.settlementAmountFormatted)}. Refusing to credit rather than guess.`,
+    );
+  }
+
   return {
     externalId,
     address: String(d.depositAddress ?? ""),
     asset,
-    chain,
+    // The chain the funds settled on; the origin chain is carried separately.
+    chain: settlementChain || originChain || "",
     amount,
     status: confirmed ? "confirmed" : "pending",
     provider: "dextopus",
+    originAsset,
+    originAmount,
+    originChain,
     userId: d.userId ? String(d.userId) : undefined,
     txHash: String(d.originTxHash ?? d.settlementTxHash ?? "") || undefined,
     chainId: Number(d.originChainId ?? d.settlementChainId) || undefined,

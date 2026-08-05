@@ -39,9 +39,32 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: true, ignored: "withdrawal" });
       }
       const deposit = parseDextopusDeposit(payload);
-      // Every Dextopus deposit cross-chain-settles to our treasury asset, so
-      // credit the user in that symbol (the payload may carry a mint address).
-      deposit.asset = (process.env.DEXTOPUS_SETTLEMENT_ASSET || deposit.asset).toUpperCase();
+
+      // Do NOT rewrite deposit.asset here. This used to force the symbol to
+      // DEXTOPUS_SETTLEMENT_ASSET while leaving `amount` untouched, which
+      // relabelled 0.4 SOL as 0.4 USDC — same number, different currency,
+      // ~$60 of value destroyed. The parser now returns a matched
+      // settlement asset+amount pair; if the provider ever sends a symbol we
+      // don't expect, refuse rather than rename it.
+      const expected = (process.env.DEXTOPUS_SETTLEMENT_ASSET || "").toUpperCase();
+      if (expected && deposit.asset !== expected) {
+        console.error("[deposit] settlement asset mismatch — not crediting", {
+          externalId: deposit.externalId,
+          got: deposit.asset,
+          expected,
+          amount: deposit.amount,
+          originAsset: deposit.originAsset,
+          originAmount: deposit.originAmount,
+        });
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `Settlement asset ${deposit.asset} does not match the configured treasury asset ${expected}. Held for review.`,
+          },
+          { status: 409 },
+        );
+      }
+
       const result = await creditDeposit(deposit);
       return NextResponse.json({ ok: true, ...result });
     }

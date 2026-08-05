@@ -90,15 +90,35 @@ export async function creditDeposit(
       // the liquidity engine can later sell it into the fiat float.
       await adjustTreasury(tx, deposit.asset, deposit.amount);
 
+      // The user sent (say) 0.4 SOL and treasury received USDC for it. Credit
+      // the settlement figure — that is the real value — but show them what
+      // they actually sent, because "0.4 USDC" is meaningless to someone who
+      // sent 0.4 SOL. assetIn/amountIn carry the origin side of the trade.
+      const convertedOnTheWay =
+        Boolean(deposit.originAsset) &&
+        typeof deposit.originAmount === "number" &&
+        deposit.originAmount > 0 &&
+        deposit.originAsset !== deposit.asset;
+
+      const originChainLabel = chainName(deposit.originChain ?? deposit.chain);
+
       await tx.transaction.create({
         data: {
           userId: resolvedUserId,
           type: "deposit",
           status: "completed",
+          ...(convertedOnTheWay
+            ? {
+                assetIn: deposit.originAsset,
+                amountIn: new Prisma.Decimal(deposit.originAmount as number),
+              }
+            : {}),
           assetOut: deposit.asset,
           amountOut: new Prisma.Decimal(deposit.amount),
           counterparty: "On-chain",
-          note: `Received ${deposit.asset} via ${chainName(deposit.chain)}`,
+          note: convertedOnTheWay
+            ? `Received ${deposit.originAmount} ${deposit.originAsset} via ${originChainLabel} — settled as ${deposit.amount} ${deposit.asset}`
+            : `Received ${deposit.asset} via ${chainName(deposit.chain)}`,
           emoji: "📥",
           meta: {
             chain: chainName(deposit.chain),
@@ -106,6 +126,13 @@ export async function creditDeposit(
             txHash: deposit.txHash,
             externalId: deposit.externalId,
             provider: deposit.provider,
+            // Both sides recorded, so a receipt or an audit can always
+            // reconstruct what was sent versus what was credited.
+            originAsset: deposit.originAsset,
+            originAmount: deposit.originAmount,
+            originChain: deposit.originChain ? chainName(deposit.originChain) : undefined,
+            settlementAsset: deposit.asset,
+            settlementAmount: deposit.amount,
           },
         },
       });

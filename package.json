@@ -2,7 +2,7 @@
   "name": "ttip",
   "version": "1.0.0",
   "private": true,
-  "description": "Ttip — crypto in, cash out, tip anyone. Swap BTC/ETH/USDT to African fiat and tip friends instantly.",
+  "description": "Ttip \u2014 crypto in, cash out, tip anyone. Swap BTC/ETH/USDT to African fiat and tip friends instantly.",
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && node scripts/setup-db.mjs && next build",
@@ -23,7 +23,8 @@
     "cap:ios": "cap sync ios && cap open ios",
     "cap:assets": "capacitor-assets generate --iconBackgroundColor '#07080D' --iconBackgroundColorDark '#07080D' --splashBackgroundColor '#07080D' --splashBackgroundColorDark '#07080D'",
     "telegram:setup": "node scripts/telegram-setup.mjs",
-    "telegram:status": "node scripts/telegram-setup.mjs --status"
+    "telegram:status": "node scripts/telegram-setup.mjs --status",
+    "repair:deposits": "tsx scripts/repair-mislabelled-deposits.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
