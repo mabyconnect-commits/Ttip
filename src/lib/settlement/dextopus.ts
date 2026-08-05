@@ -248,6 +248,56 @@ export async function resolveTokenAddress(
   return hit?.tokens.find((t) => t.symbol === value.toUpperCase())?.address;
 }
 
+/**
+ * The reverse of resolveTokenAddress: turn a mint/contract address back into a
+ * ticker.
+ *
+ * Dextopus webhooks carry addresses, not symbols — `originAsset` on a native
+ * SOL deposit is the System Program id `1111…1111`, and USDC on Solana arrives
+ * as `EPjFWdd5…`. Storing those raw is how a balance ends up keyed by a 44-char
+ * base58 string instead of "USDC", and how comparing against "USDC" reports a
+ * mismatch that isn't real.
+ *
+ * Returns the ticker when the catalog knows the address, the input uppercased
+ * when it is already a ticker, and undefined when it cannot be resolved — an
+ * unresolved address must never be quietly treated as a symbol.
+ */
+export async function resolveTokenSymbol(
+  addressOrSymbol: string,
+  chainId?: number,
+): Promise<string | undefined> {
+  const value = (addressOrSymbol ?? "").trim();
+  if (!value) return undefined;
+  if (!looksLikeTokenAddress(value)) return value.toUpperCase();
+
+  // Native-asset placeholders: several chains report their own coin with a
+  // system/zero address rather than listing it as a token.
+  const native = NATIVE_ASSET_IDS[value.toLowerCase()];
+  if (native) return native;
+
+  const chains = await catalog();
+  const scoped = chainId !== undefined ? chains.filter((c) => c.chainId === chainId) : [];
+  for (const chain of scoped.length ? scoped : chains) {
+    const hit = chain.tokens.find((t) => t.address.toLowerCase() === value.toLowerCase());
+    if (hit) return hit.symbol;
+  }
+  return undefined;
+}
+
+/**
+ * Addresses that mean "the chain's own coin" rather than a listed token. These
+ * never appear in the token catalog, so they have to be mapped explicitly.
+ */
+const NATIVE_ASSET_IDS: Record<string, string> = {
+  // Solana System Program — native SOL.
+  "11111111111111111111111111111111": "SOL",
+  // Wrapped SOL, which some responses use interchangeably with native.
+  so11111111111111111111111111111111111111112: "SOL",
+  // EVM convention for the chain's native coin.
+  "0x0000000000000000000000000000000000000000": "ETH",
+  "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee": "ETH",
+};
+
 /** An on-chain token identifier rather than a ticker. */
 function looksLikeTokenAddress(v: string): boolean {
   if (/^0x[a-fA-F0-9]{40}$/.test(v)) return true; // EVM

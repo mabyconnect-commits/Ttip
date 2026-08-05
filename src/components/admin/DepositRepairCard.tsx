@@ -28,6 +28,13 @@ interface Finding {
   delta: number | null;
   verdict: "MIS_CREDITED" | "NEEDS_MANUAL";
   alreadyRepaired: boolean;
+  estimate: {
+    asset: string;
+    amount: number;
+    unitPriceUsd: number;
+    feeRate: number;
+    caveat: string;
+  } | null;
 }
 
 interface Report {
@@ -153,7 +160,11 @@ export function DepositRepairCard() {
       <div className="mt-4 space-y-3">
         {outstanding.map((f) => {
           const needsManual = f.verdict === "NEEDS_MANUAL";
-          const entry = manual[f.settlementId] ?? { asset: "USDC", amount: "" };
+          const entry =
+            manual[f.settlementId] ??
+            (f.estimate
+              ? { asset: f.estimate.asset, amount: String(f.estimate.amount) }
+              : { asset: "USDC", amount: "" });
 
           return (
             <div key={f.settlementId} className="rounded-xl border border-white/10 bg-black/20 p-3">
@@ -204,10 +215,27 @@ export function DepositRepairCard() {
 
               {needsManual && (
                 <div className="mt-3">
-                  <p className="text-[10px] text-white/40">
-                    The provider sent no settled amount. Look this transfer up on the
-                    explorer and enter what actually arrived in treasury.
-                  </p>
+                  {f.estimate ? (
+                    <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-2.5">
+                      <p className="text-[10px] text-amber-300">
+                        Estimated {f.estimate.amount} {f.estimate.asset}
+                      </p>
+                      <p className="mt-1 text-[10px] leading-relaxed text-white/45">
+                        {f.originAmount} {f.originAsset} at $
+                        {f.estimate.unitPriceUsd.toLocaleString(undefined, {
+                          maximumFractionDigits: 2,
+                        })}{" "}
+                        each, less the {(f.estimate.feeRate * 100).toFixed(2)}% provider fee.
+                        Pre-filled below — {f.estimate.caveat.toLowerCase()}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-white/40">
+                      The provider sent no settled amount and no price was available.
+                      Look this transfer up on the explorer and enter what actually
+                      arrived in treasury.
+                    </p>
+                  )}
                   <div className="mt-2 flex gap-2">
                     <input
                       value={entry.asset}

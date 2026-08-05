@@ -2,6 +2,8 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { kindOf } from "../wallet";
+import { usdPrice } from "../prices";
+import { resolveTokenSymbol } from "./dextopus";
 
 /* ============================================================
    Repairing deposits mis-credited by the origin/settlement mix-up.
@@ -39,7 +41,24 @@ export type DepositFinding = {
   verdict: RepairVerdict;
   /** Already corrected once — shown so nobody double-credits. */
   alreadyRepaired: boolean;
+  /**
+   * What the origin amount is worth at today's price, less the provider fee.
+   * Only present for NEEDS_MANUAL rows, where the payload carries no settled
+   * figure. It is an ESTIMATE at the current market price, not the amount that
+   * actually landed — the deposit may be days old and the price has moved.
+   */
+  estimate: {
+    asset: string;
+    amount: number;
+    unitPriceUsd: number;
+    feeRate: number;
+    /** Why this number should be checked before it is applied. */
+    caveat: string;
+  } | null;
 };
+
+/** Dextopus takes roughly 0.25% per transfer. */
+const PROVIDER_FEE_RATE = 0.0025;
 
 function num(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;
@@ -92,9 +111,18 @@ export async function scanMislabelledDeposits(opts: { email?: string } = {}): Pr
     const raw = (s.raw ?? {}) as { data?: Record<string, unknown> };
     const d = raw.data ?? {};
 
-    const trueSettlementAsset = sym(d.settlementAsset);
+    // Dextopus sends mint/contract ADDRESSES, not tickers. Resolve them before
+    // comparing anything — comparing "USDC" against "EPjFWdd5…" reports a
+    // mismatch that isn't real, and storing the address as a balance symbol
+    // would be a fresh bug on top of the one we're fixing.
+    const chainId = Number(d.settlementChainId ?? d.originChainId) || undefined;
+    const originChainId = Number(d.originChainId) || undefined;
+
+    const trueSettlementAsset =
+      (await resolveTokenSymbol(String(d.settlementAsset ?? ""), chainId)) ?? null;
     const trueSettlementAmount = num(d.settlementAmountFormatted);
-    const originAsset = sym(d.originAsset);
+    const originAsset =
+      (await resolveTokenSymbol(String(d.originAsset ?? ""), originChainId)) ?? null;
     const originAmount = num(d.originAmountFormatted);
 
     const creditedAsset = s.asset.toUpperCase();
@@ -121,6 +149,32 @@ export async function scanMislabelledDeposits(opts: { email?: string } = {}): Pr
 
     if (!verdict) continue;
 
+    // For the rows with no settled figure, work out what the deposit is worth
+    // so the admin has a number to sanity-check rather than a blank box.
+    let estimate: DepositFinding["estimate"] = null;
+    if (verdict === "NEEDS_MANUAL" && originAsset && originAmount !== null) {
+      const target = (process.env.DEXTOPUS_SETTLEMENT_ASSET || "USDC").toUpperCase();
+      try {
+        const [originUsd, targetUsd] = await Promise.all([
+          usdPrice(originAsset),
+          usdPrice(target),
+        ]);
+        if (originUsd > 0 && targetUsd > 0) {
+          const gross = (originAmount * originUsd) / targetUsd;
+          estimate = {
+            asset: target,
+            amount: Number((gross * (1 - PROVIDER_FEE_RATE)).toFixed(6)),
+            unitPriceUsd: originUsd,
+            feeRate: PROVIDER_FEE_RATE,
+            caveat:
+              "Estimated at today's price less the provider fee. The deposit settled earlier, so confirm against the treasury receipt before applying.",
+          };
+        }
+      } catch {
+        // No price feed — leave the admin to enter it by hand.
+      }
+    }
+
     findings.push({
       settlementId: s.id,
       externalId: s.externalId,
@@ -140,6 +194,7 @@ export async function scanMislabelledDeposits(opts: { email?: string } = {}): Pr
           : null,
       verdict,
       alreadyRepaired: repairedIds.has(s.externalId),
+      estimate,
     });
   }
 
@@ -180,10 +235,13 @@ export async function repairDeposit(
   const raw = (s.raw ?? {}) as { data?: Record<string, unknown> };
   const d = raw.data ?? {};
 
-  const payloadAsset = sym(d.settlementAsset);
+  const chainId = Number(d.settlementChainId ?? d.originChainId) || undefined;
+  const payloadAsset = (await resolveTokenSymbol(String(d.settlementAsset ?? ""), chainId)) ?? null;
   const payloadAmount = num(d.settlementAmountFormatted);
 
-  const targetAsset = manual ? manual.asset.toUpperCase().trim() : payloadAsset;
+  const targetAsset = manual
+    ? (await resolveTokenSymbol(manual.asset, chainId)) ?? null
+    : payloadAsset;
   const targetAmount = manual ? manual.amount : payloadAmount;
 
   if (!targetAsset || targetAmount === null || !(targetAmount > 0)) {
@@ -191,6 +249,16 @@ export async function repairDeposit(
       ok: false,
       error:
         "No settled amount available. Look the transfer up on-chain and supply the settled asset and amount.",
+    };
+  }
+
+  // A balance symbol must be a ticker. If an address slipped through
+  // unresolved, refuse — a base58 string as a balance key is unrecoverable
+  // without another migration.
+  if (!/^[A-Z0-9]{2,10}$/.test(targetAsset)) {
+    return {
+      ok: false,
+      error: `"${targetAsset}" is not a recognised ticker. Enter the settled asset as a symbol (e.g. USDC), not a contract address.`,
     };
   }
 
@@ -240,7 +308,10 @@ export async function repairDeposit(
     const original = await tx.transaction.findFirst({
       where: { userId, type: "deposit", meta: { path: ["externalId"], equals: s.externalId } },
     });
-    const originAsset = sym(d.originAsset);
+    // Resolve to a ticker here too, so the receipt reads "0.4 SOL" rather
+    // than a 32-char mint address.
+    const originAsset =
+      (await resolveTokenSymbol(String(d.originAsset ?? ""), Number(d.originChainId) || undefined)) ?? null;
     const originAmount = num(d.originAmountFormatted);
 
     if (original) {

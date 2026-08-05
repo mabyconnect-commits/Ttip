@@ -180,3 +180,39 @@ test("verifyDextopusSignature enforces the timestamp.body HMAC scheme", () => {
   assert.equal(verifyDextopusSignature(String(Date.now() - 10 * 60_000), body, sig), false); // stale
   assert.equal(verifyDextopusSignature(null, body, sig), false); // missing timestamp
 });
+
+/* ------------------------------------------------------------------------
+   Dextopus sends mint/contract ADDRESSES, not tickers.
+
+   `originAsset` on a native SOL deposit is the System Program id
+   `1111…1111`; USDC on Solana arrives as `EPjFWdd5…`. Comparing those
+   against "USDC" reported mismatches that weren't real, and writing one
+   into a balance would key it by a 44-char base58 string.
+   ------------------------------------------------------------------------ */
+
+test("resolveTokenSymbol maps native placeholders to their ticker", async () => {
+  const { resolveTokenSymbol } = await import("../src/lib/settlement/dextopus");
+  assert.equal(await resolveTokenSymbol("11111111111111111111111111111111"), "SOL");
+  assert.equal(
+    await resolveTokenSymbol("So11111111111111111111111111111111111111112"),
+    "SOL",
+  );
+  assert.equal(
+    await resolveTokenSymbol("0x0000000000000000000000000000000000000000"),
+    "ETH",
+  );
+});
+
+test("resolveTokenSymbol passes a ticker straight through", async () => {
+  const { resolveTokenSymbol } = await import("../src/lib/settlement/dextopus");
+  assert.equal(await resolveTokenSymbol("usdc"), "USDC");
+  assert.equal(await resolveTokenSymbol("BTC"), "BTC");
+});
+
+test("resolveTokenSymbol returns undefined for an address it cannot resolve", async () => {
+  const { resolveTokenSymbol } = await import("../src/lib/settlement/dextopus");
+  // A well-formed EVM address that is in no catalog must not be mistaken for a
+  // ticker — an unresolved address becoming a balance symbol is unrecoverable.
+  const out = await resolveTokenSymbol("0x1234567890abcdef1234567890abcdef12345678");
+  assert.equal(out, undefined);
+});
