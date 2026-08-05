@@ -6,6 +6,7 @@ import { useApp } from "@/context/AppContext";
 import { apiPost } from "@/lib/client";
 import { PinPad } from "@/components/PinPad";
 import { Icon } from "@/components/Icon";
+import { deviceCanAuthenticate, signInWithPasskey } from "@/lib/passkey";
 
 const KEY = "ttip_unlocked";
 /** When the app was last put away. Used to decide whether to re-lock. */
@@ -36,6 +37,31 @@ export function AppLock({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [err, setErr] = useState(false);
   const [clearToken, setClearToken] = useState(0);
+  const [canBiometric, setCanBiometric] = useState(false);
+  const [bioBusy, setBioBusy] = useState(false);
+
+  useEffect(() => {
+    deviceCanAuthenticate().then(setCanBiometric);
+  }, []);
+
+  /**
+   * Unlock with the device instead of the PIN.
+   *
+   * It runs the same passkey sign-in the login screen uses, which re-mints the
+   * session as well — so a lock screen sitting on an expired session comes back
+   * fully signed in rather than bouncing to login a moment later.
+   */
+  async function unlockWithDevice() {
+    setBioBusy(true);
+    const res = await signInWithPasskey();
+    setBioBusy(false);
+    if (res.ok) {
+      unlockSession();
+      setLocked(false);
+      return;
+    }
+    if (res.error) toast(res.error, "bad");
+  }
 
   useEffect(() => {
     if (!hasPin) {
@@ -132,6 +158,20 @@ export function AppLock({ children }: { children: React.ReactNode }) {
           <div className="text-white/50 text-[14px] mt-1">Enter your PIN</div>
         </div>
         <PinPad onComplete={onComplete} clearToken={clearToken} error={err} />
+
+        {/* The same device that can sign you in can open the lock. Offered only
+            once a passkey exists, so it can never be a dead button. */}
+        {canBiometric && (
+          <button
+            onClick={unlockWithDevice}
+            disabled={bioBusy}
+            className="flex items-center gap-2 text-[13.5px] font-semibold text-white/80 border border-white/12 rounded-full px-4 py-2 active:scale-95 disabled:opacity-50"
+          >
+            <Icon name="shield" size={15} />
+            {bioBusy ? "Waiting for your device…" : "Unlock with Face ID / fingerprint"}
+          </button>
+        )}
+
         <button onClick={logout} className="text-brand-cyan font-semibold text-[13.5px] mt-2">Forgot PIN? Log out & sign in</button>
       </div>
     </div>

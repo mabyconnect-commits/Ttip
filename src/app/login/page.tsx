@@ -1,17 +1,46 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { apiPost } from "@/lib/client";
 import { GradientButton } from "@/components/ui";
 import { Field } from "@/components/Field";
+import { Icon } from "@/components/Icon";
+import { deviceCanAuthenticate, signInWithPasskey } from "@/lib/passkey";
 
 export default function LoginPage() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
+  const [canBiometric, setCanBiometric] = useState(false);
+  const [bioBusy, setBioBusy] = useState(false);
+
+  // Only offered where the phone itself can be the key — Face ID, Touch ID, a
+  // fingerprint sensor. Offering it on a device that would demand a plugged-in
+  // security key would be a promise the hardware can't keep.
+  useEffect(() => {
+    deviceCanAuthenticate().then(setCanBiometric);
+  }, []);
+
+  function land() {
+    try {
+      sessionStorage.setItem("ttip_unlocked", "1");
+    } catch {}
+    const next = new URLSearchParams(window.location.search).get("next");
+    window.location.assign(next && next.startsWith("/") ? next : "/home");
+  }
+
+  async function biometric() {
+    setErr("");
+    setBioBusy(true);
+    const res = await signInWithPasskey();
+    if (res.ok) return land();
+    setBioBusy(false);
+    // A cancelled prompt carries no message: the user simply changed their mind.
+    if (res.error) setErr(res.error);
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -19,11 +48,9 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await apiPost("/api/auth/login", { identifier, password });
-      try { sessionStorage.setItem("ttip_unlocked", "1"); } catch {}
       // Full-page navigation so the freshly-set session cookie is sent with the
       // request for the protected route. Honor a safe internal ?next= target.
-      const next = new URLSearchParams(window.location.search).get("next");
-      window.location.assign(next && next.startsWith("/") ? next : "/home");
+      land();
     } catch (e: any) {
       setErr(e.message);
       setLoading(false);
@@ -49,6 +76,20 @@ export default function LoginPage() {
             Sign in
           </GradientButton>
         </form>
+
+        {/* The device itself. Shown under the password rather than above it,
+            because it only works once a passkey has been added from Security —
+            and a button that fails for most first-time visitors shouldn't lead. */}
+        {canBiometric && (
+          <button
+            onClick={biometric}
+            disabled={bioBusy || loading}
+            className="mt-3 h-[50px] rounded-2xl border border-white/12 flex items-center justify-center gap-2 font-grotesk font-semibold text-[14px] active:scale-[.98] disabled:opacity-50"
+          >
+            <Icon name="shield" size={17} />
+            {bioBusy ? "Waiting for your device…" : "Sign in with Face ID / fingerprint"}
+          </button>
+        )}
 
         <Link href="/forgot" className="block text-center text-white/45 text-[13px] mt-4 active:text-white/70">
           Forgot your password?

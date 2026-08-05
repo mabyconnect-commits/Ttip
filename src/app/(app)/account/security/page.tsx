@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useApp } from "@/context/AppContext";
 import { apiPost } from "@/lib/client";
 import { BackHeader, GradientButton, Sheet } from "@/components/ui";
 import { Icon } from "@/components/Icon";
 import { PinPad } from "@/components/PinPad";
 import { unlockSession } from "@/components/AppLock";
+import { apiGet } from "@/lib/client";
+import { deviceCanAuthenticate, registerPasskey } from "@/lib/passkey";
 
 export default function SecurityPage() {
   const { state, refresh, toast } = useApp();
@@ -17,6 +19,48 @@ export default function SecurityPage() {
   const [cur, setCur] = useState("");
   const [next, setNext] = useState("");
   const [pwLoading, setPwLoading] = useState(false);
+
+  // passkeys — Face ID / fingerprint
+  const [canBiometric, setCanBiometric] = useState(false);
+  const [passkeys, setPasskeys] = useState<{ id: string; label: string | null; lastUsedAt: string | null }[]>([]);
+  const [pkBusy, setPkBusy] = useState(false);
+
+  const loadPasskeys = useCallback(async () => {
+    try {
+      const res = await apiGet<{ passkeys: typeof passkeys }>("/api/auth/passkey");
+      setPasskeys(res.passkeys ?? []);
+    } catch {
+      /* the section simply shows nothing rather than an error */
+    }
+  }, []);
+
+  useEffect(() => {
+    deviceCanAuthenticate().then(setCanBiometric);
+    loadPasskeys();
+  }, [loadPasskeys]);
+
+  async function addPasskey() {
+    setPkBusy(true);
+    const res = await registerPasskey();
+    setPkBusy(false);
+    if (res.ok) {
+      toast(`${res.data?.added ?? "This device"} added`, "good");
+      loadPasskeys();
+    } else if (res.error) {
+      toast(res.error, "bad");
+    }
+  }
+
+  async function removePasskey(id: string, label: string) {
+    if (!confirm(`Remove ${label}? You'll sign in with your password on that device.`)) return;
+    try {
+      await fetch(`/api/auth/passkey?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      toast("Device removed", "good");
+      loadPasskeys();
+    } catch {
+      toast("Couldn't remove that device", "bad");
+    }
+  }
 
   // pin
   const [pinOpen, setPinOpen] = useState(false);
@@ -107,6 +151,50 @@ export default function SecurityPage() {
               what stops anyone who picks up your unlocked phone from emptying your account.
             </span>
           </button>
+        )}
+
+        {/* Face ID / fingerprint */}
+        {(canBiometric || passkeys.length > 0) && (
+          <>
+            <div className="mt-6 mb-2 px-1 font-grotesk font-semibold text-[13px] text-white/60">
+              Face ID &amp; fingerprint
+            </div>
+            <div className="bg-surface border border-white/[.06] rounded-[18px] overflow-hidden">
+              {passkeys.map((p, i) => (
+                <div key={p.id} className={`flex items-center gap-3 px-4 py-3.5 ${i ? "border-t border-white/[.06]" : ""}`}>
+                  <span className="w-9 h-9 rounded-full bg-good/[.12] text-good flex items-center justify-center shrink-0">
+                    <Icon name="shield" size={16} />
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-[14.5px] truncate">{p.label ?? "This device"}</div>
+                    <div className="text-white/40 text-[11.5px]">
+                      {p.lastUsedAt ? `Last used ${new Date(p.lastUsedAt).toLocaleDateString()}` : "Not used yet"}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => removePasskey(p.id, p.label ?? "this device")}
+                    className="text-[12.5px] text-bad font-semibold px-2 py-1 active:scale-95"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+              {canBiometric && (
+                <Row
+                  icon="shield"
+                  label={pkBusy ? "Waiting for your device…" : passkeys.length ? "Add another device" : "Turn on Face ID / fingerprint"}
+                  sub={passkeys.length ? "Sign in on this phone too" : "Sign in without typing your password"}
+                  onClick={addPasskey}
+                  border={passkeys.length > 0}
+                />
+              )}
+            </div>
+            <div className="mt-2 px-1 text-[11.5px] text-white/40 leading-[1.5]">
+              Your fingerprint never leaves your phone — it unlocks a key held in the phone itself, and we
+              only ever see the signature. Your password still works, and still opens your account if you
+              lose the device.
+            </div>
+          </>
         )}
 
         <div className="mt-4 rounded-2xl px-4 py-3 flex items-start gap-2.5 text-[12px] text-white/50 bg-surface border border-white/[.06]">

@@ -55,6 +55,7 @@ model User {
   telegramUsername String?
   telegramLinkedAt DateTime?
   telegramTokens   TelegramLinkToken[]
+  passkeys         Passkey[]
   telegramDrafts   TelegramDraft[]
   createdAt      DateTime @default(now())
 
@@ -178,6 +179,33 @@ model TelegramDraft {
 /// answered every message as if the conversation had just begun — and when a
 /// user asked "have you forgotten just now?", it said it had lost the thread,
 /// because it genuinely had. This is that thread.
+// A passkey — Face ID, a fingerprint, or a security key.
+//
+// What is stored is a PUBLIC key. It verifies a signature and cannot produce
+// one, so this table is useless to whoever steals it: the private half never
+// leaves the phone's secure hardware, and the biometric itself is never sent
+// anywhere. That is the whole point of offering this instead of a password —
+// there is no shared secret left to phish, reuse or leak.
+model Passkey {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Base64url credential id from the authenticator.
+  credentialId String   @unique
+  // Base64url COSE public key.
+  publicKey    String
+  // Replay guard: must never go backwards for a given credential.
+  counter      BigInt   @default(0)
+  // e.g. ["internal","hybrid"] — how the authenticator can be reached.
+  transports   String[] @default([])
+  // What the user calls it: "iPhone", "Pixel".
+  label        String?
+  createdAt    DateTime @default(now())
+  lastUsedAt   DateTime?
+
+  @@index([userId])
+}
+
 model TelegramTurn {
   id        String   @id @default(cuid())
   chatId    String

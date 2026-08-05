@@ -38,6 +38,8 @@
     "@capacitor/splash-screen": "^6.0.4",
     "@capacitor/status-bar": "^6.0.3",
     "@prisma/client": "^5.22.0",
+    "@simplewebauthn/browser": "^13.3.0",
+    "@simplewebauthn/server": "^13.3.2",
     "@solana/spl-token": "^0.4.15",
     "@solana/web3.js": "^1.98.4",
     "bcryptjs": "^2.4.3",
