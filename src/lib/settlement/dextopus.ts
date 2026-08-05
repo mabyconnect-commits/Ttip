@@ -224,7 +224,41 @@ export async function listChains(): Promise<DxChain[]> {
 export async function listTokens(chainId: number): Promise<DxToken[]> {
   const chains = await catalog();
   const hit = chains.find((c) => c.chainId === chainId);
-  return (hit?.tokens ?? []).map((t) => ({ symbol: t.symbol, name: t.name }));
+  return sortForHumans(hit?.tokens ?? [], chainFamily(chainId, hit?.name)).map((t) => ({
+    symbol: t.symbol,
+    name: t.name,
+  }));
+}
+
+/** The coin that pays for gas on each family — what the chain IS, to a user. */
+const NATIVE_SYMBOL: Record<ChainFamily, string> = {
+  solana: "SOL",
+  evm: "ETH",
+  tron: "TRX",
+  bitcoin: "BTC",
+};
+
+/**
+ * Order a chain's tokens the way someone looking for one would expect.
+ *
+ * The provider returns them in its own order, which put CASH, PYUSD and USDG
+ * above SOL on Solana — so the chain's own coin was fifth in a list on a screen
+ * headed "Choose an asset on solana". Native coin first, then the stablecoins
+ * everybody actually moves, then the rest alphabetically.
+ */
+function sortForHumans<T extends { symbol: string }>(tokens: T[], family: ChainFamily): T[] {
+  const native = NATIVE_SYMBOL[family];
+  const rank = (symbol: string): number => {
+    const s = symbol.toUpperCase();
+    if (s === native) return 0;
+    if (s === "USDC") return 1;
+    if (s === "USDT") return 2;
+    return 3;
+  };
+  return [...tokens].sort((a, b) => {
+    const d = rank(a.symbol) - rank(b.symbol);
+    return d !== 0 ? d : a.symbol.localeCompare(b.symbol);
+  });
 }
 
 /**
