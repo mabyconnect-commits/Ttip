@@ -55,6 +55,19 @@ export function rateLimit(key: string, { limit, windowMs }: RateLimitOptions): v
   }
 }
 
+/**
+ * Wipe a counter — used when an attempt turns out to have been legitimate.
+ *
+ * A PIN limiter that counts SUCCESSES punishes the wrong person: someone
+ * paying five people in a row got "try again in 67s" for doing exactly what
+ * the app is for, while a thief guessing wrong PINs was throttled identically.
+ * Clearing on success keeps the guessing limit intact and takes the penalty
+ * off the honest user.
+ */
+export function clearRateLimit(key: string): void {
+  hits.delete(key);
+}
+
 /** Best-effort client identifier from proxy headers, falling back to a constant. */
 export function clientIp(req: Request): string {
   const fwd = req.headers.get("x-forwarded-for");

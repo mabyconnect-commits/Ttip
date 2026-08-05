@@ -3,6 +3,7 @@ import { prisma } from "../db";
 import { kycTierDef } from "../constants";
 import { bankAliases } from "../bank-aliases";
 import { spendableFiat } from "../spendable";
+import { liveRates } from "../live-rates";
 
 /**
  * The account snapshot Ada is given about the person she's talking to.
@@ -79,6 +80,17 @@ export async function buildUserContext(userId: string): Promise<string> {
    */
   const money = await spendableFiat(user.balances, user.defaultFiat).catch(() => null);
 
+  /**
+   * Today's prices — the same table the Rates screen draws.
+   *
+   * "If I send 1 ETH now, how much naira do I get?" is the single most common
+   * question anyone asks a wallet, and Ada was answering "I can't quote you a
+   * live ETH rate, I don't have one in front of me" while the app displayed it
+   * two taps away. She was right to refuse to guess; she just should never have
+   * had to. Now she can answer it, in her user's own currency.
+   */
+  const rates = await liveRates(user.defaultFiat).catch(() => []);
+
   const aliases = bankAliases(user.nairaBank);
 
   const lines: string[] = [
@@ -108,6 +120,18 @@ export async function buildUserContext(userId: string): Promise<string> {
         `\n  TOTAL ≈ ${money.fiat} ${trim(money.total)} (at today's sell rate, before the transfer fee). ` +
         `Judge "can they afford it" against this total plus the fee, never against one wallet.`
       : `Spendable total: unavailable right now — do not guess whether they can afford something.`,
+    rates.length
+      ? `TODAY'S TTIP RATES in ${user.defaultFiat}, per 1 unit — these are live and they are OURS ` +
+        `(our margin is already inside them; never itemise it). SELL is what the user RECEIVES ` +
+        `when turning that asset into ${user.defaultFiat}; BUY is what they PAY for one. ` +
+        `Quote these when asked what something is worth — multiply out for the amount they named ` +
+        `and give the figure. Add that it moves with the market and the exact number is shown ` +
+        `before they confirm, but DO answer:\n` +
+        rates
+          .map((r) => `  1 ${r.symbol}: sell ${trim(r.sell)} / buy ${trim(r.buy)} ${user.defaultFiat}`)
+          .join("\n")
+      : `Today's rates: unavailable right now — say the rate service is down and the exact figure ` +
+        `is quoted on the Send out screen. Do not guess a price.`,
     addresses.length
       ? `Crypto deposit addresses (their own — quote these EXACTLY, never alter a character, and always name the network alongside):\n` +
         addresses.map((a) => `  ${a.symbol} on ${a.network}: ${a.address}`).join("\n")

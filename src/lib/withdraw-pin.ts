@@ -2,7 +2,7 @@ import "server-only";
 import { prisma } from "./db";
 import { verifyPassword } from "./auth";
 import { ApiError } from "./api";
-import { rateLimit } from "./rate-limit";
+import { rateLimit, clearRateLimit } from "./rate-limit";
 
 /**
  * Require the transaction PIN before money leaves the platform.
@@ -32,10 +32,18 @@ export async function requireWithdrawPin(userId: string, pin: string | undefined
 
   if (!pin) throw new ApiError("Enter your transaction PIN", 401);
 
-  // 4 digits is 10,000 combinations. Cap guesses hard, per user.
-  rateLimit(`withdraw-pin:${userId}`, { limit: 5, windowMs: 5 * 60_000 });
+  // 4 digits is 10,000 combinations, so guesses are capped hard per user.
+  //
+  // But only WRONG ones count. This used to tick on every attempt, so someone
+  // paying five people in a row was locked out for a minute for using the app
+  // correctly — while a thief guessing was throttled no harder. The counter is
+  // cleared the moment a PIN proves correct: brute force still dies at five,
+  // and the honest user never meets it.
+  const key = `withdraw-pin:${userId}`;
+  rateLimit(key, { limit: 5, windowMs: 5 * 60_000 });
 
   if (!(await verifyPassword(pin, user.pinHash))) {
     throw new ApiError("Wrong PIN", 401);
   }
+  clearRateLimit(key);
 }

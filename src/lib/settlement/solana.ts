@@ -48,6 +48,26 @@ export function solFeeReserve(): number {
  */
 const RENT_EXEMPT_SOL = 0.00089088;
 
+/**
+ * Our float ran short — say so without saying it that way.
+ *
+ * "Treasury SOL balance is too low for this withdrawal" went straight to a
+ * user's screen. It reads as though THEIR balance is short, which it isn't, and
+ * there is nothing they can do about ours. So the user gets a sentence that is
+ * true and actionable, and the operator gets the number they actually need,
+ * loudly, in the logs — because this one is fixed by funding a wallet, and
+ * nobody can fund a wallet they were never told was empty.
+ */
+function treasuryShort(asset: string, need: number, have: number, address: string): Error {
+  console.error(
+    `[solana] TREASURY SHORT — cannot pay out ${need} ${asset}: wallet ${address} holds ${have} ${asset}. Fund it.`,
+  );
+  return new Error(
+    `${asset} withdrawals are paused for a few minutes while we top up our wallet. ` +
+      `Your balance is untouched — try again shortly, or reach support if it persists.`,
+  );
+}
+
 /** Whether an asset can be withdrawn on-chain via the Solana treasury. */
 export function solanaWithdrawSupported(asset: string): boolean {
   return !!solanaConfig() && SOLANA_WITHDRAW_ASSETS.includes(asset.toUpperCase());
@@ -89,7 +109,14 @@ export async function sendSolanaUsdc(opts: { toAddress: string; amount: number }
 
   // Treasury's USDC account — must exist and hold enough.
   const fromAta = await getOrCreateAssociatedTokenAccount(conn, treasury, mint, treasury.publicKey);
-  if (fromAta.amount < amountRaw) throw new Error("Treasury USDC balance is too low for this withdrawal.");
+  if (fromAta.amount < amountRaw) {
+    throw treasuryShort(
+      "USDC",
+      opts.amount,
+      Number(fromAta.amount) / 10 ** USDC_DECIMALS,
+      treasury.publicKey.toBase58(),
+    );
+  }
 
   // Recipient's USDC account — create if missing (treasury pays rent).
   // allowOwnerOffCurve: provider deposit addresses can be off-curve (PDAs), which
@@ -125,7 +152,12 @@ export async function sendSolanaNative(opts: { toAddress: string; amount: number
   const balance = await conn.getBalance(treasury.publicKey);
   const reserve = Math.round(solFeeReserve() * LAMPORTS_PER_SOL);
   if (BigInt(balance) < lamports + BigInt(reserve)) {
-    throw new Error("Treasury SOL balance is too low for this withdrawal.");
+    throw treasuryShort(
+      "SOL",
+      opts.amount + reserve / LAMPORTS_PER_SOL,
+      balance / LAMPORTS_PER_SOL,
+      treasury.publicKey.toBase58(),
+    );
   }
 
   // An account that doesn't exist yet has to be left rent-exempt, or the
