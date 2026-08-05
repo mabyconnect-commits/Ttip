@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { kindOf } from "../wallet";
 import { isLive, depositProvider, dextopusWithdrawEnabled } from "./config";
-import { sendSolanaUsdc, solanaWithdrawSupported } from "./solana";
+import { sendSolanaUsdc, sendSolanaNative, solanaWithdrawSupported } from "./solana";
 import { dextopusWithdraw, dextopusWithdrawStatus } from "./dextopus-withdraw";
 
 /**
@@ -59,17 +59,24 @@ async function dispatchCryptoWithdraw(req: CryptoWithdrawRequest): Promise<Crypt
     return { provider: "sandbox", status: "completed", txHash };
   }
 
-  // Primary: USDC on Solana sent directly from the treasury wallet.
+  // Primary: sent directly from the treasury Solana wallet — USDC as an SPL
+  // transfer, SOL as a plain system transfer. Same chain, no bridge, nobody
+  // else in the middle.
   if (solanaWithdrawSupported(req.asset) && isSolanaNetwork(req.network)) {
+    const native = req.asset.toUpperCase() === "SOL";
     try {
-      const { txHash } = await sendSolanaUsdc({ toAddress: req.address, amount: req.amount });
+      const { txHash } = native
+        ? await sendSolanaNative({ toAddress: req.address, amount: req.amount })
+        : await sendSolanaUsdc({ toAddress: req.address, amount: req.amount });
       return { provider: "solana", status: "completed", txHash };
     } catch (e) {
       const message = (e as Error).message;
       // Fallback to Dextopus only for pre-broadcast failures (nothing sent yet);
       // an ambiguous failure must not be retried on another rail (double-spend).
-      const preBroadcast = /too low|valid|configured|amount/i.test(message);
-      if (dextopusWithdrawEnabled() && preBroadcast) {
+      // Never for SOL: Dextopus can't deliver a native coin, so the "fallback"
+      // would only replace a clear error with a confusing one.
+      const preBroadcast = /too low|valid|configured|amount|empty/i.test(message);
+      if (!native && dextopusWithdrawEnabled() && preBroadcast) {
         const dx = await dextopusWithdraw(req);
         return { provider: "dextopus", status: dx.status, txHash: dx.fundingTx, providerRef: dx.providerRef, message: dx.message };
       }

@@ -26,7 +26,7 @@ export { cryptoWithdraw, finalizeWithdrawal, reconcilePendingWithdrawals } from 
 export type { CryptoWithdrawRequest, CryptoWithdrawResult } from "./withdrawal";
 export { dextopusWithdrawEnabled } from "./config";
 export { dextopusValidateAddress, chainTypeForChainId, dextopusWithdrawPreview } from "./dextopus-withdraw";
-export { sendSolanaUsdc, solanaWithdrawSupported, isValidSolanaAddress, SOLANA_WITHDRAW_ASSETS } from "./solana";
+export { sendSolanaUsdc, sendSolanaNative, solanaWithdrawSupported, isValidSolanaAddress, SOLANA_WITHDRAW_ASSETS, solFeeReserve } from "./solana";
 export { solanaConfig, maxCryptoWithdrawal } from "./config";
 export { createBuyOrder, finalizeBuy } from "./buy";
 export { ensureNairaAccount, creditNairaDeposit } from "./naira";

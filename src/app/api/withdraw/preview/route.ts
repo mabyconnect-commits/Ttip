@@ -1,7 +1,14 @@
 import { z } from "zod";
 import { getUserId } from "@/lib/auth";
 import { handler, ok, unauthorized } from "@/lib/api";
-import { dextopusWithdrawPreview } from "@/lib/settlement";
+import {
+  dextopusWithdrawPreview,
+  solanaWithdrawSupported,
+  isValidSolanaAddress,
+  solFeeReserve,
+} from "@/lib/settlement";
+import { WITHDRAW_FEE_USDT } from "@/lib/constants";
+import { convert } from "@/lib/prices";
 
 const schema = z.object({
   symbol: z.string(),
@@ -22,6 +29,26 @@ export async function POST(req: Request) {
     const userId = await getUserId();
     if (!userId) return unauthorized();
     const input = schema.parse(await req.json());
+
+    // Anything the treasury sends itself on Solana is quoted here, not by the
+    // bridge. Asking Dextopus about SOL returned "SOL can't be withdrawn on
+    // this network" — true of their route, and untrue of ours: the treasury
+    // signs on Solana, so a native send never touches them.
+    const solana = /sol/i.test(input.network ?? "") || input.chainId === 792703809;
+    if (solana && solanaWithdrawSupported(input.symbol)) {
+      if (!isValidSolanaAddress(input.address)) {
+        return ok({ ok: false, message: "That isn't a valid Solana address." });
+      }
+      // Our flat fee, charged in the asset being sent — the same number the
+      // send path debits, so the quote and the charge agree.
+      const fee = await convert(WITHDRAW_FEE_USDT, "USDT", input.symbol);
+      const out = input.amount - fee;
+      if (!(out > 0)) {
+        return ok({ ok: false, message: `That's below the ${input.symbol} withdrawal fee.` });
+      }
+      return ok({ ok: true, amountOut: out });
+    }
+
     const preview = await dextopusWithdrawPreview({
       asset: input.symbol,
       network: input.network,

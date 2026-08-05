@@ -1,5 +1,5 @@
 import "server-only";
-import { Connection, Keypair, PublicKey } from "@solana/web3.js";
+import { Connection, Keypair, PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { getOrCreateAssociatedTokenAccount, getAssociatedTokenAddress, transfer } from "@solana/spl-token";
 import bs58 from "bs58";
 import { solanaConfig } from "./config";
@@ -16,8 +16,37 @@ import { solanaConfig } from "./config";
 
 const USDC_DECIMALS = 6;
 
-/** USDC-SPL is the asset we can settle on Solana. */
-export const SOLANA_WITHDRAW_ASSETS = ["USDC"];
+/**
+ * What the Solana treasury can settle directly.
+ *
+ * SOL is here because it CANNOT go the other way. Dextopus lists it as the
+ * native sentinel (0xEeee…EEeE) and its quote endpoint refuses that as a
+ * destination — "SOL can't be withdrawn on this network" was the provider
+ * talking, not a policy of ours. But the treasury wallet holds SOL and we sign
+ * for it, so a native transfer is the shorter path anyway: same chain, no
+ * bridge, no counterparty.
+ */
+export const SOLANA_WITHDRAW_ASSETS = ["USDC", "SOL"];
+
+/**
+ * SOL the treasury keeps back for its own transaction fees.
+ *
+ * Every USDC send, and every token account this wallet creates for a recipient,
+ * is paid for in SOL from this same balance. Emptying it into a withdrawal
+ * would strand every other withdrawal behind it. Override with
+ * SOLANA_FEE_RESERVE_SOL.
+ */
+export function solFeeReserve(): number {
+  const raw = Number(process.env.SOLANA_FEE_RESERVE_SOL);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 0.05;
+}
+
+/**
+ * The minimum a Solana account must hold to exist at all (rent exemption).
+ * Sending less than this to an address that has never been funded fails on
+ * chain, so it's refused up front with a reason rather than at broadcast.
+ */
+const RENT_EXEMPT_SOL = 0.00089088;
 
 /** Whether an asset can be withdrawn on-chain via the Solana treasury. */
 export function solanaWithdrawSupported(asset: string): boolean {
@@ -68,6 +97,48 @@ export async function sendSolanaUsdc(opts: { toAddress: string; amount: number }
   const toAta = await getOrCreateAssociatedTokenAccount(conn, treasury, mint, to, true);
 
   const signature = await transfer(conn, treasury, fromAta.address, toAta.address, treasury.publicKey, amountRaw);
+  return { txHash: signature };
+}
+
+/**
+ * Send native SOL from the treasury wallet.
+ *
+ * A plain system transfer — no token account, no rent for the recipient beyond
+ * what the transfer itself carries. Fails closed on every count that matters:
+ * a short balance, a fee reserve that would be eaten, and an amount too small
+ * to leave the recipient rent-exempt if their account is empty.
+ */
+export async function sendSolanaNative(opts: { toAddress: string; amount: number }): Promise<{ txHash: string }> {
+  const cfg = solanaConfig();
+  if (!cfg) throw new Error("Solana treasury is not configured.");
+  if (!(opts.amount > 0)) throw new Error("Enter a valid amount.");
+  if (!isValidSolanaAddress(opts.toAddress)) throw new Error("Enter a valid Solana address.");
+
+  const conn = new Connection(cfg.rpcUrl, "confirmed");
+  const treasury = loadKeypair(cfg.secretKey);
+  const to = new PublicKey(opts.toAddress);
+
+  const lamports = BigInt(Math.round(opts.amount * LAMPORTS_PER_SOL));
+  if (lamports <= 0n) throw new Error("Amount is too small to send.");
+
+  // Leave the wallet able to pay for the next transaction.
+  const balance = await conn.getBalance(treasury.publicKey);
+  const reserve = Math.round(solFeeReserve() * LAMPORTS_PER_SOL);
+  if (BigInt(balance) < lamports + BigInt(reserve)) {
+    throw new Error("Treasury SOL balance is too low for this withdrawal.");
+  }
+
+  // An account that doesn't exist yet has to be left rent-exempt, or the
+  // transfer is rejected on chain and the user is told nothing useful.
+  const info = await conn.getAccountInfo(to);
+  if (!info && opts.amount < RENT_EXEMPT_SOL) {
+    throw new Error(`That wallet is empty, so the first transfer to it must be at least ${RENT_EXEMPT_SOL} SOL.`);
+  }
+
+  const tx = new Transaction().add(
+    SystemProgram.transfer({ fromPubkey: treasury.publicKey, toPubkey: to, lamports }),
+  );
+  const signature = await sendAndConfirmTransaction(conn, tx, [treasury], { commitment: "confirmed" });
   return { txHash: signature };
 }
 
