@@ -2,7 +2,7 @@ import "server-only";
 import { dextopusConfig, dextopusWithdrawEnabled, dextopusPartnerFees, solanaConfig } from "./config";
 import { resolveTokenAddress } from "./dextopus";
 import { sendSolanaUsdc } from "./solana";
-import { toUsd } from "../prices";
+import { toUsd, hasUsdPrice } from "../prices";
 import { chainIdForNetwork } from "../chains";
 
 /**
@@ -66,6 +66,13 @@ export async function dextopusWithdraw(req: DxWithdrawRequest): Promise<DxWithdr
 
   const destinationChainId = req.chainId ?? chainIdForNetwork(req.network);
   if (!destinationChainId) return { status: "failed", message: `Unsupported network for ${req.asset}.` };
+
+  // We size the treasury's side of this in dollars, so an asset we can't price
+  // would be sized by a guess. usdPrice falls back to $1 per unit, which turned
+  // "2 PENGU" into "$2" and quoted 287 PENGU back. Refuse instead.
+  if (!(await hasUsdPrice(req.asset))) {
+    return { status: "failed", message: `We can't price ${req.asset} right now, so we won't send it.` };
+  }
 
   const [originAsset, destinationAsset] = await Promise.all([
     resolveTokenAddress(cfg, cfg.settlementChainId, cfg.settlementAsset),
@@ -152,6 +159,10 @@ export async function dextopusWithdrawPreview(req: DxWithdrawRequest): Promise<{
   if (cfg.settlementChainId == null || !cfg.settlementAsset || !cfg.settlementAddress) return { ok: false, message: "Withdrawal treasury isn't configured." };
   const destinationChainId = req.chainId ?? chainIdForNetwork(req.network);
   if (!destinationChainId) return { ok: false, message: `Unsupported network for ${req.asset}.` };
+  // Same reason as the send path: no price, no quote. See dextopusWithdraw.
+  if (!(await hasUsdPrice(req.asset))) {
+    return { ok: false, message: `We can't price ${req.asset} right now, so we can't quote this withdrawal.` };
+  }
 
   const [originAsset, destinationAsset] = await Promise.all([
     resolveTokenAddress(cfg, cfg.settlementChainId, cfg.settlementAsset),

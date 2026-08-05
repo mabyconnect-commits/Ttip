@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { getUserId } from "@/lib/auth";
 import { handler, ok, unauthorized, ApiError } from "@/lib/api";
 import { getAppState } from "@/lib/serialize";
-import { convert, isCrypto } from "@/lib/prices";
+import { convert, isCrypto, hasUsdPrice } from "@/lib/prices";
 import { adjust, balanceOf } from "@/lib/wallet";
 import { WITHDRAW_FEE_USDT } from "@/lib/constants";
 import { dayStr, isYesterday } from "@/lib/format";
@@ -214,6 +214,15 @@ async function handleWalletSend(userId: string, kycTier: number, defaultFiat: st
   if (!symbol || !amount) throw new ApiError("Enter an amount", 400);
   if (!isCrypto(symbol)) throw new ApiError("Only crypto can be sent to a wallet", 400);
   if (!input.address || input.address.length < 8) throw new ApiError("Enter a valid wallet address", 400);
+
+  // An asset we can't price can't be sent. Every number downstream — the KYC
+  // limit, the treasury's side of the swap, the fee — is derived from a dollar
+  // value, and usdPrice falls back to $1 per unit for anything unknown. That is
+  // how "2 PENGU" came to be quoted as 287 PENGU: a token we don't price,
+  // valued at $2.
+  if (!(await hasUsdPrice(symbol))) {
+    throw new ApiError(`We can't price ${symbol} right now, so we won't send it.`, 400);
+  }
 
   // KYC tier limits apply to crypto leaving the platform too, valued in naira —
   // otherwise the bank limit would just be routed around via a wallet send.

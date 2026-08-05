@@ -392,8 +392,28 @@ export default function SendOutPage() {
       </div>
 
       <div className="pb-6 pt-2">
-        <GradientButton onClick={submit} loading={loading} disabled={amt <= 0 || (mode === "wallet" && !selToken)}>
-          {mode === "bank" ? "Send to bank" : "Send to wallet"}
+        {/*
+          You cannot send what you do not hold.
+
+          The token picker lists everything the withdrawal provider can deliver,
+          which is far more than this account can ever hold — so it happily
+          offered "2 PENGU" against a balance of 0, and quoted 287 PENGU back,
+          because an asset we can't price got valued as if 2 of it were $2. A
+          screen that invites a send it cannot make is worse than one that says
+          no.
+        */}
+        <GradientButton
+          onClick={submit}
+          loading={loading}
+          disabled={amt <= 0 || (mode === "wallet" && !selToken) || amt > bal}
+        >
+          {amt > bal
+            ? bal <= 0
+              ? `No ${activeSym} to send`
+              : "Insufficient balance"
+            : mode === "bank"
+              ? "Send to bank"
+              : "Send to wallet"}
         </GradientButton>
       </div>
 

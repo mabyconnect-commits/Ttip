@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { quoteSell, quoteBuy, platformMargin } from "../src/lib/pricing";
 import { PLATFORM_MARGIN_PCT } from "../src/lib/constants";
+import { hasUsdPrice } from "../src/lib/prices";
 
 const approx = (a: number, b: number, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≈ ${b}`);
 
@@ -48,4 +49,18 @@ test("transferFee adds the markup on the provider's NGN tier fee", async () => {
   assert.equal(transferFee(20000, "NGN"), 30);
   // ₦50 base + 20% = ₦60 for large transfers
   assert.equal(transferFee(100000, "NGN"), 60);
+});
+
+test("an unpriced token is known to be unpriced", async () => {
+  // usdPrice falls back to $1 per unit for anything it doesn't know. Harmless
+  // in a display corner, dangerous where it sizes a transfer: it valued 2 PENGU
+  // at $2, and the withdrawal quote came back offering 287 PENGU.
+  assert.equal(await hasUsdPrice("PENGU"), false);
+  assert.equal(await hasUsdPrice("SOMECOIN"), false);
+  assert.equal(await hasUsdPrice(""), false);
+
+  // The rails we actually carry stay priceable, feed or no feed.
+  for (const s of ["USDT", "USDC", "BTC", "ETH", "SOL", "NGN", "USD"]) {
+    assert.equal(await hasUsdPrice(s), true, s);
+  }
 });

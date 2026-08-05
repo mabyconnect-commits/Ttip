@@ -3,10 +3,23 @@ import { handler, ok, unauthorized } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { referenceRate } from "@/lib/rate";
 import { quoteBuy, quoteSell } from "@/lib/pricing";
+import { CRYPTO_ASSETS } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
 
-const RATE_ASSETS = ["USDT", "USDC", "BTC", "ETH", "SOL", "BNB"];
+/**
+ * Every asset the app lets someone hold — not a hand-picked six.
+ *
+ * This list used to be six symbols long while the swap screen offered all
+ * fourteen, so picking TRX (or XRP, ADA, DOGE, MATIC, LTC, DOT, TON) produced
+ * "1 NGN = 0 TRX" and a quote of zero. An asset you can pick is an asset we
+ * must be able to price.
+ *
+ * Cheap to widen: the P2P reference is cached per fiat for two minutes and the
+ * price table for a minute, so this is arithmetic over two fetches, not
+ * fourteen.
+ */
+const RATE_ASSETS = CRYPTO_ASSETS.map((a) => a.symbol);
 
 /**
  * Ttip's live buy/sell rates — the real prices we charge (market ± our margin),
@@ -29,6 +42,9 @@ export async function GET(req: Request) {
       }),
     );
 
-    return ok({ fiat, rates });
+    // An asset we can't price is left out rather than published as zero. A
+    // missing row makes the screen say "rate unavailable"; a zero row makes it
+    // offer to sell somebody ₦1,000 for nothing.
+    return ok({ fiat, rates: rates.filter((r) => r.buy > 0 && r.sell > 0) });
   });
 }

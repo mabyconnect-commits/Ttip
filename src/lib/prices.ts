@@ -79,6 +79,26 @@ export async function usdPrice(symbol: string): Promise<number> {
   return prices[symbol]?.usd ?? FALLBACK_USD_PRICE[symbol] ?? 1;
 }
 
+/**
+ * Whether we have a REAL price for this symbol, rather than the $1 that
+ * usdPrice falls back to.
+ *
+ * That fallback is fine for a display corner, and dangerous anywhere money is
+ * sized by it. The withdrawal picker lists every token the provider can
+ * deliver, so someone chose PENGU: 2 of it was valued at $2, and the quote came
+ * back offering to deliver 287 PENGU. Anything that decides how much to move
+ * must ask this first and refuse rather than guess.
+ */
+export async function hasUsdPrice(symbol: string): Promise<boolean> {
+  const s = (symbol ?? "").toUpperCase();
+  if (!s) return false;
+  const fx = await getFiatRates();
+  if (fx[s] !== undefined) return true; // a fiat we track
+  if (FALLBACK_USD_PRICE[s] !== undefined) return true; // a rail with a known peg
+  const prices = await getPrices();
+  return typeof prices[s]?.usd === "number" && prices[s].usd > 0;
+}
+
 // ---- Live fiat FX rates (USD value of one unit of each fiat) ----
 interface FxCache {
   at: number;

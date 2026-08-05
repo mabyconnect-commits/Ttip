@@ -85,6 +85,11 @@ export default function SwapPage() {
   const gross = amt * unitToPerFrom;
   const net = gross * (1 - (free ? 0 : isOfficial ? 0 : SWAP_FEE_PCT));
 
+  // No rate is not a rate of zero. Showing "You get 0" and "1 NGN = 0 TRX"
+  // made a working pair look like a broken one — and, before the confirm step
+  // existed, would have taken the money for nothing.
+  const noRate = !(unitToPerFrom > 0);
+
   const fromAsset = CRYPTO_ASSETS.find((a) => a.symbol === from);
 
   function flip() {
@@ -187,7 +192,7 @@ export default function SwapPage() {
           </div>
           <div className="flex items-center justify-between mt-2.5">
             <div className="font-grotesk font-bold text-[32px] tracking-[-1px] text-good truncate">
-              {toIsFiat ? formatFiat(net, to, { decimals: 0 }) : `${formatCrypto(net, to)}`}
+              {noRate ? <span className="text-white/30">—</span> : toIsFiat ? formatFiat(net, to, { decimals: 0 }) : `${formatCrypto(net, to)}`}
             </div>
             <button onClick={() => setPickTo(true)} className="flex items-center gap-2 bg-[#151827] rounded-full px-3 py-[7px] shrink-0">
               <span className="text-base">{symLabel(to)}</span>
@@ -201,7 +206,11 @@ export default function SwapPage() {
         <div className="flex flex-col gap-2.5 px-1.5 py-[18px] font-sans text-[13px] text-white/55">
           <Row label={isOfficial ? "Ttip rate" : "Rate"}>
             <b className="text-white font-grotesk">
-              1 {from} = {toIsFiat ? formatFiat(unitToPerFrom, to) : `${formatCrypto(unitToPerFrom, to)} ${to}`}
+              {noRate ? (
+                <span className="text-warn">Rate unavailable</span>
+              ) : (
+                `1 ${from} = ${toIsFiat ? formatFiat(unitToPerFrom, to) : `${formatCrypto(unitToPerFrom, to)} ${to}`}`
+              )}
             </b>
           </Row>
           <Row label="Fee">
@@ -232,8 +241,12 @@ export default function SwapPage() {
       </div>
 
       <div className="pb-6 pt-2">
-        <GradientButton onClick={review} disabled={amt <= 0 || amt > bal}>
-          {amt > bal ? "Insufficient balance" : `Review swap · ${from} → ${to}`}
+        <GradientButton onClick={review} disabled={amt <= 0 || amt > bal || noRate}>
+          {amt > bal
+            ? "Insufficient balance"
+            : noRate
+              ? `No rate for ${to} right now`
+              : `Review swap · ${from} → ${to}`}
         </GradientButton>
       </div>
 
