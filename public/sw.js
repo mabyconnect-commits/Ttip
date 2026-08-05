@@ -101,3 +101,57 @@ self.addEventListener("fetch", (event) => {
 self.addEventListener("message", (event) => {
   if (event.data === "SKIP_WAITING") self.skipWaiting();
 });
+
+/* -------------------------------------------------------------------------- */
+/* Push notifications                                                          */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * A deposit landing is the one moment a user wants to hear from us without
+ * opening anything. The payload carries only what's safe on a lock screen —
+ * an amount and what happened — never an account number or a balance.
+ */
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    // A malformed payload still deserves a notification rather than silence,
+    // because the alternative is a user who never learns their money arrived.
+    data = { title: "Ttip", body: event.data ? event.data.text() : "" };
+  }
+
+  const title = data.title || "Ttip";
+  const options = {
+    body: data.body || "",
+    icon: "/icon-192.png",
+    badge: "/icon-192.png",
+    tag: data.tag || undefined,
+    // Same tag replaces rather than stacks, but must still buzz: a second
+    // deposit is news too.
+    renotify: !!data.tag,
+    data: { url: data.url || "/notifications" },
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+/*
+ * Tapping it goes to the app. If a Ttip window is already open, focus that one
+ * and steer it — opening a second copy of a wallet is disorienting.
+ */
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = (event.notification.data && event.notification.data.url) || "/notifications";
+
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      for (const client of list) {
+        if (client.url.startsWith(self.location.origin)) {
+          return client.focus().then((c) => (c && c.navigate ? c.navigate(target) : c));
+        }
+      }
+      return self.clients.openWindow(target);
+    }),
+  );
+});

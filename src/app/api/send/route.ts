@@ -17,6 +17,7 @@ import { planFunding, type FundingSource } from "@/lib/funding-plan";
 // answer — an assistant that disagrees with the checkout is worse than silent.
 import { sellValue } from "@/lib/spendable";
 import { referenceFiat } from "@/lib/rate";
+import { notifyUser, pushMoney } from "@/lib/push";
 import { accrueCashback } from "@/lib/cashback";
 import { checkWithdrawalLimit } from "@/lib/kyc/limits";
 import { accrueReferralEarning } from "@/lib/referral";
@@ -176,6 +177,18 @@ async function handleTtip(
     });
   });
   void out;
+
+  // A Ttip is the one transfer where the RECIPIENT learns about it from us and
+  // nowhere else — there is no bank alert behind it. Best-effort, after the
+  // ledger has committed.
+  if (recipient) {
+    void notifyUser(recipient.id, {
+      title: "You got a Ttip",
+      body: `${pushMoney(fiatAmount, fiat)} from @${user.username}${input.note ? ` — ${input.note}` : ""}`,
+      url: "/home",
+      tag: "ttip",
+    });
+  }
 
   const state = await getAppState(userId);
   return ok({

@@ -56,6 +56,7 @@ model User {
   telegramLinkedAt DateTime?
   telegramTokens   TelegramLinkToken[]
   passkeys         Passkey[]
+  pushSubs         PushSubscription[]
   telegramDrafts   TelegramDraft[]
   createdAt      DateTime @default(now())
 
@@ -179,6 +180,27 @@ model TelegramDraft {
 /// answered every message as if the conversation had just begun — and when a
 /// user asked "have you forgotten just now?", it said it had lost the thread,
 /// because it genuinely had. This is that thread.
+// A device that has agreed to receive push notifications.
+//
+// The endpoint is a URL at the browser vendor's push service — it identifies a
+// device, not a person, and it is useless without the keys stored beside it.
+// One user can have several (phone, laptop, an installed PWA), and any of them
+// can go stale at any time, so a send that comes back 404/410 deletes the row
+// rather than retrying for ever.
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+  lastSentAt DateTime?
+
+  @@index([userId])
+}
+
 // A passkey — Face ID, a fingerprint, or a security key.
 //
 // What is stored is a PUBLIC key. It verifies a signature and cannot produce

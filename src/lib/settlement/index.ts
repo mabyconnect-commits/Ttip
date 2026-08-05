@@ -10,6 +10,8 @@ import { monnifyPayout } from "./monnify";
 import { coralpayPayout } from "./coralpay";
 import { adjustTreasury } from "./treasury";
 import { chainName } from "../chains";
+import { notifyUser, pushMoney, type PushMessage } from "../push";
+import { COMPANY } from "../company";
 import type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
 
 export type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
@@ -63,7 +65,7 @@ export async function creditDeposit(
   const resolvedUserId = userId;
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       // Idempotency guard — unique externalId. A replay throws P2002 below.
       await tx.settlement.create({
         data: {
@@ -112,11 +114,47 @@ export async function creditDeposit(
 
       return { credited: true, userId: resolvedUserId };
     });
+
+    // Tell them, on the lock screen, the moment it lands. AFTER the commit and
+    // never inside it: a push service having a bad minute must not roll back a
+    // deposit that has already been credited.
+    if (result.credited) {
+      const fiat = await depositFiatLine(resolvedUserId, deposit.asset, deposit.amount);
+      void notifyUser(resolvedUserId, {
+        title: `${deposit.asset} deposit`,
+        body:
+          `You received ${pushMoney(deposit.amount, deposit.asset)}${fiat}` +
+          ` — credited to your ${COMPANY.product} wallet.`,
+        url: "/home",
+        tag: "deposit",
+      });
+    }
+    return result;
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
       return { credited: false, userId: resolvedUserId, reason: "duplicate" };
     }
     throw e;
+  }
+}
+
+/**
+ * " · ₦13,755.08" — what the crypto is worth in their own currency.
+ *
+ * A deposit notification that says only "10 USDT" makes the reader do the
+ * conversion themselves; the number they actually care about is the naira one.
+ * Best-effort: no rate, no suffix, still a notification.
+ */
+async function depositFiatLine(userId: string, asset: string, amount: number): Promise<string> {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { defaultFiat: true } });
+    const fiat = user?.defaultFiat;
+    if (!fiat || fiat === asset) return "";
+    const { referenceFiat } = await import("../rate");
+    const value = await referenceFiat(amount, asset, fiat);
+    return value > 0 ? ` · ${pushMoney(value, fiat)}` : "";
+  } catch {
+    return "";
   }
 }
 
@@ -222,10 +260,14 @@ export async function finalizePayout(
   if (match.externalId) ors.push({ externalId: match.externalId });
   if (!ors.length) return { updated: false };
 
-  return prisma.$transaction(async (tx) => {
+  let settlementUser: string | null = null;
+  const outcome = await prisma.$transaction(async (tx) => {
     const settlement = await tx.settlement.findFirst({ where: { kind: "payout", OR: ors } });
-    if (!settlement || settlement.status !== "pending" || !settlement.userId) return { updated: false };
+    if (!settlement || settlement.status !== "pending" || !settlement.userId) {
+      return { updated: false as const, refunded: false, notify: null as PushMessage | null };
+    }
     const settlementUserId = settlement.userId;
+    settlementUser = settlementUserId;
 
     await tx.settlement.update({ where: { id: settlement.id }, data: { status } });
 
@@ -259,10 +301,40 @@ export async function finalizePayout(
           update: { amount: { increment: r.amount } },
         });
       }
-      return { updated: true, refunded: toRefund.length > 0 };
+      return { updated: true, refunded: toRefund.length > 0, notify: payoutNotice(txn, "failed") };
     }
 
-    return { updated: true, refunded: false };
+    return { updated: true, refunded: false, notify: payoutNotice(txn, status) };
   });
+
+  // Outside the transaction, and only once it actually changed something —
+  // "your transfer went through" must never be sent for a webhook replay.
+  if (outcome.updated && outcome.notify && settlementUser) {
+    void notifyUser(settlementUser, outcome.notify);
+  }
+  return { updated: outcome.updated, refunded: outcome.refunded };
+}
+
+/**
+ * What to tell someone when a payout settles.
+ *
+ * The failure case matters more than the success: their money has come back,
+ * and until they know that they assume it is gone.
+ */
+function payoutNotice(
+  txn: { amountOut: Prisma.Decimal | null; assetOut: string | null; counterparty: string | null } | null,
+  status: "completed" | "failed",
+): PushMessage | null {
+  if (!txn?.amountOut || !txn.assetOut) return null;
+  const money = pushMoney(Number(txn.amountOut), txn.assetOut);
+  const to = txn.counterparty ? ` to ${txn.counterparty}` : "";
+  return status === "completed"
+    ? { title: "Transfer sent", body: `${money}${to} has arrived.`, url: "/account/transactions", tag: "payout" }
+    : {
+        title: "Transfer not sent",
+        body: `${money}${to} didn't go through — the money is back in your wallet.`,
+        url: "/account/transactions",
+        tag: "payout",
+      };
 }
 

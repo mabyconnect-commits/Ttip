@@ -6,6 +6,8 @@ import { kindOf } from "../wallet";
 import { depositFeeFor } from "../pricing";
 import { collectionProvider } from "./collection";
 import { flutterwaveCreateVirtualAccount } from "./flutterwave";
+import { notifyUser, pushMoney } from "../push";
+import { COMPANY } from "../company";
 
 /**
  * Naira on-ramp via a dedicated virtual account (DVA). Each verified user gets a
@@ -70,7 +72,7 @@ export async function creditNairaDeposit(opts: {
   const net = Math.max(0, opts.amount - fee);
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       await tx.settlement.create({
         data: {
           userId: opts.userId,
@@ -109,6 +111,18 @@ export async function creditNairaDeposit(opts: {
       });
       return { credited: true };
     });
+
+    // After the commit, never inside it: a push that fails must not undo a
+    // deposit that has already landed.
+    if (result.credited) {
+      void notifyUser(opts.userId, {
+        title: "Money in",
+        body: `${pushMoney(net, opts.currency)} has been credited to your ${COMPANY.product} wallet.`,
+        url: "/home",
+        tag: "deposit",
+      });
+    }
+    return result;
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return { credited: false };
     throw e;
