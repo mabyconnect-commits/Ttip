@@ -11,7 +11,7 @@ import {
 } from "../constants";
 import { providerTransferFee, transferFeeMarkup, billFee, depositFee, depositFeeFlat, collectionFeePct } from "../fees";
 import { COLLECTION_FEE_PCT } from "../constants";
-import { supportedPayoutCurrencies, comingSoonCurrencies } from "./knowledge";
+import { supportedPayoutCurrencies, comingSoonCurrencies, ASSISTANT_NAME } from "./knowledge";
 import { COMPANY } from "../company";
 
 /**
@@ -255,6 +255,39 @@ const INTENTS: Intent[] = [
     answer: () => `Set or change your transaction PIN and app lock under Account → Security. We will never ask you for your PIN, password, BVN or OTP — anyone who does is scamming you.`,
   },
   {
+    // Ada being asked who she is used to reach the "I'm not sure, email the
+    // team" answer — and page a human about her own name. Nothing about her
+    // identity is a support ticket.
+    match: [
+      "your name",
+      "whats your name",
+      "who are you",
+      "what are you",
+      "are you a bot",
+      "are you a robot",
+      "are you human",
+      "are you real",
+      "are you a girl",
+      "are you a boy",
+      "are you a man",
+      "are you a woman",
+      "boy or girl",
+      "boy or a girl",
+      "bro or girl",
+      "bro or a girl",
+      "girl or a boy",
+      "male or female",
+      "man or a woman",
+      "who made you",
+      "who built you",
+      "what can you do",
+    ],
+    answer: () =>
+      `I'm ${ASSISTANT_NAME}, the ${COMPANY.product} assistant — an AI, not a person, so no gender to claim. ` +
+      `I can see your account, so ask me about your balance, a transfer, your limits, fees, KYC, deposits, ` +
+      `bills, referrals or cashback — or tell me who to send money to and I'll set it up for your PIN.`,
+  },
+  {
     match: ["hello", "hi", "hey", "good morning", "good afternoon", "good evening"],
     answer: (c) => {
       // Skip a one- or two-letter first name — it's usually a title ("Mr"),
@@ -265,6 +298,20 @@ const INTENTS: Intent[] = [
     },
   },
 ];
+
+/**
+ * Whether a question we couldn't answer might still be about someone's money.
+ *
+ * The test is deliberately broad — a false positive costs a support email, a
+ * false negative costs someone waiting for help that never comes.
+ */
+function soundsLikeMoney(q: string): boolean {
+  const words =
+    /\b(money|cash|fund|balance|transfer|transaction|send|sent|receiv|withdraw|deposit|payout|pending|fail|refund|reverse|charge|fee|debit|credit|account|bank|naira|ngn|usdt|usdc|btc|eth|sol|crypto|wallet|swap|bill|airtime|data|kyc|bvn|nin|verify|limit|pin|password|login|log in|sign in|blocked|locked|stuck|missing|scam|fraud|hack)/i;
+  // Any figure worth naming — separators stripped, so "₦30,000" counts.
+  const figure = /\d{3,}/.test(q.replace(/[,\s.]/g, ""));
+  return words.test(q) || figure;
+}
 
 /** Answer a question deterministically, or say we can't and offer a human. */
 /**
@@ -305,6 +352,19 @@ export function answerFaq(question: string, ctx: FaqContext = {}): FaqAnswer {
   }
 
   if (best) return { text: best.intent.answer(ctx), escalate: false };
+
+  // Only a question that could be about someone's money is worth a human's
+  // time. Escalating everything meant a chatty aside — "how are you?" — landed
+  // in the support inbox alongside real problems, which is how a real problem
+  // gets missed.
+  if (!soundsLikeMoney(q)) {
+    return {
+      text:
+        `I'm ${ASSISTANT_NAME}, the ${COMPANY.product} assistant — I stick to ${COMPANY.product} itself. ` +
+        `Ask me about your balance, a transfer, fees, limits, KYC, deposits, bills or referrals and I'll help.`,
+      escalate: false,
+    };
+  }
 
   return {
     text:

@@ -60,9 +60,16 @@ test("the longest matching phrase wins", () => {
 });
 
 test("escalates instead of guessing when it doesn't know", () => {
-  const a = answerFaq("what is the airspeed velocity of an unladen swallow");
-  assert.equal(a.escalate, true);
-  assert.ok(a.text.includes("@"), "should hand over an email address");
+  // The rule is "never guess". Where the guess would be about money, that
+  // means handing over to a human; where the question isn't about money at
+  // all, paging support would just bury the real problems in the same inbox.
+  const money = answerFaq("someone took ₦30,000 from my balance and i did not authorise it");
+  assert.equal(money.escalate, true);
+  assert.ok(money.text.includes("@"), "should hand over an email address");
+
+  const idle = answerFaq("what is the airspeed velocity of an unladen swallow");
+  assert.equal(idle.escalate, false);
+  assert.ok(!/\d/.test(idle.text.replace(/24\/7/g, "")), "must not invent a figure");
 });
 
 test("never invents an answer for an empty question", () => {
@@ -87,9 +94,10 @@ test("the transfer answer still wins when that's what was asked", () => {
 });
 
 test("phrases match whole words only", () => {
-  // "limit" must not fire on a word that merely contains it.
+  // "limit" must not fire on a word that merely contains it — the answer must
+  // not be the withdrawal-limits one.
   const a = answerFaq("is there a delimiter in the reference?");
-  assert.equal(a.escalate, true);
+  assert.ok(!/per transfer|per rolling|tier/i.test(a.text), a.text);
 });
 
 test("a two-letter first name is treated as a title, not a name", () => {
@@ -105,5 +113,37 @@ test("the deposit answer quotes money, never a percentage", () => {
     const a = answerFaq(q).text;
     assert.ok(!/\d\s*%/.test(a), `percentage leaked into the deposit answer: ${q} → ${a}`);
     assert.ok(/₦|free/i.test(a), `deposit fee not stated in money: ${q} → ${a}`);
+  }
+});
+
+test("Ada knows who she is, and it never becomes a support ticket", () => {
+  // Asked "What's your name please?", she answered "I'm not sure about that
+  // one… email the team" — and paged a human about her own name.
+  for (const q of [
+    "Whats your Name please?",
+    "who are you",
+    "are you a bot",
+    "are you a bro or a girl?",
+    "boy or girl",
+  ]) {
+    const a = answerFaq(q, {});
+    assert.equal(a.escalate, false, q);
+    assert.match(a.text, /I'm Ada/i, q);
+  }
+});
+
+test("smalltalk is answered, money questions still reach a human", () => {
+  // Escalating everything put "how are you?" in the support inbox next to real
+  // problems, which is how a real problem gets missed.
+  for (const chat of ["how are you doing bro", "tell me a joke", "what's the weather"]) {
+    assert.equal(answerFaq(chat, {}).escalate, false, chat);
+  }
+  for (const real of [
+    "why did my ₦30,000 fail",
+    "where is the money i sent yesterday",
+    "my account is blocked",
+    "someone scammed me",
+  ]) {
+    assert.equal(answerFaq(real, {}).escalate, true, real);
   }
 });
