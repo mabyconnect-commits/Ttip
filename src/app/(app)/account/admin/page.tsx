@@ -6,6 +6,7 @@ import { Icon } from "@/components/Icon";
 import { Campaigns } from "@/components/admin/Campaigns";
 import { UsersCard } from "@/components/admin/UsersCard";
 import { TelegramCard } from "@/components/admin/TelegramCard";
+import { DepositRepairCard } from "@/components/admin/DepositRepairCard";
 
 /**
  * Admin: funding audit + clawback, as buttons.
@@ -252,6 +253,9 @@ export default function AdminFundingPage() {
                 </div>
               </>
             )}
+
+            <div className="font-grotesk font-semibold text-[14px] mt-6 mb-2">Deposit corrections</div>
+            <DepositRepairCard />
 
             <TelegramCard />
 
