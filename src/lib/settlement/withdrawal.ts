@@ -165,9 +165,15 @@ export async function cryptoWithdraw(req: CryptoWithdrawRequest): Promise<Crypto
     console.error("[withdrawal] no response from provider — holding as pending", req.reference, e);
   }
 
-  // 2b. A pending provider send (e.g. Dextopus) settles asynchronously — record its
-  //     provider + request id + funding tx so reconciliation can poll and finalize.
-  if (result.status === "pending" && (result.providerRef || result.txHash || result.message)) {
+  // 2b. Record what the provider said — for a pending send so reconciliation can
+  //     poll and finalize it, and for a FAILED one so the reason survives.
+  //
+  //     A failure used to be finalised straight to "failed" with the reason kept
+  //     only in the thrown message, which nothing stored. The user's screen said
+  //     Failed and nothing else, so the only way to learn whether it was the
+  //     address, the amount, the network or our own treasury was to open a
+  //     support ticket about a thing we already knew.
+  if (result.status !== "completed" && (result.providerRef || result.txHash || result.message)) {
     await prisma.settlement.updateMany({
       where: { kind: "withdrawal", reference: req.reference },
       data: { provider: result.provider, raw: { network: req.network, chainId: req.chainId, fee: req.fee, dextopusRequestId: result.providerRef, fundingTx: result.txHash, fundingError: result.txHash ? undefined : result.message } as Prisma.InputJsonValue },

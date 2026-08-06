@@ -59,7 +59,12 @@ export async function GET(req: Request) {
     return ok({
       transactions: txns.map((t) => {
         const inflow = INFLOW.has(t.type);
-        const meta = (t.meta ?? {}) as { chainId?: number | string; txHash?: string };
+        const meta = (t.meta ?? {}) as {
+          chainId?: number | string;
+          txHash?: string;
+          fundingError?: string;
+          fundingTx?: string;
+        };
         return {
           id: t.id,
           type: t.type,
@@ -73,6 +78,11 @@ export async function GET(req: Request) {
           note: t.note,
           emoji: t.emoji,
           explorerUrl: explorerTxUrl(meta.chainId, meta.txHash),
+          // Why it's still waiting, or why it didn't go. It is the account
+          // holder's own transfer and their own money, and "Failed" with no
+          // reason is the version of this screen that sends people to support
+          // to be told something we already knew.
+          reason: t.status === "completed" ? null : (meta.fundingError ?? null),
           time: timeAgo(t.createdAt),
           createdAt: t.createdAt,
         };

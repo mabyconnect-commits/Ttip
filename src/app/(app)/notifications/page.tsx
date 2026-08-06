@@ -14,6 +14,8 @@ interface Txn {
   id: string; type: string; direction: string; counterparty: string | null; note: string | null; emoji: string | null;
   assetIn: string | null; amountIn: number | null; assetOut: string | null; amountOut: number | null; time: string; status?: string;
   explorerUrl?: string | null;
+  /** Why a withdrawal is still waiting, or why it failed. */
+  reason?: string | null;
 }
 const isFiat = (s: string | null) => !!s && FIATS.some((f) => f.code === s);
 const fmt = (v: number, s: string) => (isFiat(s) ? formatFiat(v, s, { decimals: 0 }) : `${formatCrypto(v, s)} ${s}`);
@@ -30,8 +32,22 @@ function title(t: Txn): string {
     case "ttip_out": return `You Ttipped ${t.counterparty ?? ""}`;
     case "deposit": return `Deposit received · ${t.assetOut}`;
     case "swap": return `Swap settled`;
-    case "withdraw_bank": return `Bank payout sent`;
-    case "withdraw_wallet": return `Crypto sent`;
+    // "Sent" is a claim about someone's money, and these rows are written at
+    // DEBIT time — before the chain has been asked, let alone answered. A
+    // screenful of "Crypto sent" for withdrawals that had every one of them
+    // failed is worse than no notification at all.
+    case "withdraw_bank":
+      return t.status === "completed"
+        ? `Bank payout sent`
+        : t.status === "failed"
+          ? `Bank payout failed — refunded`
+          : `Bank payout processing`;
+    case "withdraw_wallet":
+      return t.status === "completed"
+        ? `Crypto sent`
+        : t.status === "failed"
+          ? `Crypto send failed — refunded`
+          : `Crypto send processing`;
     // Don't claim delivery until the provider has actually confirmed it —
     // "… delivered" next to a Pending status is a contradiction.
     case "bill": return `${t.note ?? "Bill"}${t.status === "completed" ? " delivered" : t.status === "failed" ? " failed" : " processing"}`;
@@ -112,7 +128,15 @@ export default function NotificationsPage() {
               </div>
             </div>
             <div className="mt-3 flex flex-col divide-y divide-white/[.06]">
-              <DetailRow label="Status" value={(sel.status ?? "completed").replace(/^\w/, (c) => c.toUpperCase())} tone={sel.status === "pending" ? "warn" : "good"} />
+              <DetailRow
+                label="Status"
+                value={(sel.status ?? "completed").replace(/^\w/, (c) => c.toUpperCase())}
+                tone={sel.status === "pending" ? "warn" : sel.status === "failed" ? "bad" : "good"}
+              />
+              {/* Why it didn't go through. Without this the screen said "Failed"
+                  and stopped, so the only way to find out whether it was the
+                  address, the amount, the network or us was to ask support. */}
+              {sel.reason && <DetailRow label="Reason" value={sel.reason} tone={sel.status === "failed" ? "bad" : "warn"} />}
               {sel.counterparty && <DetailRow label={sel.type === "deposit" ? "Source" : "To / From"} value={prettifyChains(sel.counterparty)} />}
               {sel.note && <DetailRow label="Note" value={prettifyChains(sel.note)} />}
               <DetailRow label="When" value={sel.time === "now" ? "Just now" : sel.time + " ago"} />
@@ -149,8 +173,8 @@ export default function NotificationsPage() {
   );
 }
 
-function DetailRow({ label, value, tone, mono, onCopy }: { label: string; value: string; tone?: "good" | "warn"; mono?: boolean; onCopy?: () => void }) {
-  const color = tone === "good" ? "text-good" : tone === "warn" ? "text-warn" : "text-white/90";
+function DetailRow({ label, value, tone, mono, onCopy }: { label: string; value: string; tone?: "good" | "warn" | "bad"; mono?: boolean; onCopy?: () => void }) {
+  const color = tone === "good" ? "text-good" : tone === "warn" ? "text-warn" : tone === "bad" ? "text-bad" : "text-white/90";
   return (
     <div className="flex items-center justify-between gap-3 py-3">
       <span className="text-[12.5px] text-white/45 shrink-0">{label}</span>

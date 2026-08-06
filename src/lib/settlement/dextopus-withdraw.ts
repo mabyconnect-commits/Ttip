@@ -45,6 +45,20 @@ export interface DxWithdrawResult {
   message?: string;
 }
 
+/**
+ * Every way a withdrawal can die, said out loud, with one greppable prefix.
+ *
+ * Six separate `return { status: "failed" }` lines used to leave no trace: the
+ * user saw "Pending" or a refund, the operator saw nothing at all, and working
+ * out WHICH of the six it was meant reading a database by hand. Whatever else
+ * is true of a withdrawal that didn't happen, the reason should be one log
+ * search away — `[dextopus-withdraw]`.
+ */
+function fail(reference: string, message: string): DxWithdrawResult {
+  console.error(`[dextopus-withdraw] FAILED ${reference}: ${message}`);
+  return { status: "failed", message };
+}
+
 function pick<T = unknown>(obj: any, ...keys: string[]): T | undefined {
   const root = obj?.data ?? obj;
   for (const k of keys) if (root?.[k] != null) return root[k] as T;
@@ -54,36 +68,36 @@ function pick<T = unknown>(obj: any, ...keys: string[]): T | undefined {
 
 export async function dextopusWithdraw(req: DxWithdrawRequest): Promise<DxWithdrawResult> {
   const cfg = dextopusConfig();
-  if (!cfg || !dextopusWithdrawEnabled()) return { status: "failed", message: "Dextopus withdrawal is not configured." };
+  if (!cfg || !dextopusWithdrawEnabled()) return fail(req.reference, "Dextopus withdrawal is not configured.");
   if (cfg.settlementChainId == null || !cfg.settlementAsset || !cfg.settlementAddress) {
-    return { status: "failed", message: "Dextopus treasury settlement is not configured." };
+    return fail(req.reference, "Dextopus treasury settlement is not configured.");
   }
   // We fund the withdrawal from the treasury's settlement asset. Only a Solana
   // USDC treasury has an in-process signer, so require that as the origin.
   if (cfg.settlementChainId !== SOLANA_CHAIN_ID || !solanaConfig()) {
-    return { status: "failed", message: "Treasury signer only supports a Solana (USDC) origin." };
+    return fail(req.reference, "Treasury signer only supports a Solana (USDC) origin.");
   }
 
   const destinationChainId = req.chainId ?? chainIdForNetwork(req.network);
-  if (!destinationChainId) return { status: "failed", message: `Unsupported network for ${req.asset}.` };
+  if (!destinationChainId) return fail(req.reference, `Unsupported network for ${req.asset}.`);
 
   // We size the treasury's side of this in dollars, so an asset we can't price
   // would be sized by a guess. usdPrice falls back to $1 per unit, which turned
   // "2 PENGU" into "$2" and quoted 287 PENGU back. Refuse instead.
   if (!(await hasUsdPrice(req.asset))) {
-    return { status: "failed", message: `We can't price ${req.asset} right now, so we won't send it.` };
+    return fail(req.reference, `We can't price ${req.asset} right now, so we won't send it.`);
   }
 
   const [originAsset, destinationAsset] = await Promise.all([
     resolveTokenAddress(cfg, cfg.settlementChainId, cfg.settlementAsset),
     resolveTokenAddress(cfg, destinationChainId, req.asset),
   ]);
-  if (!originAsset) return { status: "failed", message: "Treasury asset not resolvable on Dextopus." };
-  if (!destinationAsset) return { status: "failed", message: `${req.asset} isn't available on the selected network.` };
+  if (!originAsset) return fail(req.reference, "Treasury asset not resolvable on Dextopus.");
+  if (!destinationAsset) return fail(req.reference, `${req.asset} isn't available on the selected network.`);
 
   // Origin amount to send = USD value of the withdrawal (treasury asset is USDC ≈ USD).
   const usdc = await toUsd(req.amount, req.asset);
-  if (!(usdc > 0)) return { status: "failed", message: "Amount is too small." };
+  if (!(usdc > 0)) return fail(req.reference, "Amount is too small.");
   const amountSmallest = Math.round(usdc * 10 ** USDC_DECIMALS).toString();
   const partnerFees = dextopusPartnerFees();
 
@@ -107,16 +121,16 @@ export async function dextopusWithdraw(req: DxWithdrawRequest): Promise<DxWithdr
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      return { status: "failed", message: (body as any)?.message || `Dextopus quote failed (${res.status}).` };
+      return fail(req.reference, (body as any)?.message || `Dextopus quote failed (${res.status}).`);
     }
     quote = await res.json();
   } catch (e) {
-    return { status: "failed", message: `Couldn't reach Dextopus: ${String(e)}` };
+    return fail(req.reference, `Couldn't reach Dextopus: ${String(e)}`);
   }
 
   const depositAddress = pick<string>(quote, "depositAddress", "address");
   const requestId = pick<string | number>(quote, "depositRequestId", "requestId", "id");
-  if (!depositAddress) return { status: "failed", message: "Dextopus did not return a funding address." };
+  if (!depositAddress) return fail(req.reference, "Dextopus did not return a funding address.");
 
   // 2. Fund the address from the Solana treasury — the ONLY money-moving step.
   let fundingTx: string;
@@ -133,9 +147,10 @@ export async function dextopusWithdraw(req: DxWithdrawRequest): Promise<DxWithdr
     // a lamports error nobody had thought to match, and the withdrawal sat
     // "unconfirmed" with the user's balance already taken.
     if (isPreBroadcast(e) || /too low|valid|configured|amount/i.test(msg)) {
-      return { status: "failed", message: msg };
+      return fail(req.reference, msg);
     }
     // Ambiguous (may have broadcast) → leave pending; ops/status reconcile. Never refund + deliver.
+    console.error(`[dextopus-withdraw] FUNDING UNCONFIRMED ${req.reference}: ${msg}`);
     return { status: "pending", providerRef: String(requestId ?? ""), message: `Funding unconfirmed — will reconcile: ${msg}` };
   }
 
