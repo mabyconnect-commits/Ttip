@@ -12,63 +12,64 @@ datasource db {
 }
 
 model User {
-  id             String   @id @default(cuid())
-  email          String   @unique
-  username       String   @unique
-  passwordHash   String
-  name           String
-  verified       Boolean  @default(false)
-  avatarGradient String   @default("135deg,#6D5BFF,#2AC8FF 60%,#3DF5B0")
-  defaultFiat    String   @default("NGN")
-  bankName       String?
-  bankAccount    String? // masked, e.g. "GTBank ••7204"
-  streakDays     Int      @default(0)
-  points         Int      @default(0)
-  freeSwapsLeft  Int      @default(3)
-  referralCode   String   @unique
-  referredById   String?
-  referralEarned Decimal  @default(0) @db.Decimal(18, 2)
-  cashback       Decimal  @default(0) @db.Decimal(18, 2) // earned cashback, claimable at the threshold
-  pinHash        String?
-  kycStatus      String   @default("unverified") // unverified | pending | verified
+  id               String               @id @default(cuid())
+  email            String               @unique
+  username         String               @unique
+  passwordHash     String
+  name             String
+  verified         Boolean              @default(false)
+  avatarGradient   String               @default("135deg,#6D5BFF,#2AC8FF 60%,#3DF5B0")
+  defaultFiat      String               @default("NGN")
+  bankName         String?
+  bankAccount      String? // masked, e.g. "GTBank ••7204"
+  streakDays       Int                  @default(0)
+  points           Int                  @default(0)
+  freeSwapsLeft    Int                  @default(3)
+  referralCode     String               @unique
+  referredById     String?
+  referralEarned   Decimal              @default(0) @db.Decimal(18, 2)
+  cashback         Decimal              @default(0) @db.Decimal(18, 2) // earned cashback, claimable at the threshold
+  pinHash          String?
+  kycStatus        String               @default("unverified") // unverified | pending | verified
   // Tier 0 until an identity is actually verified. Tier is DERIVED from
   // kycIdTypes (see lib/constants KYC_TIERS), never granted on its own.
-  kycTier        Int      @default(0)
+  kycTier          Int                  @default(0)
   // Which id types this user has verified, e.g. ["bvn","nin"]. BVN alone is
   // Tier 1; BVN + a government ID is Tier 2; + "address" is Tier 3.
-  kycIdTypes     String[] @default([])
-  kycProvider    String? // which provider verified (dojah | sandbox | manual)
-  kycRef         String? // provider reference / audit id for the identity check
-  kycVerifiedAt  DateTime?
-  resetTokens    PasswordResetToken[]
-  bvnHash        String?   @unique // HMAC of the verified BVN — one BVN per account (anti-reuse) + trace
-  bvnLast4       String?   // last 4 digits of the BVN, for support/display
-  nairaAccount   String? // dedicated virtual account number for naira funding
-  nairaBank      String? // the bank that hosts the dedicated account
-  lastDropAt     DateTime?
-  freeSwapDay    String? // YYYY-MM-DD the free-swap allowance was last counted
-  lastTipDay     String? // YYYY-MM-DD of the last tip sent (for streaks)
+  kycIdTypes       String[]             @default([])
+  kycProvider      String? // which provider verified (dojah | sandbox | manual)
+  kycRef           String? // provider reference / audit id for the identity check
+  kycVerifiedAt    DateTime?
+  resetTokens      PasswordResetToken[]
+  bvnHash          String?              @unique // HMAC of the verified BVN — one BVN per account (anti-reuse) + trace
+  bvnLast4         String? // last 4 digits of the BVN, for support/display
+  nairaAccount     String? // dedicated virtual account number for naira funding
+  nairaBank        String? // the bank that hosts the dedicated account
+  lastDropAt       DateTime?
+  freeSwapDay      String? // YYYY-MM-DD the free-swap allowance was last counted
+  lastTipDay       String? // YYYY-MM-DD of the last tip sent (for streaks)
   // Telegram account link. Unique so one Telegram account can only ever be
   // bound to one Ttip account — otherwise a linked chat could be pointed at a
   // second account and read both.
-  telegramChatId   String?   @unique
+  telegramChatId   String?              @unique
   telegramUsername String?
   telegramLinkedAt DateTime?
   telegramTokens   TelegramLinkToken[]
   passkeys         Passkey[]
   pushSubs         PushSubscription[]
   telegramDrafts   TelegramDraft[]
-  createdAt      DateTime @default(now())
+  scheduledSends   ScheduledTransfer[]
+  createdAt        DateTime             @default(now())
 
-  balances     Balance[]
-  transactions Transaction[]
-  addresses    WalletAddress[]
+  balances      Balance[]
+  transactions  Transaction[]
+  addresses     WalletAddress[]
   beneficiaries Beneficiary[]
-  settlements  Settlement[]
-  card         Card?
-  feedItems    FeedItem[]      @relation("actor")
-  referrals    Referral[]      @relation("referrer")
-  campaigns    Campaign[]      @relation("campaignInfluencer")
+  settlements   Settlement[]
+  card          Card?
+  feedItems     FeedItem[]      @relation("actor")
+  referrals     Referral[]      @relation("referrer")
+  campaigns     Campaign[]      @relation("campaignInfluencer")
 
   @@index([username])
 }
@@ -104,12 +105,12 @@ model WalletAddress {
 /// database leak can't be used to reset anyone's password; the raw token exists
 /// only in the email we sent.
 model PasswordResetToken {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
-  tokenHash String   @unique
+  tokenHash String    @unique
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -142,15 +143,15 @@ model TelegramLinkToken {
 /// the transfer the user was just shown — never to an older one still sitting
 /// around. Short-lived and single-use for the same reason.
 model TelegramDraft {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   userId        String
-  chatId        String   @unique
+  chatId        String    @unique
   /// Null while we still need to be told how much. A photo of an account gives
   /// us the recipient but rarely the amount, and the user supplies that in the
   /// next message — which they should not have to repeat the account for.
   /// "bank" | "crypto" — the two things a chat can send.
-  kind          String   @default("bank")
-  amount        Decimal? @db.Decimal(18, 2)
+  kind          String    @default("bank")
+  amount        Decimal?  @db.Decimal(18, 2)
   fiat          String
   /// Bank fields. Null on a crypto draft.
   accountNumber String?
@@ -162,11 +163,18 @@ model TelegramDraft {
   address       String?
   /// Null when the bank could not confirm the name — the prompt says so.
   resolvedName  String?
+  /// Set when the request named a time — "in 30 minutes", "tomorrow at 9".
+  /// Confirming a draft that carries one SCHEDULES it instead of sending it.
+  /// Without this the four words that changed WHEN were simply dropped, and
+  /// the money went immediately.
+  scheduleAt    DateTime?
+  /// How the user put it, read back on the confirmation.
+  scheduleSaid  String?
   /// Wrong-PIN attempts. The draft dies after a few, so a chat can't be used
   /// to grind PINs.
-  attempts      Int      @default(0)
+  attempts      Int       @default(0)
   expiresAt     DateTime
-  createdAt     DateTime @default(now())
+  createdAt     DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -188,14 +196,14 @@ model TelegramDraft {
 // can go stale at any time, so a send that comes back 404/410 deletes the row
 // rather than retrying for ever.
 model PushSubscription {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  endpoint  String   @unique
-  p256dh    String
-  auth      String
-  userAgent String?
-  createdAt DateTime @default(now())
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint   String    @unique
+  p256dh     String
+  auth       String
+  userAgent  String?
+  createdAt  DateTime  @default(now())
   lastSentAt DateTime?
 
   @@index([userId])
@@ -209,20 +217,20 @@ model PushSubscription {
 // anywhere. That is the whole point of offering this instead of a password —
 // there is no shared secret left to phish, reuse or leak.
 model Passkey {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   userId       String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   // Base64url credential id from the authenticator.
-  credentialId String   @unique
+  credentialId String    @unique
   // Base64url COSE public key.
   publicKey    String
   // Replay guard: must never go backwards for a given credential.
-  counter      BigInt   @default(0)
+  counter      BigInt    @default(0)
   // e.g. ["internal","hybrid"] — how the authenticator can be reached.
-  transports   String[] @default([])
+  transports   String[]  @default([])
   // What the user calls it: "iPhone", "Pixel".
   label        String?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime  @default(now())
   lastUsedAt   DateTime?
 
   @@index([userId])
@@ -231,7 +239,7 @@ model Passkey {
 model TelegramTurn {
   id        String   @id @default(cuid())
   chatId    String
-  role      String   /// "user" | "assistant"
+  role      String /// "user" | "assistant"
   text      String   @db.VarChar(2000)
   createdAt DateTime @default(now())
 
@@ -297,13 +305,13 @@ model TreasuryBalance {
 }
 
 model Beneficiary {
-  id             String @id @default(cuid())
+  id             String  @id @default(cuid())
   userId         String
   name           String
   handle         String? // @username or null
   type           String // ttip | bank | wallet
   detail         String // account / address / handle
-  avatarGradient String @default("135deg,#FF9A5B,#FF5B8F")
+  avatarGradient String  @default("135deg,#FF9A5B,#FF5B8F")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -361,7 +369,7 @@ model Referral {
 // Admin-only: never listed publicly, and progress is counted from what actually
 // happened rather than anything the influencer reports.
 model Campaign {
-  id           String    @id @default(cuid())
+  id           String  @id @default(cuid())
   name         String
   // The influencer. Their referral code is what attributes a signup.
   influencerId String
@@ -389,4 +397,49 @@ model Campaign {
 
   @@index([influencerId])
   @@index([status])
+}
+
+/// A transfer the user asked for later — "send this in 30 minutes", "pay her
+/// tomorrow at 9".
+///
+/// The PIN is verified when the transfer is SCHEDULED, never stored: this is
+/// the same bargain a standing order makes at a bank. Authorising it later
+/// would need the user present, which is the one thing scheduling is for.
+model ScheduledTransfer {
+  id     String   @id @default(cuid())
+  userId String
+  /// "bank" today. Crypto sends wait until the treasury is reliable enough to
+  /// promise a time.
+  kind   String   @default("bank")
+  /// scheduled → sending → sent | failed | cancelled
+  status String   @default("scheduled")
+  runAt  DateTime
+
+  /// What to send. `symbol` is the wallet the user preferred; the payout is
+  /// still funded from all of them, exactly as an immediate one is.
+  fiat   String
+  symbol String
+  amount Decimal @db.Decimal(24, 8)
+
+  bankName      String?
+  accountNumber String?
+  accountName   String?
+  note          String?
+
+  /// Where it was set up, so the result can be told to the same place.
+  chatId String?
+  /// What the user actually said, read back on confirmation: "in 30 minutes".
+  said   String?
+
+  attempts  Int       @default(0)
+  error     String?
+  reference String?
+  sentAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, runAt])
+  @@index([userId, status])
 }

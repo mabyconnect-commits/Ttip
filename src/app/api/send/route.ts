@@ -22,6 +22,7 @@ import { accrueCashback } from "@/lib/cashback";
 import { checkWithdrawalLimit } from "@/lib/kyc/limits";
 import { accrueReferralEarning } from "@/lib/referral";
 import { requireWithdrawPin } from "@/lib/withdraw-pin";
+import { consumeScheduleAuth } from "@/lib/scheduled-transfer";
 import { cleanNarration, payoutNarration } from "@/lib/narration";
 
 const schema = z.object({
@@ -42,6 +43,15 @@ const schema = z.object({
   // bank
   /** Transaction PIN — required for anything that leaves the platform. */
   pin: z.string().optional(),
+  /**
+   * Stands in for the PIN on a transfer the user scheduled earlier.
+   *
+   * Server-minted, single-use, and only valid while its own row is mid-run —
+   * see lib/scheduled-transfer.ts. The PIN was verified when the transfer was
+   * set up; asking again at 3am would defeat the point, and storing one to
+   * replay would be indefensible.
+   */
+  scheduleAuth: z.string().optional(),
   /**
    * One id per attempt, from the client. It becomes the payout reference, and
    * `Settlement.externalId` is unique — so a second tap on the same attempt
@@ -81,7 +91,19 @@ export async function POST(req: Request) {
     }
     // Anything irreversible asks for the transaction PIN. A stolen session or an
     // unlocked phone shouldn't be enough to empty an account.
-    await requireWithdrawPin(userId, input.pin);
+    //
+    // Unless the user already gave it: a scheduled transfer was authorised with
+    // a PIN when it was set up, and this is the runner presenting proof of that.
+    // Bank only — scheduling a crypto send would be promising a time on a rail
+    // we don't control, and an authorisation minted for one must never unlock
+    // the other.
+    if (input.scheduleAuth && input.mode === "bank") {
+      if (!(await consumeScheduleAuth(userId, input.scheduleAuth))) {
+        throw new ApiError("That scheduled transfer is no longer valid.", 401);
+      }
+    } else {
+      await requireWithdrawPin(userId, input.pin);
+    }
 
     if (input.mode === "wallet") {
       return handleWalletSend(userId, user.kycTier, user.defaultFiat, input);

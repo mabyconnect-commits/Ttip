@@ -21,8 +21,12 @@ import {
   setDraftBank,
   setDraftAsset,
   setDraftNetwork,
+  setDraftSchedule,
   createCryptoDraft,
+  scheduleDraft,
 } from "@/lib/telegram-transfer";
+import { parseWhen, scheduleProblem } from "@/lib/assistant/when";
+import { upcomingTransfers, cancelScheduled } from "@/lib/scheduled-transfer";
 import { parseCryptoAddress, parseCryptoAsset, mentionsCrypto, classify, parseEvmChain, networkFor, EVM_CHAIN_LABELS, FAMILY_ASSETS, shortAddress, type ChainFamily } from "@/lib/assistant/crypto-address";
 import { decodeQr } from "@/lib/assistant/qr";
 import { answerFaq } from "@/lib/assistant/faq";
@@ -119,6 +123,8 @@ function pendingSummary(d: {
   asset?: string | null;
   network?: string | null;
   address?: string | null;
+  scheduleAt?: Date | null;
+  scheduleSaid?: string | null;
 } | null): string {
   if (!d) {
     return (
@@ -140,7 +146,9 @@ function pendingSummary(d: {
   if (!gap) {
     return (
       `## A confirmation is on screen\n` +
-      `The app has already shown them ${held} and asked for their PIN. Say nothing that ` +
+      `The app has already shown them ${held}${
+        d.scheduleAt ? `, TO BE SENT ${d.scheduleSaid ?? "later"} — NOT now` : ""
+      } and asked for their PIN. Say nothing that ` +
       `contradicts it; if they ask, tell them to reply with their PIN, or /cancel to drop it.`
     );
   }
@@ -558,11 +566,46 @@ function missingPiece(d: {
 }
 
 async function handleTransferIntent(chatId: number, userId: string, text: string): Promise<boolean> {
+  /**
+   * When they asked for it to go.
+   *
+   * "Can you send money to this account in 30min from now please" was read for
+   * its account and its amount and sent immediately — the four words that
+   * changed WHEN were never looked at. A time in the message now travels with
+   * the draft, and confirming it schedules rather than sends.
+   *
+   * Too soon falls back to sending now, which is what they wanted anyway. Too
+   * far has to be said out loud: quietly sending in a minute what someone asked
+   * for in a year is exactly the failure being fixed.
+   */
+  const when = parseWhen(text);
+  const problem = when ? scheduleProblem(when.at) : null;
+  if (problem?.code === "too-far" || problem?.code === "unreadable") {
+    await say(chatId, `${problem.message} Tell me a nearer time and I'll set it up.`);
+    return true;
+  }
+  const later = when && !problem ? when : null;
+  const schedule = { scheduleAt: later?.at ?? null, scheduleSaid: later?.said ?? null };
+
   // A wallet address anywhere in the message routes to the crypto path. Checked
   // before the naira parser, because a NUBAN can't look like a chain address but
   // a chain address contains digits a money parser would happily misread.
   const crypto = parseCryptoAddress(text);
-  if (crypto) return handleCryptoAddress(chatId, userId, crypto.address, crypto.family, text);
+  if (crypto) {
+    // Same rule as everywhere else: a time we can't honour is said, never
+    // dropped. Scheduling a chain send would be promising a moment on a rail we
+    // don't control, so we don't offer it — but we don't quietly send now
+    // either, which is the exact failure this whole path is fixing.
+    if (later) {
+      await say(
+        chatId,
+        `I can't schedule a crypto send yet — only bank transfers. ` +
+          `Say it again without the time and I'll set it up to go now.`,
+      );
+      return true;
+    }
+    return handleCryptoAddress(chatId, userId, crypto.address, crypto.family, text);
+  }
 
   // A transfer we're part-way through — from a photo, or from a request that
   // gave one piece at a time. Whatever this message adds gets filled in, in
@@ -608,10 +651,17 @@ async function handleTransferIntent(chatId: number, userId: string, text: string
         addedAsset = true;
       }
     }
+    // "Actually make it 6pm" — the account and amount are already held, so the
+    // time is the only thing this message has to carry.
+    let addedTime = false;
+    if (pending.kind !== "crypto" && later && !pending.scheduleAt) {
+      d = await setDraftSchedule(chatId, later.at, later.said);
+      addedTime = true;
+    }
     if (add.bank) d = (await setDraftBank(chatId, add.bank)) ?? d;
     if (add.amount) d = await setDraftAmount(chatId, add.amount);
 
-    if (addedNetwork || addedAsset || add.bank || add.amount) {
+    if (addedNetwork || addedAsset || addedTime || add.bank || add.amount) {
       const state = { ...d, amount: d.amount === null ? null : Number(d.amount) };
       await say(chatId, draftGap(state) ? missingPiece(d) : draftPrompt(d));
       return true;
@@ -628,7 +678,7 @@ async function handleTransferIntent(chatId: number, userId: string, text: string
     // way. Asking "which bank?" while remembering nothing is what left the
     // answer with nothing to attach to.
     const bank = parseBankName(text, NIGERIAN_BANKS.map((b) => b.name)) ?? null;
-    await createDraft({ userId, chatId, fiat: "NGN", accountNumber: parts.account, bankName: bank });
+    await createDraft({ userId, chatId, fiat: "NGN", accountNumber: parts.account, bankName: bank, ...schedule });
     const d = await liveDraft(chatId);
     if (d) await say(chatId, missingPiece(d));
     return true;
@@ -652,6 +702,7 @@ async function handleTransferIntent(chatId: number, userId: string, text: string
         fiat: "NGN",
         accountNumber: from.account,
         bankName: from.bank ?? null,
+        ...schedule,
       });
       const d = await liveDraft(chatId);
       if (d) {
@@ -696,6 +747,7 @@ async function handleTransferIntent(chatId: number, userId: string, text: string
         fiat,
         accountNumber: named.detail,
         bankName: named.handle!,
+        ...schedule,
       });
       const draft = await liveDraft(chatId);
       if (draft) await say(chatId, draftPrompt(draft));
@@ -723,7 +775,7 @@ async function handleTransferIntent(chatId: number, userId: string, text: string
   // perfectly normal thing to say. Hold the amount and the account, ask the
   // one question, and the next word finishes it.
   const bankName = parseBankName(text, NIGERIAN_BANKS.map((b) => b.name)) ?? null;
-  await createDraft({ userId, chatId, amount: intent.amount, fiat, accountNumber: intent.account, bankName });
+  await createDraft({ userId, chatId, amount: intent.amount, fiat, accountNumber: intent.account, bankName, ...schedule });
 
   const draft = await liveDraft(chatId);
   if (draft) await say(chatId, bankName ? draftPrompt(draft) : missingPiece(draft));
@@ -746,12 +798,17 @@ async function handlePin(
     ? ""
     : `\n\n⚠️ I couldn't delete your PIN message — please delete it yourself.`;
 
-  const res = await sendDraft(draft, pin);
+  // A draft that carries a time is confirmed INTO a schedule. This is the whole
+  // point of holding the time on the draft: the PIN prompt said "Scheduling",
+  // and what the PIN authorises has to be what the PIN prompt described.
+  const res = draft.scheduleAt ? await scheduleDraft(draft, pin) : await sendDraft(draft, pin);
 
   if (res.ok) {
     await clearDraft(chatId);
     await say(chatId, res.message + notWiped);
-    await sendReceipt(chatId, draft, res.pending === true);
+    // No receipt for a scheduled one — nothing has happened yet, and a receipt
+    // for a payment that hasn't been made is a thing people forward.
+    if (!draft.scheduleAt) await sendReceipt(chatId, draft, res.pending === true);
     return;
   }
 
@@ -937,6 +994,47 @@ export async function POST(req: Request) {
 
     if (command === "/help") {
       await sendMessage(chatId, telegramWelcome(linked?.name));
+      return NextResponse.json({ ok: true });
+    }
+
+    /**
+     * `/scheduled` — what's waiting, and how to stop it.
+     *
+     * This exists in the same commit as scheduling itself, deliberately. A
+     * payment nobody can see and nobody can cancel is a worse product than no
+     * scheduling at all: the whole reason people hesitate to set one up is the
+     * fear of not being able to call it back.
+     */
+    if (command === "/scheduled" || command === "/schedules") {
+      if (!linked) {
+        await sendMessage(chatId, `Connect this chat first — open ${COMPANY.domain} → Account → Telegram.`);
+        return NextResponse.json({ ok: true });
+      }
+      if (arg) {
+        const done = await cancelScheduled(linked.id, arg.replace(/^cancel\s+/i, "").trim());
+        await sendMessage(
+          chatId,
+          done
+            ? "Cancelled — that one won't go out. Nothing left your balance."
+            : "I couldn't find that one still waiting. It may have gone already, or been cancelled.",
+        );
+        return NextResponse.json({ ok: true });
+      }
+      const rows = await upcomingTransfers(linked.id);
+      await sendMessage(
+        chatId,
+        rows.length
+          ? `**Waiting to go out**\n\n` +
+            rows
+              .map(
+                (r) =>
+                  `• ${r.fiat === "NGN" ? "₦" : r.fiat + " "}${Number(r.amount).toLocaleString("en-US")} to ` +
+                  `${r.accountName ?? r.accountNumber} — ${r.said ?? r.runAt.toISOString().slice(0, 16).replace("T", " ")}\n` +
+                  `  Cancel: \`/scheduled ${r.id}\``,
+              )
+              .join("\n\n")
+          : "Nothing scheduled right now. Say something like \"send 2k to 8113866493 Opay in 30 minutes\" and I'll set one up.",
+      );
       return NextResponse.json({ ok: true });
     }
 

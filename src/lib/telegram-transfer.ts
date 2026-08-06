@@ -4,6 +4,9 @@ import { signSessionToken, SESSION_COOKIE } from "./auth";
 import { baseUrl } from "./url";
 import { resolveAccountName } from "./settlement";
 import { transferFee } from "./pricing";
+import { requireWithdrawPin } from "./withdraw-pin";
+import { scheduleBankTransfer } from "./scheduled-transfer";
+import { scheduleProblem } from "./assistant/when";
 
 /**
  * Sending money from a Telegram chat.
@@ -78,6 +81,14 @@ export interface DraftInput {
   accountNumber: string;
   /** Null while we know the account but not yet the bank. */
   bankName: string | null;
+  /**
+   * When the user asked for it to go, if they said. "in 30min from now" was
+   * being read for its digits and thrown away for its meaning — the transfer
+   * went immediately. A draft that carries a time is confirmed INTO a schedule,
+   * never into an immediate send.
+   */
+  scheduleAt?: Date | null;
+  scheduleSaid?: string | null;
 }
 
 /** A crypto send: an address on a network, and an asset to send. */
@@ -120,6 +131,10 @@ export async function createCryptoDraft(input: CryptoDraftInput) {
     bankName: null,
     accountName: null,
     resolvedName: null,
+    // Crypto sends don't schedule: promising a time on a rail we don't control
+    // is a promise we can't keep.
+    scheduleAt: null,
+    scheduleSaid: null,
     attempts: 0,
     expiresAt: expiryFor(!!input.asset && !!input.network && input.amount != null),
   };
@@ -152,6 +167,8 @@ export async function createDraft(input: DraftInput) {
     bankName: input.bankName,
     accountName: resolved ?? `${input.bankName ?? ""} ${input.accountNumber}`.trim(),
     resolvedName: resolved,
+    scheduleAt: input.scheduleAt ?? null,
+    scheduleSaid: input.scheduleSaid ?? null,
     attempts: 0,
     expiresAt: expiryFor(!!input.bankName && input.amount != null),
   };
@@ -238,6 +255,20 @@ export async function setDraftAsset(chatId: number | string, asset: string) {
 }
 
 /**
+ * Attach a time to a draft that was already half-built.
+ *
+ * "Send 2k to 8113866493 Opay" and then, a message later, "actually make it
+ * 6pm". The account and the amount are already held; the time is the only thing
+ * this message adds, and it must not require repeating the rest.
+ */
+export async function setDraftSchedule(chatId: number | string, at: Date, said: string) {
+  return prisma.telegramDraft.update({
+    where: { chatId: String(chatId) },
+    data: { scheduleAt: at, scheduleSaid: said, attempts: 0 },
+  });
+}
+
+/**
  * Fill in the bank on a draft that was only missing that.
  *
  * The name lookup happens here rather than at creation, because until there is
@@ -273,6 +304,8 @@ export function draftPrompt(d: {
   asset?: string | null;
   network?: string | null;
   address?: string | null;
+  scheduleAt?: Date | null;
+  scheduleSaid?: string | null;
 }): string {
   if (d.kind === "crypto") return cryptoPrompt(d);
   const amount = Number(d.amount);
@@ -283,13 +316,23 @@ export function draftPrompt(d: {
     ? `**${d.resolvedName}**`
     : `**${d.accountNumber}** — *the bank couldn't confirm the name, so check the number*`;
 
+  // A scheduled transfer has to LOOK different from an immediate one, at the
+  // moment the PIN is asked for. Someone who wrote "in 30 minutes" and is shown
+  // "Sending ₦2,000" has been told their instruction was heard when it wasn't.
+  const later = !!d.scheduleAt;
+
   return (
-    `**Sending ${money(amount)}**\n` +
+    `**${later ? "Scheduling" : "Sending"} ${money(amount)}**\n` +
     `To: ${who}\n` +
     `${d.accountNumber} · ${d.bankName}\n` +
+    (later ? `Goes out: **${d.scheduleSaid ?? "later"}**\n` : "") +
     (fee !== null ? `Fee: ${money(fee)} (taken from your balance, they get the full ${money(amount)})\n` : "") +
-    `\nReply with your **transaction PIN** to send it. I delete your PIN from this chat the second I read it.\n` +
-    `Send /cancel to drop it.`
+    (later
+      ? `\nNothing leaves your balance until then, and it needs to be there when the time comes.\n` +
+        `Reply with your **transaction PIN** to set it up. I delete your PIN from this chat the second I read it.\n` +
+        `Send /cancel to drop it, or /scheduled later to see or cancel it.`
+      : `\nReply with your **transaction PIN** to send it. I delete your PIN from this chat the second I read it.\n` +
+        `Send /cancel to drop it.`)
   );
 }
 
@@ -491,6 +534,80 @@ export async function sendDraft(
     ok: false,
     wrongPin,
     message: body.error ?? "That didn't go through. Try again from the app.",
+  };
+}
+
+/**
+ * Set a transfer up for later instead of sending it now.
+ *
+ * The PIN is checked HERE and never stored — the authorisation happens while
+ * the user is present, exactly as it does for an immediate transfer, and what
+ * runs at the appointed time is a server-signed single-use token standing in
+ * for it (see lib/scheduled-transfer.ts).
+ *
+ * Deliberately does NOT reserve the money. Holding a balance for three days to
+ * guarantee one payment is how an app quietly freezes funds people need; the
+ * send at the appointed time is funded from every wallet, like any other, and
+ * says so if it comes up short.
+ */
+export async function scheduleDraft(
+  draft: {
+    id: string;
+    userId: string;
+    kind?: string;
+    amount: unknown;
+    fiat: string;
+    chatId: string;
+    accountNumber: string | null;
+    bankName: string | null;
+    accountName: string | null;
+    resolvedName: string | null;
+    scheduleAt: Date | null;
+    scheduleSaid: string | null;
+  },
+  pin: string,
+): Promise<SendOutcome> {
+  const amount = Number(draft.amount);
+  const money = (n: number) => `${draft.fiat === "NGN" ? "₦" : draft.fiat + " "}${n.toLocaleString("en-US")}`;
+
+  if (draft.kind === "crypto" || !draft.bankName || !draft.accountNumber || !draft.scheduleAt) {
+    return { ok: false, wrongPin: false, message: "I can only schedule bank transfers, and I still need the details." };
+  }
+
+  try {
+    await requireWithdrawPin(draft.userId, pin);
+  } catch (e) {
+    const status = (e as { status?: number }).status;
+    return {
+      ok: false,
+      wrongPin: status === 401,
+      message: (e as Error).message ?? "That PIN isn't right.",
+    };
+  }
+
+  const problem = scheduleProblem(draft.scheduleAt);
+  if (problem) return { ok: false, wrongPin: false, message: problem.message };
+
+  await scheduleBankTransfer({
+    userId: draft.userId,
+    runAt: draft.scheduleAt,
+    said: draft.scheduleSaid ?? "later",
+    fiat: draft.fiat,
+    symbol: draft.fiat,
+    amount,
+    bankName: draft.bankName,
+    accountNumber: draft.accountNumber,
+    accountName: draft.resolvedName ?? draft.accountName,
+    chatId: draft.chatId,
+  });
+
+  return {
+    ok: true,
+    message:
+      `Scheduled ⏳ ${money(amount)} to ${draft.resolvedName ?? draft.accountName} — ` +
+      `${draft.scheduleSaid ?? "later"}.\n\n` +
+      `Nothing has left your balance yet. I'll send it then and tell you either way. ` +
+      `Send /scheduled to see it or cancel it.`,
   };
 }
 

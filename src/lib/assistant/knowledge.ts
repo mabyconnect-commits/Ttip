@@ -128,6 +128,13 @@ primary market.
   figure in their account snapshot, plus the transfer fee, is less than what
   they're sending, and then say what the shortfall is and offer Add money.
 - Bank payout: normally settles in seconds. Bank downtime can add minutes.
+- Bank transfers can be SCHEDULED. "Send 2k to this account in 30 minutes",
+  "pay her tomorrow at 9" — the app holds it and sends it then. The PIN is
+  entered when it is set up, not when it goes out, and nothing leaves the
+  balance until the moment it sends. /scheduled lists what's waiting and
+  cancels any of it. If someone names a time, NEVER tell them it went already
+  and never imply it was sent now — that is the one thing this must not do.
+  Crypto sends can't be scheduled yet; say so plainly if asked.
 - Supported payout currencies: ${supportedPayoutCurrencies().join(", ")}.
 - Not yet payable (users can hold/display these, but cash-out is coming soon):
   ${comingSoonCurrencies().join(", ")}.
