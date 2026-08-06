@@ -1,6 +1,7 @@
 import "server-only";
 import crypto from "crypto";
 import { convert } from "../prices";
+import { isLive } from "./config";
 
 /**
  * Liquidity engine — turns treasury crypto into fiat float so payouts stay
@@ -46,7 +47,21 @@ const sandboxLiquidity: LiquidityProvider = {
   },
 };
 
-export function liquidityProvider(): LiquidityProvider {
-  // Only the sandbox venue is built in; real venues register here by name.
-  return sandboxLiquidity;
+/**
+ * The venue, or null when there isn't one that can actually trade.
+ *
+ * Null is the important case, and it used to be impossible. The sandbox venue
+ * "executes" instantly at the reference rate and credits the float with naira
+ * that does not exist — harmless on a test deployment, and on a live one it
+ * means every shortfall silently disappears into imaginary money. ensureFloat
+ * would report no shortfall, the payout would be sent against a float that
+ * wasn't there, and the provider would reject it.
+ *
+ * So on a live deployment there is NO instant venue. A shortfall stays a
+ * shortfall, the payout is held, and treasury USDC goes to a real exchange to
+ * be really sold (see float.ts). Fake float is worse than no float: it hides
+ * the one number an operator needs.
+ */
+export function liquidityProvider(): LiquidityProvider | null {
+  return isLive() ? null : sandboxLiquidity;
 }

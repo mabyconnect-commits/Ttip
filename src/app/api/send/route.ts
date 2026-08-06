@@ -23,6 +23,8 @@ import { checkWithdrawalLimit } from "@/lib/kyc/limits";
 import { accrueReferralEarning } from "@/lib/referral";
 import { requireWithdrawPin } from "@/lib/withdraw-pin";
 import { consumeScheduleAuth } from "@/lib/scheduled-transfer";
+import { raiseFloat, holdWindowMinutes } from "@/lib/settlement/float";
+import { holdPayout } from "@/lib/settlement/payout-hold";
 import { cleanNarration, payoutNarration } from "@/lib/narration";
 
 const schema = z.object({
@@ -502,7 +504,14 @@ async function handleBankSend(
 
   // Make sure the fiat float can cover this payout; if it's short, auto-sell
   // treasury crypto into the float so a large withdrawal still goes out now.
-  await ensureFloat(fiat, fiatAmount);
+  //
+  // The shortfall it reports used to be DISCARDED — the payout went to a
+  // provider that had no naira to send, and the user watched their transfer
+  // fail for a reason that was ours and invisible to them. Now it decides what
+  // happens next.
+  const float = await ensureFloat(fiat, fiatAmount);
+  const shortfallFiat = float.shortfall ?? 0;
+  const holdForFloat = shortfallFiat > 0;
 
   // 1. Debit the crypto and record the payout as pending — one atomic step, so
   //    the money can never leave the wallet without a settlement row to match it.
@@ -560,6 +569,54 @@ async function handleBankSend(
       throw new ApiError("That transfer is already going through — check your history in a moment.", 409);
     }
     throw e;
+  }
+
+  // 1b. Short of naira: raise it, and hold the payout while we do.
+  //
+  // The user's side is finished — their crypto is debited and the payout row
+  // exists. What's missing is our float, so the transfer waits for a fixed
+  // window instead of being handed to a provider that will only reject it. The
+  // top-up starts immediately: the slow part is a person finishing a P2P sell,
+  // and the USDC should already be on the exchange when they look at it.
+  if (holdForFloat) {
+    const raised = await raiseFloat(fiat, shortfallFiat, reference).catch((e) => {
+      console.error("[payout] top-up could not be raised", reference, e);
+      return null;
+    });
+    await holdPayout({
+      userId,
+      reference,
+      fiat,
+      amountFiat: fiatAmount,
+      shortfallFiat,
+      accountNumber,
+      bankName: input.bankName ?? user.bankName ?? undefined,
+      accountName: input.accountName,
+      jobId: raised?.jobId ?? null,
+    });
+    console.error(
+      `[payout] HELD ${reference} — ${fiat} ${fiatAmount} needs ${fiat} ${shortfallFiat.toFixed(2)} more float. ` +
+        `${raised?.message ?? "No top-up was raised."} Resolve within ${holdWindowMinutes()} minutes or it refunds.`,
+    );
+
+    const state = await getAppState(userId);
+    return ok({
+      ...state,
+      receipt: {
+        kind: "bank",
+        fiat,
+        amount: fiatAmount,
+        accountNumber,
+        accountName: input.accountName ?? bankLabel,
+        bankName: input.bankName ?? user.bankName ?? null,
+        fee,
+        reference,
+        status: "pending",
+        message:
+          `We're settling this one — it'll be with them within ${holdWindowMinutes()} minutes. ` +
+          `If anything stops it, the full amount comes straight back to your wallet.`,
+      },
+    });
   }
 
   // 2. Ask the provider to move the fiat. Sandbox settles instantly; Flutterwave

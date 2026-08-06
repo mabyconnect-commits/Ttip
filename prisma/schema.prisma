@@ -443,3 +443,74 @@ model ScheduledTransfer {
   @@index([status, runAt])
   @@index([userId, status])
 }
+
+/// A payout that could not go out because the naira float was short.
+///
+/// The user's crypto is ALREADY debited and the payout row already exists — we
+/// just haven't handed it to a provider that has no naira to send. It sits here
+/// for a fixed window while the float is topped up (automatically, or by an
+/// operator), and if nobody resolves it in time it fails and every funding leg
+/// is refunded. A transfer that quietly hangs is the thing this prevents.
+model PayoutHold {
+  id            String  @id @default(cuid())
+  userId        String
+  /// The payout's reference — the same one on the Settlement and Transaction.
+  reference     String  @unique
+  fiat          String
+  amountFiat    Decimal @db.Decimal(24, 8)
+  /// How much of it the float couldn't cover, at the moment it was held.
+  shortfallFiat Decimal @db.Decimal(24, 8)
+
+  accountNumber String
+  bankName      String?
+  accountName   String?
+
+  /// held → released | completed | failed
+  status     String    @default("held")
+  /// Fail-and-refund after this. Not a suggestion: a cron enforces it.
+  deadline   DateTime
+  resolvedBy String?
+  resolvedAt DateTime?
+  note       String?
+  /// The top-up raised to cover it, if one was.
+  jobId      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, deadline])
+  @@index([userId])
+}
+
+/// Turning treasury crypto into naira float, on an exchange.
+///
+/// One row per top-up attempt, so a half-finished one is visible rather than
+/// lost between two systems: we know what was sent, when, on which chain, and
+/// what came back. The on-chain leg is automatic; the P2P sell is where a
+/// human still stands, and this row is what they're looking at.
+model LiquidityJob {
+  id       String @id @default(cuid())
+  provider String
+  /// created → funding → funded → completed | failed
+  status   String @default("created")
+
+  fiat        String
+  /// Shortfall plus the buffer — what we're trying to raise.
+  targetFiat  Decimal  @db.Decimal(24, 8)
+  asset       String
+  amountAsset Decimal  @db.Decimal(38, 18)
+  /// What actually landed in the float, once someone confirms it.
+  raisedFiat  Decimal? @db.Decimal(24, 8)
+
+  /// Our on-chain transfer into the exchange.
+  fundingTx      String?
+  depositAddress String?
+  /// The payout this was raised for, when it was raised for one.
+  reference      String?
+  error          String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+}

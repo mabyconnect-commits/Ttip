@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { BackHeader } from "@/components/ui";
 import { Icon } from "@/components/Icon";
+import { PayoutDesk } from "@/components/PayoutDesk";
 import { Campaigns } from "@/components/admin/Campaigns";
 import { UsersCard } from "@/components/admin/UsersCard";
 import { TelegramCard } from "@/components/admin/TelegramCard";
@@ -266,6 +267,8 @@ export default function AdminFundingPage() {
             <TelegramCard />
 
             <Campaigns />
+
+            <PayoutDesk />
 
             <div className="font-grotesk font-semibold text-[14px] mt-6 mb-2">Ledger reconciliation</div>
             {report?.reconciliation && (

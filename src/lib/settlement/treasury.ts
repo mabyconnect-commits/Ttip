@@ -67,7 +67,12 @@ export async function ensureFloat(
     return { floatBefore, liquidated: false, shortfall: shortfallFiat };
   }
 
+  // No instant venue on a live deployment — see liquidity.ts. The shortfall is
+  // reported honestly and the caller holds the payout while treasury USDC is
+  // sent to a real exchange and really sold.
   const provider = liquidityProvider();
+  if (!provider) return { floatBefore, liquidated: false, shortfall: shortfallFiat };
+
   const quote = await provider.quote(asset, fiat, sell);
   const exec = await provider.execute(quote);
 
