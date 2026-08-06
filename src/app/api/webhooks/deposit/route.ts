@@ -39,9 +39,15 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: true, ignored: "withdrawal" });
       }
       const deposit = parseDextopusDeposit(payload);
-      // Every Dextopus deposit cross-chain-settles to our treasury asset, so
-      // credit the user in that symbol (the payload may carry a mint address).
-      deposit.asset = (process.env.DEXTOPUS_SETTLEMENT_ASSET || deposit.asset).toUpperCase();
+      // A Dextopus deposit cross-chain-settles to our treasury asset, which the
+      // payload may report as a mint/contract ADDRESS. Relabel that to our
+      // configured symbol — but ONLY when the credited amount is the SETTLEMENT
+      // amount (deposit.settled). Relabelling an ORIGIN-amount credit to the
+      // settlement asset is the mis-credit that turned 1.3 SOL into "1.3 USDC",
+      // so an origin-pair credit keeps its own asset.
+      if (deposit.settled && process.env.DEXTOPUS_SETTLEMENT_ASSET) {
+        deposit.asset = process.env.DEXTOPUS_SETTLEMENT_ASSET.toUpperCase();
+      }
       const result = await creditDeposit(deposit);
       return NextResponse.json({ ok: true, ...result });
     }

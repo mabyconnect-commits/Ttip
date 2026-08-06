@@ -73,27 +73,64 @@ export function parseDextopusDeposit(body: unknown): NormalizedDeposit {
   const b = (body ?? {}) as { event?: string; data?: Record<string, unknown> };
   const d = b.data ?? {};
   const externalId = String(d.requestId ?? d.depositId ?? "");
-  const asset = String(d.settlementAsset ?? d.originAsset ?? "").toUpperCase();
-  const amount = Number(d.settlementAmountFormatted ?? d.originAmountFormatted ?? 0);
+
+  // What actually SETTLED into treasury — the amount we can honestly credit.
+  // Dextopus can report it under several names; a settlement amount hiding under
+  // an unchecked key is exactly how a 1.3 SOL deposit became "1.3 USDC": the
+  // parse missed it, fell back to the ORIGIN (SOL) amount, and the route then
+  // relabelled that origin quantity to the settlement asset. So we look widely.
+  const settlementAmount = firstPositive(
+    d.settlementAmountFormatted, d.settlementAmount,
+    d.destinationAmountFormatted, d.destinationAmount,
+    d.amountOutFormatted, d.amountOut, d.settledAmount, d.settledAmountFormatted,
+  );
+  const settlementAsset = String(d.settlementAsset ?? d.destinationAsset ?? d.settlementToken ?? "");
+
+  // What the user sent (origin) — the fallback, and what we show as the source.
+  const originAmount = firstPositive(d.originAmountFormatted, d.originAmount, d.amountInFormatted, d.amountIn);
+  const originAsset = String(d.originAsset ?? d.sourceAsset ?? "");
+
+  // Credit asset and amount MUST come from the same side. Prefer the settlement
+  // pair (what treasury received); fall back to the origin pair. NEVER mix the
+  // settlement asset with the origin amount.
+  let asset: string;
+  let amount: number;
+  let settled: boolean;
+  if (settlementAmount > 0 && settlementAsset) {
+    asset = settlementAsset; amount = settlementAmount; settled = true;
+  } else {
+    asset = originAsset; amount = originAmount; settled = false;
+  }
+
   // Where the user actually sent from (origin) is what to show them.
   const chain = String(d.originChainId ?? d.settlementChainId ?? "");
   const confirmed = String(d.status ?? "").toUpperCase() === "COMPLETED" || b.event === "deposit.completed";
   if (!externalId || !asset || !(amount > 0)) {
-    throw new Error("Invalid Dextopus payload: requestId, settlementAsset and a positive amount are required.");
+    throw new Error("Invalid Dextopus payload: requestId, a settlement/origin asset and a positive amount are required.");
   }
   return {
     externalId,
     address: String(d.depositAddress ?? ""),
-    asset,
+    asset: asset.toUpperCase(),
     chain,
     amount,
     status: confirmed ? "confirmed" : "pending",
     provider: "dextopus",
+    settled,
     userId: d.userId ? String(d.userId) : undefined,
     txHash: String(d.originTxHash ?? d.settlementTxHash ?? "") || undefined,
     chainId: Number(d.originChainId ?? d.settlementChainId) || undefined,
     raw: body,
   };
+}
+
+/** First strictly-positive finite number among the candidates, else 0. */
+function firstPositive(...vals: unknown[]): number {
+  for (const v of vals) {
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return 0;
 }
 
 /** Paystack amounts are in the currency's smallest unit (kobo/pesewas). */

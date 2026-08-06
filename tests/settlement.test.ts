@@ -64,6 +64,38 @@ test("parseDextopusDeposit marks a non-completed event pending", () => {
   assert.equal(d.status, "pending");
 });
 
+test("parseDextopusDeposit credits the settlement pair and flags it settled", () => {
+  const d = parseDextopusDeposit({
+    event: "deposit.completed",
+    data: { requestId: "r1", originAsset: "SOL", originAmountFormatted: "1.3", settlementAsset: "USDC", settlementAmountFormatted: "275.4", status: "COMPLETED" },
+  });
+  assert.equal(d.asset, "USDC");
+  assert.equal(d.amount, 275.4);
+  assert.equal(d.settled, true);
+});
+
+test("parseDextopusDeposit never credits the origin amount as the settlement asset (1.3 SOL is not 1.3 USDC)", () => {
+  // Only origin fields present — no settlement amount. It must stay the origin
+  // pair (SOL 1.3045), not become "1.3045 USDC" once the route relabels.
+  const d = parseDextopusDeposit({
+    event: "deposit.completed",
+    data: { requestId: "r2", originAsset: "SOL", originAmountFormatted: "1.3045", status: "COMPLETED" },
+  });
+  assert.equal(d.asset, "SOL");
+  assert.equal(d.amount, 1.3045);
+  assert.equal(d.settled, false);
+});
+
+test("parseDextopusDeposit reads the settlement amount under alternate field names", () => {
+  const d = parseDextopusDeposit({
+    event: "deposit.completed",
+    data: { requestId: "r3", originAsset: "SOL", originAmount: "1.3", destinationAsset: "USDC", amountOut: "274.9", status: "COMPLETED" },
+  });
+  assert.equal(d.asset, "USDC");
+  assert.equal(d.amount, 274.9);
+  assert.equal(d.settled, true);
+});
+
 test("verifyDextopusSignature enforces the timestamp.body HMAC scheme", () => {
   process.env.DEXTOPUS_WEBHOOK_SECRET = "whsec_1";
   const body = JSON.stringify({ event: "deposit.completed", data: { requestId: "r" } });

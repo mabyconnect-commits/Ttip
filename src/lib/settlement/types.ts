@@ -14,6 +14,14 @@ export interface NormalizedDeposit {
   status: "confirmed" | "pending";
   /** Which provider produced this event. */
   provider: string;
+  /**
+   * True when `asset`/`amount` are the SETTLEMENT pair (what landed in treasury,
+   * e.g. USDC), false when they're the ORIGIN pair (what the user sent, e.g.
+   * SOL). Lets the webhook relabel a settlement mint to our symbol WITHOUT ever
+   * pairing the settlement asset with the origin amount — the mis-credit that
+   * turned 1.3 SOL into "1.3 USDC".
+   */
+  settled?: boolean;
   /** Provider-supplied user id (e.g. Dextopus echoes the userId we set). */
   userId?: string;
   /** On-chain tx hash, for a block-explorer trace link. */
