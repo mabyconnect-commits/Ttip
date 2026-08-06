@@ -87,6 +87,16 @@ interface Revenue {
   error?: string;
 }
 
+type Tab = "overview" | "transactions" | "float" | "ledger" | "setup";
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: "overview", label: "Overview" },
+  { id: "transactions", label: "Transactions" },
+  { id: "float", label: "Float" },
+  { id: "ledger", label: "Ledger" },
+  { id: "setup", label: "Setup" },
+];
+
 const usd = (n: number) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export default function AdminFundingPage() {
@@ -97,6 +107,13 @@ export default function AdminFundingPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [rev, setRev] = useState<Revenue | null>(null);
   const [days, setDays] = useState<number | null>(null);
+  /**
+   * One screen had become eight, stacked. Users, revenue, every transaction on
+   * the platform, the float desk, the ledger and the setup cards all lived on
+   * one scroll — so the thing you opened the page for was always somewhere in
+   * the middle of it.
+   */
+  const [tab, setTab] = useState<Tab>("overview");
 
   async function load() {
     setLoading(true);
@@ -146,9 +163,9 @@ export default function AdminFundingPage() {
 
   return (
     <div className="flex flex-col flex-1 px-[22px] min-h-0">
-      <BackHeader title="Funding audit" />
+      <BackHeader title="Admin" />
       <div className="flex-1 overflow-y-auto no-scrollbar pb-8">
-        {loading ? (
+        {loading && !report ? (
           <div className="flex items-center gap-2 text-[13px] text-white/45 py-10 justify-center">
             <span className="w-4 h-4 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" /> Checking
             every account…
@@ -159,6 +176,22 @@ export default function AdminFundingPage() {
           </div>
         ) : (
           <>
+            <div className="flex gap-2 overflow-x-auto no-scrollbar mb-1 -mx-[22px] px-[22px]">
+              {TABS.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setTab(t.id)}
+                  className={`h-9 px-4 rounded-full border font-grotesk font-semibold text-[12.5px] shrink-0 ${
+                    tab === t.id ? "bg-white text-[#07080D] border-white" : "border-white/14 text-white/65"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {tab === "overview" && (
+            <>
             <UsersCard />
 
             {/* revenue */}
@@ -265,14 +298,22 @@ export default function AdminFundingPage() {
               </>
             )}
 
-            <TelegramCard />
+            </>
+            )}
 
-            <Campaigns />
+            {tab === "setup" && (
+              <>
+                <TelegramCard />
+                <Campaigns />
+              </>
+            )}
 
-            <AllTransactions />
+            {tab === "transactions" && <AllTransactions />}
 
-            <PayoutDesk />
+            {tab === "float" && <PayoutDesk />}
 
+            {tab === "ledger" && (
+            <>
             <div className="font-grotesk font-semibold text-[14px] mt-6 mb-2">Ledger reconciliation</div>
             {report?.reconciliation && (
               <div className="rounded-2xl bg-surface border border-warn/30 p-4 mb-3">
@@ -453,10 +494,15 @@ export default function AdminFundingPage() {
               )}
             </div>
 
+            </>
+            )}
+
             {msg && <div className="mt-4 rounded-xl bg-surface2 px-4 py-3 text-[12.5px] text-white/70">{msg}</div>}
-            <button onClick={load} disabled={!!busy} className="w-full mt-4 h-11 rounded-xl border border-white/15 font-grotesk font-semibold text-[13px]">
-              Refresh
-            </button>
+            {tab === "ledger" && (
+              <button onClick={load} disabled={!!busy} className="w-full mt-4 h-11 rounded-xl border border-white/15 font-grotesk font-semibold text-[13px]">
+                Refresh
+              </button>
+            )}
           </>
         )}
       </div>
