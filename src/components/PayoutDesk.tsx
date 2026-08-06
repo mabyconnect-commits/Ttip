@@ -110,33 +110,64 @@ export function PayoutDesk() {
     }
   }
 
-  if (desk?.error) return null;
+  if (desk?.error || !desk) return null;
 
-  const holds = desk?.holds ?? [];
-  const topups = desk?.topups ?? [];
-  if (!desk || (!holds.length && !topups.length)) return null;
+  const holds = desk.holds ?? [];
+  const topups = desk.topups ?? [];
 
   return (
     <>
+      {/* Always on screen, not only when something is stuck. Setting the venue
+          up means putting two secrets into Vercel and hoping; the first time
+          anyone finds out whether they were right must not be the first time a
+          real payout is short of naira. */}
       <div className="font-grotesk font-semibold text-[14px] mt-6 mb-2">
-        Payouts waiting on float
-        {holds.length > 0 && <span className="ml-2 text-warn">{holds.length}</span>}
+        Float &amp; payouts
+        {holds.length > 0 && <span className="ml-2 text-warn">{holds.length} waiting</span>}
       </div>
 
-      <div className="rounded-2xl bg-surface border border-white/[.08] p-3.5 mb-2.5 text-[12px] flex flex-wrap gap-x-5 gap-y-1.5">
-        {Object.entries(desk.floats ?? {}).map(([fiat, v]) => (
-          <span key={fiat} className="text-white/50">
-            {fiat} float <b className="text-white font-grotesk">{money(v, fiat)}</b>
-          </span>
-        ))}
-        <span className="text-white/50">
-          Treasury USDC <b className="text-white font-grotesk">{(desk.treasuryUsdc ?? 0).toFixed(2)}</b>
-        </span>
-        {desk.venueBalance != null && (
+      <div className="rounded-2xl bg-surface border border-white/[.08] p-3.5 mb-2.5">
+        <div className="text-[12px] flex flex-wrap gap-x-5 gap-y-1.5">
+          {Object.entries(desk.floats ?? {}).map(([fiat, v]) => (
+            <span key={fiat} className="text-white/50">
+              {fiat} float <b className="text-white font-grotesk">{money(v, fiat)}</b>
+            </span>
+          ))}
           <span className="text-white/50">
-            On {desk.venue?.name ?? "venue"} <b className="text-white font-grotesk">{desk.venueBalance.toFixed(2)}</b>
+            Treasury USDC <b className="text-white font-grotesk">{(desk.treasuryUsdc ?? 0).toFixed(2)}</b>
           </span>
-        )}
+          <span className="text-white/50">
+            Venue{" "}
+            <b className="text-white font-grotesk">
+              {desk.venue ? `${desk.venue.name} · ${desk.venue.coin} on ${desk.venue.chain}` : "not configured"}
+            </b>
+          </span>
+          {desk.venueBalance != null && (
+            <span className="text-white/50">
+              On venue <b className="text-white font-grotesk">{desk.venueBalance.toFixed(2)}</b>
+            </span>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-2.5 mt-3">
+          <button
+            disabled={busy === "ping"}
+            onClick={() => act({ action: "ping" }, "ping")}
+            className="rounded-2xl border border-white/12 py-3 font-grotesk font-semibold text-[12.5px] active:scale-[.99] disabled:opacity-50"
+          >
+            Test Bybit
+          </button>
+          <button
+            disabled={busy === "treasury"}
+            onClick={() => {
+              const v = prompt("How much USDC does the treasury wallet actually hold?");
+              if (v && Number(v) >= 0) act({ action: "setTreasury", symbol: "USDC", amount: Number(v) }, "treasury");
+            }}
+            className="rounded-2xl border border-white/12 py-3 font-grotesk font-semibold text-[12.5px] active:scale-[.99] disabled:opacity-50"
+          >
+            Record treasury USDC
+          </button>
+        </div>
       </div>
 
       {msg && <div className="text-[12px] text-white/70 mb-2">{msg}</div>}
@@ -224,12 +255,14 @@ export function PayoutDesk() {
         </div>
       ))}
 
+      {(holds.length > 0 || topups.length > 0) && (
       <p className="text-white/45 text-[11px] mb-2 leading-[1.5]">
         The user&apos;s crypto is already debited on each of these — only our {holds[0]?.fiat ?? "NGN"} float is short.
         When the clock runs out the transfer fails on its own and every funding leg is refunded, so nothing sits here
         indefinitely. Selling on {desk.venue?.name ?? "the exchange"} is the manual step; the {desk.venue?.coin ?? "USDC"}{" "}
         is sent automatically the moment a payout is held.
       </p>
+      )}
     </>
   );
 }

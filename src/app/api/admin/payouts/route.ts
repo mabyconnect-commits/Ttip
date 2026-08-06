@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { heldPayouts, resolveHold, failHold } from "@/lib/settlement/payout-hold";
 import { openTopUps, completeTopUp, holdWindowMinutes, settleVenue, topupBuffer } from "@/lib/settlement/float";
-import { treasuryBalance } from "@/lib/settlement/treasury";
-import { bybitBalance, bybitEnabled } from "@/lib/settlement/bybit";
+import { treasuryBalance, adjustTreasury } from "@/lib/settlement/treasury";
+import { bybitBalance, bybitEnabled, bybitDepositAddress } from "@/lib/settlement/bybit";
 import { explorerTxUrl } from "@/lib/chains";
 
 export const dynamic = "force-dynamic";
@@ -102,6 +103,8 @@ export async function POST(req: Request) {
     jobId?: string;
     raisedFiat?: number;
     note?: string;
+    symbol?: string;
+    amount?: number;
   };
 
   if (body.action === "sent" && body.reference) {
@@ -110,6 +113,71 @@ export async function POST(req: Request) {
   if (body.action === "fail" && body.reference) {
     return NextResponse.json(await failHold(body.reference, admin.email, body.note));
   }
+  /**
+   * Does Bybit answer?
+   *
+   * Setting this up means putting two secrets into Vercel and hoping. The first
+   * time anyone finds out whether they were right should not be the first time
+   * a real payout is short of naira — so this makes both calls now and reports
+   * exactly what came back.
+   */
+  if (body.action === "ping") {
+    if (!bybitEnabled()) {
+      return NextResponse.json({
+        ok: false,
+        message: "BYBIT_API_KEY / BYBIT_API_SECRET are not set on this deployment.",
+      });
+    }
+    const [address, balance] = await Promise.all([bybitDepositAddress(), bybitBalance()]);
+    return NextResponse.json({
+      ok: !!address,
+      depositAddress: address?.address ?? null,
+      chain: address?.chain ?? null,
+      balance,
+      message: address
+        ? `Bybit answered. Deposit address on ${address.chain}, balance ${balance ?? "unknown"}.`
+        : "Bybit rejected the call — check the key's permissions and the server log for the exact reason.",
+    });
+  }
+
+  /**
+   * Tell the ledger what the treasury actually holds.
+   *
+   * The treasury balance is normally built up by deposit sweeps, which means a
+   * fresh deployment reads zero however much USDC the wallet really has — and
+   * raiseFloat refuses to send coins it doesn't believe exist. This is the one
+   * honest way to start: an operator states the figure, and it is written with
+   * an audit row rather than edited into the database by hand.
+   */
+  if (body.action === "setTreasury") {
+    const symbol = (body.symbol ?? "").trim().toUpperCase();
+    const amount = Number(body.amount);
+    if (!symbol) return NextResponse.json({ ok: false, message: "Which asset?" }, { status: 400 });
+    if (!Number.isFinite(amount) || amount < 0) {
+      return NextResponse.json({ ok: false, message: "Enter the amount the wallet holds." }, { status: 400 });
+    }
+
+    const current = await treasuryBalance(symbol);
+    const delta = amount - current;
+    await prisma.$transaction(async (tx) => {
+      await adjustTreasury(tx, symbol, delta);
+      await tx.settlement.create({
+        data: {
+          userId: null,
+          kind: "treasury_adjust",
+          provider: "manual",
+          externalId: `treasury_${symbol}_${Date.now()}`,
+          status: "completed",
+          asset: symbol,
+          amount: new Prisma.Decimal(delta),
+          raw: { from: current, to: amount, by: admin.email } as Prisma.InputJsonValue,
+        },
+      });
+    });
+    console.error(`[treasury] ${admin.email} set ${symbol} from ${current} to ${amount}`);
+    return NextResponse.json({ ok: true, message: `${symbol} treasury recorded as ${amount}.`, from: current, to: amount });
+  }
+
   if (body.action === "toppedUp" && body.jobId) {
     const raised = Number(body.raisedFiat);
     if (!(raised > 0)) {
