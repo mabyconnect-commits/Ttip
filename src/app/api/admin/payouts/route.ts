@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { heldPayouts, resolveHold, failHold } from "@/lib/settlement/payout-hold";
 import { openTopUps, completeTopUp, holdWindowMinutes, settleVenue, topupBuffer } from "@/lib/settlement/float";
 import { treasuryBalance, adjustTreasury } from "@/lib/settlement/treasury";
-import { bybitBalance, bybitEnabled, bybitDepositAddress } from "@/lib/settlement/bybit";
+import { settlementVenue } from "@/lib/settlement/venue";
 import { explorerTxUrl } from "@/lib/chains";
 
 export const dynamic = "force-dynamic";
@@ -51,7 +51,7 @@ export async function GET() {
     treasuryUsdc: await treasuryBalance("USDC"),
     // What the exchange itself says it holds — the number that tells an
     // operator whether the USDC has actually landed yet.
-    venueBalance: bybitEnabled() ? await bybitBalance() : null,
+    venueBalance: (await settlementVenue()?.balance()) ?? null,
     holds: holds.map((h) => ({
       reference: h.reference,
       fiat: h.fiat,
@@ -114,7 +114,7 @@ export async function POST(req: Request) {
     return NextResponse.json(await failHold(body.reference, admin.email, body.note));
   }
   /**
-   * Does Bybit answer?
+   * Does the venue answer?
    *
    * Setting this up means putting two secrets into Vercel and hoping. The first
    * time anyone finds out whether they were right should not be the first time
@@ -122,21 +122,23 @@ export async function POST(req: Request) {
    * exactly what came back.
    */
   if (body.action === "ping") {
-    if (!bybitEnabled()) {
+    const venue = settlementVenue();
+    if (!venue) {
       return NextResponse.json({
         ok: false,
-        message: "BYBIT_API_KEY / BYBIT_API_SECRET are not set on this deployment.",
+        message: "No liquidity venue is configured on this deployment.",
       });
     }
-    const [address, balance] = await Promise.all([bybitDepositAddress(), bybitBalance()]);
+    const [address, balance] = await Promise.all([venue.depositAddress(), venue.balance()]);
     return NextResponse.json({
       ok: !!address,
+      venue: venue.name,
       depositAddress: address?.address ?? null,
       chain: address?.chain ?? null,
       balance,
       message: address
-        ? `Bybit answered. Deposit address on ${address.chain}, balance ${balance ?? "unknown"}.`
-        : "Bybit rejected the call — check the key's permissions and the server log for the exact reason.",
+        ? `${venue.name} answered. Deposit address on ${address.chain}, balance ${balance ?? "unknown"}.`
+        : `${venue.name} rejected the call — check the key's permissions and the server log for the exact reason.`,
     });
   }
 

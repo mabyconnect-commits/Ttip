@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { convert } from "../prices";
 import { adjustTreasury, treasuryBalance } from "./treasury";
-import { bybitConfig, bybitDepositAddress, bybitEnabled } from "./bybit";
+import { settlementVenue } from "./venue";
 import { sendSolanaUsdc, isPreBroadcast } from "./solana";
 
 /**
@@ -91,7 +91,7 @@ export async function raiseFloat(
 
   const job = await prisma.liquidityJob.create({
     data: {
-      provider: bybitEnabled() ? "bybit" : "manual",
+      provider: settlementVenue()?.name ?? "manual",
       status: "created",
       fiat,
       targetFiat: new Prisma.Decimal(targetFiat),
@@ -116,12 +116,15 @@ export async function raiseFloat(
     );
   }
 
-  if (!bybitEnabled()) {
-    return fail("Bybit isn't configured (BYBIT_API_KEY / BYBIT_API_SECRET), so nothing could be sent.");
+  const venue = settlementVenue();
+  if (!venue) {
+    return fail(
+      "No liquidity venue is configured, so nothing could be sent. Raise the naira by hand and credit the float.",
+    );
   }
 
-  const deposit = await bybitDepositAddress();
-  if (!deposit) return fail("Bybit didn't return a deposit address.");
+  const deposit = await venue.depositAddress();
+  if (!deposit) return fail(`${venue.name} didn't return a deposit address.`);
 
   await prisma.liquidityJob.update({
     where: { id: job.id },
@@ -168,7 +171,7 @@ export async function raiseFloat(
     targetFiat,
     fundingTx,
     message:
-      `${amountAsset.toFixed(2)} ${SETTLE_ASSET} sent to Bybit. ` +
+      `${amountAsset.toFixed(2)} ${SETTLE_ASSET} sent to ${venue.name}. ` +
       `Sell it for ${fiat} and mark the float topped up to release the payout.`,
   };
 }
@@ -217,6 +220,6 @@ export async function openTopUps() {
 
 /** The venue we'd use, for the admin panel to show without guessing. */
 export function settleVenue(): { name: string; coin: string; chain: string } | null {
-  const cfg = bybitConfig();
-  return cfg ? { name: "bybit", coin: cfg.coin, chain: cfg.chain } : null;
+  const venue = settlementVenue();
+  return venue ? { name: venue.name, coin: venue.coin, chain: venue.chain } : null;
 }

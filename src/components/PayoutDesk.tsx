@@ -155,7 +155,7 @@ export function PayoutDesk() {
             onClick={() => act({ action: "ping" }, "ping")}
             className="rounded-2xl border border-white/12 py-3 font-grotesk font-semibold text-[12.5px] active:scale-[.99] disabled:opacity-50"
           >
-            Test Bybit
+            Test venue
           </button>
           <button
             disabled={busy === "treasury"}
