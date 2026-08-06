@@ -162,8 +162,8 @@ async function reconcile() {
   const usd = async (amount: number, symbol: string) => (amount > 0 ? toUsd(amount, symbol) : 0);
 
   const [balances, cards, realDeposits, grants, withdrawals] = await Promise.all([
-    prisma.balance.findMany({ select: { symbol: true, amount: true } }),
-    prisma.card.findMany({ select: { balanceUsd: true } }),
+    prisma.balance.findMany({ select: { userId: true, symbol: true, amount: true } }),
+    prisma.card.findMany({ select: { userId: true, balanceUsd: true } }),
     prisma.settlement.findMany({
       where: { kind: { in: ["deposit", "buy"] }, status: "completed", provider: { in: REAL_PROVIDERS } },
       select: { asset: true, amount: true },
@@ -178,9 +178,30 @@ async function reconcile() {
     }),
   ]);
 
+  /**
+   * WHO is holding it.
+   *
+   * "Users hold $11,173.83" is a true number that answers nothing — the first
+   * question anyone asks looking at it is "which users?", and until now the
+   * only way to find out was to read the database. Almost all of it is usually
+   * the four seeded demo accounts, which is a completely different problem from
+   * real people holding money we can't back, and the panel gave no way to tell
+   * the two apart.
+   */
+  const perUser = new Map<string, number>();
   let heldUsd = 0;
-  for (const b of balances) heldUsd += await usd(Number(b.amount), b.symbol);
-  for (const c of cards) heldUsd += Number(c.balanceUsd);
+  for (const b of balances) {
+    const v = await usd(Number(b.amount), b.symbol);
+    heldUsd += v;
+    perUser.set(b.userId, (perUser.get(b.userId) ?? 0) + v);
+  }
+  for (const c of cards) {
+    const v = Number(c.balanceUsd);
+    heldUsd += v;
+    perUser.set(c.userId, (perUser.get(c.userId) ?? 0) + v);
+  }
+
+  const holders = await buildHolders(perUser);
 
   let realFundedUsd = 0;
   for (const d of realDeposits) realFundedUsd += await usd(Number(d.amount), d.asset);
@@ -201,10 +222,65 @@ async function reconcile() {
     withdrawnUsd,
     expectedUsd,
     unbackedUsd: Math.max(0, heldUsd - expectedUsd),
+    demoHeldUsd: holders.filter((h) => h.demo).reduce((s, h) => s + h.usd, 0),
+    realHeldUsd: holders.filter((h) => !h.demo).reduce((s, h) => s + h.usd, 0),
+    holders,
     note:
       "Held minus (real deposits + promos − withdrawals). This is the true hole: it counts unfunded money " +
       "even after it was swapped into another asset or sent to another account, which the per-account list cannot see.",
   };
+}
+
+export interface Holder {
+  email: string;
+  username: string;
+  usd: number;
+  /** Seeded demo account: no real settlement has ever touched it. */
+  demo: boolean;
+  /** Why we called it that, in a phrase. */
+  why: string;
+}
+
+/**
+ * Name the accounts behind the total, biggest first, and say which are demo.
+ *
+ * "Demo" is not decided by the email suffix alone — a real person could sign up
+ * with any address. An account is demo only if NOTHING real has ever settled
+ * into it, which is the same test deleteDemoAccounts uses before it deletes
+ * anything.
+ */
+async function buildHolders(perUser: Map<string, number>): Promise<Holder[]> {
+  const ids = [...perUser.entries()].filter(([, v]) => v > 0.01).sort((a, b) => b[1] - a[1]).slice(0, 25);
+  if (!ids.length) return [];
+
+  const users = await prisma.user.findMany({
+    where: { id: { in: ids.map(([id]) => id) } },
+    select: { id: true, email: true, username: true },
+  });
+  const byId = new Map(users.map((u) => [u.id, u]));
+
+  const out: Holder[] = [];
+  for (const [id, usd] of ids) {
+    const u = byId.get(id);
+    if (!u) continue;
+    const realMoney = await prisma.settlement.count({
+      where: { userId: id, status: "completed", provider: { in: REAL_PROVIDERS } },
+    });
+    const seeded = u.email.endsWith(DEMO_EMAIL_SUFFIX);
+    out.push({
+      email: u.email,
+      username: u.username,
+      usd,
+      demo: seeded && realMoney === 0,
+      why:
+        seeded && realMoney === 0
+          ? "seeded demo account — never received real money"
+          : realMoney > 0
+            ? `${realMoney} real settlement(s)`
+            : "signed up normally, no real deposit yet",
+    });
+  }
+  return out;
 }
 
 async function report(userFilter?: string) {

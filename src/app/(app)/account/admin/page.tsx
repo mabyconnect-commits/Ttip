@@ -33,6 +33,13 @@ interface Account {
   goneUsd: number;
   sources: string[];
 }
+interface Holder {
+  email: string;
+  username: string;
+  usd: number;
+  demo: boolean;
+  why: string;
+}
 interface Reconciliation {
   heldUsd: number;
   realFundedUsd: number;
@@ -40,6 +47,9 @@ interface Reconciliation {
   withdrawnUsd: number;
   expectedUsd: number;
   unbackedUsd: number;
+  demoHeldUsd?: number;
+  realHeldUsd?: number;
+  holders?: Holder[];
 }
 interface Report {
   accounts?: Account[];
@@ -279,11 +289,50 @@ export default function AdminFundingPage() {
                     </div>
                   ))}
                 </div>
+                {/* Who is actually holding it. "Users hold $11,173" answers
+                    nothing on its own — the first question is "which users?",
+                    and until this was here the only way to find out was to read
+                    the database. Four seeded demo accounts is a completely
+                    different problem from real people holding money we can't
+                    back, and the panel gave no way to tell them apart. */}
+                {!!report.reconciliation.holders?.length && (
+                  <div className="mt-3 pt-3 border-t border-white/[.08]">
+                    <div className="flex justify-between text-[12px]">
+                      <span className="text-white/50">Held by demo accounts</span>
+                      <span className="font-grotesk font-semibold text-warn">
+                        {usd(report.reconciliation.demoHeldUsd ?? 0)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-[12px] mt-1.5">
+                      <span className="text-white/50">Held by real accounts</span>
+                      <span className="font-grotesk font-semibold">{usd(report.reconciliation.realHeldUsd ?? 0)}</span>
+                    </div>
+                    <div className="flex flex-col gap-1 mt-2.5">
+                      {report.reconciliation.holders.map((h) => (
+                        <div key={h.email} className="flex justify-between items-baseline gap-2 text-[11.5px]">
+                          <span className={`truncate ${h.demo ? "text-warn/80" : "text-white/60"}`}>
+                            {h.demo ? "demo · " : ""}
+                            {h.email}
+                          </span>
+                          <span className="font-grotesk font-semibold shrink-0">{usd(h.usd)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <p className="text-white/45 text-[11px] mt-3 leading-[1.5]">
                   This is the true size of the hole. The per-account list below only sees fake money where it first
                   entered — once it&apos;s swapped into another asset or Ttipped to someone else it stops matching the
                   deposit that made it, so the per-account totals read LOW. Trust this number for the total.
                 </p>
+                {(report.reconciliation.demoHeldUsd ?? 0) > 1 && (
+                  <p className="text-white/45 text-[11px] mt-2 leading-[1.5]">
+                    Most of this is the demo seed — four accounts created by an early build, each given $612.50 USDT,
+                    0.0182 BTC, 0.041 ETH and a $482.10 card balance that nobody paid for. Seeding is now opt-in
+                    (DEMO_SEED), so no new ones appear; the existing ones are removed with “Delete demo accounts”
+                    below. That is not a hole in your float — it is test data still sitting in the table.
+                  </p>
+                )}
               </div>
             )}
 
