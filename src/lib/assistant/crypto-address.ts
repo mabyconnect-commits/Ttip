@@ -116,13 +116,78 @@ export const FAMILY_ASSETS: Record<ChainFamily, string[]> = {
   bitcoin: ["BTC"],
 };
 
-/** A human name for the network, for the confirmation. */
-export const FAMILY_NETWORK: Record<ChainFamily, string> = {
-  evm: "Ethereum",
+/**
+ * A human name for the network, for the confirmation.
+ *
+ * `evm` deliberately has no entry: one 0x address is valid on Ethereum,
+ * Arbitrum, Base, Polygon, BNB Chain and every other EVM rail, and they are
+ * different chains holding different money. This map used to answer "Ethereum"
+ * for all of them, so "send 9.34 USDT to this Arbitrum wallet" was confirmed as
+ * an Ethereum send — the one chain the user hadn't asked for. Use
+ * `networkFor(family, text)` instead, which reads the chain the user named.
+ */
+export const FAMILY_NETWORK: Record<Exclude<ChainFamily, "evm">, string> = {
   solana: "Solana",
   tron: "Tron",
   bitcoin: "Bitcoin",
 };
+
+/**
+ * The EVM chains we can send on, and the ways people write them.
+ *
+ * Every label here must be one `chainIdForNetwork` (lib/chains.ts) resolves, or
+ * the send is refused at the last step for a chain we told the user we'd use.
+ *
+ * Order is the resolution order, and it matters: the specific chains come
+ * FIRST, Ethereum last. "Send ETH to this Arbitrum wallet" names an asset that
+ * sounds like a chain, and the chain the user actually named has to win.
+ */
+export const EVM_CHAINS: { label: string; match: RegExp }[] = [
+  // "Arbitruim" is a real user's spelling. Anything starting "arbitr" is one
+  // chain and nothing else, so the loose tail costs nothing and catches typos.
+  { label: "Arbitrum", match: /\barbitr[a-z]*\b|\barb\b/i },
+  { label: "Base", match: /\bbase(?:\s*chain|\s*network)?\b/i },
+  { label: "Polygon", match: /\bpolygon\b|\bmatic\b/i },
+  { label: "Optimism", match: /\boptimism\b|\bop\s*mainnet\b/i },
+  { label: "BNB Chain", match: /\bbnb(?:\s*(?:smart\s*)?chain)?\b|\bbsc\b|\bbep\s*-?\s*20\b|\bbinance(?:\s*smart)?(?:\s*chain)?\b/i },
+  { label: "Avalanche", match: /\bavax\b|\bavalanche\b/i },
+  { label: "Linea", match: /\blinea\b/i },
+  { label: "Scroll", match: /\bscroll\b/i },
+  { label: "Ethereum", match: /\bethereum\b|\betherium\b|\berc\s*-?\s*20\b|\beth\s*main(?:net)?\b|\bmainnet\b/i },
+];
+
+/**
+ * The same chains, in the order to OFFER them when the user hasn't said which.
+ *
+ * Resolution order puts Ethereum last so a named chain always wins; a person
+ * being asked "which network?" expects to read it first.
+ */
+export const EVM_CHAIN_LABELS = ["Ethereum", "Base", "Arbitrum", "Polygon", "BNB Chain", "Optimism", "Avalanche", "Linea", "Scroll"];
+
+/**
+ * Which EVM chain a message names, or undefined when it names none.
+ *
+ * Bare "ETH" is NOT treated as naming Ethereum: it is the asset, and someone
+ * sending ETH to an Arbitrum or Base wallet says exactly that. Only the chain's
+ * own name counts.
+ */
+export function parseEvmChain(text: string): string | undefined {
+  const q = (text ?? "").trim();
+  if (!q) return undefined;
+  for (const { label, match } of EVM_CHAINS) if (match.test(q)) return label;
+  return undefined;
+}
+
+/**
+ * The network to confirm for an address, given what the user said.
+ *
+ * Returns undefined only for an EVM address on a message that named no chain —
+ * the one case where we genuinely don't know, and where guessing sends real
+ * money onto a rail the recipient may not be watching.
+ */
+export function networkFor(family: ChainFamily, text: string): string | undefined {
+  return family === "evm" ? parseEvmChain(text) : FAMILY_NETWORK[family];
+}
 
 /**
  * The asset someone named, by symbol or by its full name.

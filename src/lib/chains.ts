@@ -47,14 +47,22 @@ export function sortChainsByPopularity<T extends { name: string }>(chains: T[]):
 export const NETWORK_CHAIN_IDS: Record<string, number> = {
   erc20: 1,
   eth: 1,
+  // The human names too, not just the internal ids. Ada now confirms the chain
+  // the user actually named ("Arbitrum", "BNB Chain", "Avalanche") and hands
+  // that label straight to /api/send, so a label we display but can't resolve
+  // is a send refused at the last step on a chain we already promised.
+  ethereum: 1,
   optimism: 10,
   bep20: 56,
   bsc: 56,
+  bnb: 56,
   poly: 137,
   matic: 137,
+  polygon: 137,
   base: 8453,
   arbitrum: 42161,
   avax: 43114,
+  avalanche: 43114,
   linea: 59144,
   scroll: 534352,
   trc20: 728126428,

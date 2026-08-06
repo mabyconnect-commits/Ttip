@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseCryptoAddress, classify, shortAddress, parseCryptoAsset, mentionsCrypto } from "../src/lib/assistant/crypto-address";
+import { parseCryptoAddress, classify, shortAddress, parseCryptoAsset, mentionsCrypto, parseEvmChain, networkFor, EVM_CHAINS, EVM_CHAIN_LABELS } from "../src/lib/assistant/crypto-address";
+import { chainIdForNetwork } from "../src/lib/chains";
 
 /**
  * Crypto is the one transfer with no recall, no provider to phone and no name
@@ -147,5 +148,64 @@ test("a word that merely contains a ticker is not an asset", () => {
     "send 5000 to 9077984753 Opay",
   ]) {
     assert.equal(parseCryptoAsset(t), undefined, t);
+  }
+});
+
+/**
+ * Which EVM chain.
+ *
+ * Verbatim from a chat: "Hey Ada Please Send 9.34 Usdt to this Arbitruim
+ * Wallet 0x83c0…" — confirmed back as "Network: Ethereum". One 0x address is
+ * valid on Ethereum, Arbitrum, Base, Polygon and every other EVM rail, and they
+ * hold different money, so reading one shape as one chain sends real funds onto
+ * a rail nobody is watching.
+ */
+test("the chain the user named wins", () => {
+  assert.equal(parseEvmChain("Send 9.34 Usdt to this Arbitruim Wallet"), "Arbitrum");
+  assert.equal(parseEvmChain("send it on arbitrum"), "Arbitrum");
+  assert.equal(parseEvmChain("this is a Base wallet"), "Base");
+  assert.equal(parseEvmChain("on polygon please"), "Polygon");
+  assert.equal(parseEvmChain("matic network"), "Polygon");
+  assert.equal(parseEvmChain("bnb chain"), "BNB Chain");
+  assert.equal(parseEvmChain("bep20"), "BNB Chain");
+  assert.equal(parseEvmChain("binance smart chain"), "BNB Chain");
+  assert.equal(parseEvmChain("optimism"), "Optimism");
+  assert.equal(parseEvmChain("avalanche"), "Avalanche");
+  assert.equal(parseEvmChain("erc-20"), "Ethereum");
+  assert.equal(parseEvmChain("on ethereum"), "Ethereum");
+});
+
+test("a named chain beats an asset that sounds like one", () => {
+  // "Send ETH to this Base wallet" names the asset ETH and the chain Base. The
+  // chain the user actually said has to win, or their money lands on Ethereum.
+  assert.equal(parseEvmChain("Send 0.2 ETH to this Base wallet"), "Base");
+  assert.equal(parseEvmChain("send eth on arbitrum"), "Arbitrum");
+});
+
+test("a bare ticker names no chain at all", () => {
+  // ETH is the asset. Someone sending ETH to an Arbitrum wallet says so, and
+  // treating the ticker as the chain is exactly the guess that lost the money.
+  for (const t of ["send 0.2 ETH", "send 9.34 USDT to this wallet", "0.5 usdc", ""]) {
+    assert.equal(parseEvmChain(t), undefined, t);
+  }
+});
+
+test("an EVM address without a named chain is a question, not a default", () => {
+  assert.equal(networkFor("evm", "send 9.34 USDT to this wallet"), undefined);
+  assert.equal(networkFor("evm", "send 9.34 USDT to this Arbitrum wallet"), "Arbitrum");
+  // The single-chain families are never ambiguous.
+  assert.equal(networkFor("solana", "send 0.05"), "Solana");
+  assert.equal(networkFor("tron", "send 5 usdt"), "Tron");
+  assert.equal(networkFor("bitcoin", "send 0.001"), "Bitcoin");
+});
+
+test("every chain we offer is one the send route can resolve", () => {
+  // A label we display but can't turn into a chain id is a send refused at the
+  // last step on a chain we already promised the user.
+  for (const label of EVM_CHAIN_LABELS) {
+    assert.ok(chainIdForNetwork(label), `${label} has no chain id`);
+  }
+  for (const { label } of EVM_CHAINS) {
+    assert.ok(chainIdForNetwork(label), `${label} has no chain id`);
   }
 });

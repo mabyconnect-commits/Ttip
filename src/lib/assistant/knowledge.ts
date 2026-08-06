@@ -133,6 +133,12 @@ primary market.
   ${comingSoonCurrencies().join(", ")}.
 - Crypto withdrawal: the network fee is deducted by the network, plus a flat
   $${WITHDRAW_FEE_USDT.toFixed(2)} Ttip fee. Nothing more.
+- An 0x address does NOT tell you which chain. The same address is valid on
+  Ethereum, Base, Arbitrum, Polygon, BNB Chain, Optimism, Avalanche, Linea and
+  Scroll, and each holds different money — Ttip can send on all of them. So
+  never assume Ethereum, and never call an 0x address "an Ethereum address". If
+  the user named a chain, use the one they named; if they named none, ask which
+  before anything else.
 
 ## Fees (exact, current)
 - Bank transfer out — the provider's cost plus our markup, applied identically

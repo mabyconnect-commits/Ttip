@@ -104,7 +104,7 @@ test("a piece already known is never overwritten", () => {
 });
 
 test("a crypto draft never waits on a bank", () => {
-  const d: DraftState = { kind: "crypto", amount: null, accountNumber: null, bankName: null, asset: "SOL" };
+  const d: DraftState = { kind: "crypto", amount: null, accountNumber: null, bankName: null, asset: "SOL", network: "Solana" };
   assert.equal(draftGap(d), "amount", "a chain has no bank to ask for");
   // A bank name in a crypto message means nothing and must not be recorded.
   assert.deepEqual(fill(d, "opay"), {});
@@ -218,8 +218,19 @@ test("nothing is rebuilt from a conversation with no account in it", () => {
 test("a crypto draft waits on the asset before the amount", () => {
   // A QR carries an address, never what to send to it. That question used to be
   // asked with the address thrown away, so the answer landed on nothing.
-  const d: DraftState = { kind: "crypto", amount: null, asset: null };
+  const d: DraftState = { kind: "crypto", amount: null, asset: null, network: "Solana" };
   assert.equal(draftGap(d), "asset");
   assert.equal(draftGap({ ...d, asset: "SOL" }), "amount");
   assert.equal(draftGap({ ...d, asset: "SOL", amount: 0.05 }), null);
+});
+
+test("a crypto draft waits on the chain before anything else", () => {
+  // "Send 9.34 USDT to this Arbitruim Wallet 0x83c0…" came back as "Network:
+  // Ethereum". One 0x address is valid on Ethereum, Arbitrum, Base, Polygon and
+  // every other EVM rail, holding different money on each — so which chain is
+  // the FIRST question, not an assumption, and it decides which assets are even
+  // sendable there.
+  const d: DraftState = { kind: "crypto", amount: 9.34, asset: "USDT", network: null };
+  assert.equal(draftGap(d), "network");
+  assert.equal(draftGap({ ...d, network: "Arbitrum" }), null);
 });

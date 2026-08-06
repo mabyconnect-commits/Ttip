@@ -20,9 +20,10 @@ import {
   setDraftAmount,
   setDraftBank,
   setDraftAsset,
+  setDraftNetwork,
   createCryptoDraft,
 } from "@/lib/telegram-transfer";
-import { parseCryptoAddress, parseCryptoAsset, mentionsCrypto, classify, FAMILY_ASSETS, FAMILY_NETWORK, shortAddress, type ChainFamily } from "@/lib/assistant/crypto-address";
+import { parseCryptoAddress, parseCryptoAsset, mentionsCrypto, classify, parseEvmChain, networkFor, EVM_CHAIN_LABELS, FAMILY_ASSETS, shortAddress, type ChainFamily } from "@/lib/assistant/crypto-address";
 import { decodeQr } from "@/lib/assistant/qr";
 import { answerFaq } from "@/lib/assistant/faq";
 import { assistantRules, ttipKnowledge } from "@/lib/assistant/knowledge";
@@ -452,7 +453,12 @@ async function handleCryptoAddress(
   family: ChainFamily,
   text: string,
 ): Promise<boolean> {
-  const network = FAMILY_NETWORK[family];
+  // The chain the USER named, not the one the address shape suggests. An 0x
+  // address is valid on Ethereum, Arbitrum, Base, Polygon and every other EVM
+  // rail; "this Arbitrum wallet" used to be confirmed as an Ethereum send
+  // because one shape was read as one chain.
+  const network = networkFor(family, text);
+  const where = network ? `**${network}**` : "an **EVM**";
 
   // Only assets they actually hold on that chain — offering to send something
   // with a zero balance wastes a step and reads as a bug.
@@ -465,7 +471,7 @@ async function handleCryptoAddress(
   if (!held.length) {
     await say(
       chatId,
-      `That's a **${network}** address, but you don't hold anything on ${network} to send. ` +
+      `That's ${where} address, but you don't hold anything on it to send. ` +
         `Swap into ${FAMILY_ASSETS[family][0]} in the app first.`,
     );
     return true;
@@ -477,12 +483,24 @@ async function handleCryptoAddress(
   const asset = named ?? (held.length === 1 ? held[0] : null);
   const amount = parseAmount(text);
 
+  // Everything known so far is stored before every question. Storing nothing
+  // here is what broke the QR flow: the address was thrown away with the
+  // question, so "0.05 Solana" came back to a bot holding nothing, fell through
+  // to the naira parser and was offered as a ₦5 bank transfer.
+  await createCryptoDraft({ userId, chatId, amount, asset, network: network ?? null, address });
+
+  // Chain first — it decides which assets are even sendable there.
+  if (!network) {
+    await say(
+      chatId,
+      `That address works on several chains, and they're not the same money — ` +
+        `\`${shortAddress(address)}\`.\n\n` +
+        `Which network: ${EVM_CHAIN_LABELS.join(", ")}?`,
+    );
+    return true;
+  }
+
   if (!asset) {
-    // The ADDRESS is remembered even though the asset isn't. Storing nothing
-    // here is what broke the QR flow: the address was thrown away with the
-    // question, so "0.05 Solana" came back to a bot holding nothing, fell
-    // through to the naira parser and was offered as a ₦5 bank transfer.
-    await createCryptoDraft({ userId, chatId, amount, asset: null, network, address });
     await say(
       chatId,
       `That's a **${network}** address — \`${shortAddress(address)}\`.\n\n` +
@@ -490,8 +508,6 @@ async function handleCryptoAddress(
     );
     return true;
   }
-
-  await createCryptoDraft({ userId, chatId, amount, asset, network, address });
 
   if (!amount) {
     await say(
@@ -522,6 +538,12 @@ function missingPiece(d: {
   address?: string | null;
 }): string {
   if (d.kind === "crypto") {
+    if (!d.network) {
+      return (
+        `Holding that address: \`${shortAddress(d.address ?? "")}\`.\n\n` +
+        `Which network: ${EVM_CHAIN_LABELS.join(", ")}?`
+      );
+    }
     const where = `**${d.network}** — \`${shortAddress(d.address ?? "")}\``;
     if (!d.asset) return `Holding that address: ${where}.\n\nWhich asset should I send?`;
     if (d.amount === null) return `**${d.asset}** to ${where}.\n\nHow much ${d.asset} should I send?`;
@@ -555,6 +577,16 @@ async function handleTransferIntent(chatId: number, userId: string, text: string
       NIGERIAN_BANKS.map((b) => b.name),
     );
     let d = pending;
+    // Which chain, when the address didn't say and neither did the first
+    // message. "Arbitrum" on its own is a complete answer here.
+    let addedNetwork = false;
+    if (pending.kind === "crypto" && !pending.network) {
+      const chain = parseEvmChain(text);
+      if (chain) {
+        d = await setDraftNetwork(chatId, chain);
+        addedNetwork = true;
+      }
+    }
     // Which asset, on a chain where they hold more than one. The address is
     // already held, so this is the only piece the answer has to carry.
     let addedAsset = false;
@@ -579,7 +611,7 @@ async function handleTransferIntent(chatId: number, userId: string, text: string
     if (add.bank) d = (await setDraftBank(chatId, add.bank)) ?? d;
     if (add.amount) d = await setDraftAmount(chatId, add.amount);
 
-    if (addedAsset || add.bank || add.amount) {
+    if (addedNetwork || addedAsset || add.bank || add.amount) {
       const state = { ...d, amount: d.amount === null ? null : Number(d.amount) };
       await say(chatId, draftGap(state) ? missingPiece(d) : draftPrompt(d));
       return true;

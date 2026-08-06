@@ -87,7 +87,13 @@ export interface CryptoDraftInput {
   amount?: number | null;
   /** Null while we know the address but not yet which asset to send on it. */
   asset: string | null;
-  network: string;
+  /**
+   * Null while we know the address but not yet WHICH CHAIN. One 0x address is
+   * valid on Ethereum, Arbitrum, Base, Polygon and every other EVM rail, and
+   * they hold different money — so unless the user named one, this is a
+   * question, not a default.
+   */
+  network: string | null;
   address: string;
 }
 
@@ -106,7 +112,7 @@ export async function createCryptoDraft(input: CryptoDraftInput) {
     kind: "crypto",
     amount: input.amount ?? null,
     // `fiat` is the unit the amount is counted in — the asset, for a chain.
-    fiat: input.asset ?? input.network,
+    fiat: input.asset ?? input.network ?? "crypto",
     asset: input.asset,
     network: input.network,
     address: input.address,
@@ -115,7 +121,7 @@ export async function createCryptoDraft(input: CryptoDraftInput) {
     accountName: null,
     resolvedName: null,
     attempts: 0,
-    expiresAt: expiryFor(!!input.asset && input.amount != null),
+    expiresAt: expiryFor(!!input.asset && !!input.network && input.amount != null),
   };
   await prisma.telegramDraft.upsert({ where: { chatId }, create: { chatId, ...data }, update: data });
 }
@@ -185,10 +191,27 @@ export async function clearDraft(chatId: number | string): Promise<void> {
 export async function setDraftAmount(chatId: number | string, amount: number) {
   const id = String(chatId);
   const draft = await prisma.telegramDraft.findUnique({ where: { chatId: id } });
-  const complete = draft?.kind === "crypto" ? !!draft.asset : !!draft?.bankName;
+  const complete = draft?.kind === "crypto" ? !!draft.asset && !!draft.network : !!draft?.bankName;
   return prisma.telegramDraft.update({
     where: { chatId: id },
     data: { amount, attempts: 0, expiresAt: expiryFor(complete) },
+  });
+}
+
+/**
+ * Fill in the chain on a crypto draft that was only missing that.
+ *
+ * "Send 9.34 USDT to this Arbitrum wallet 0x83c0…" used to be confirmed as
+ * "Network: Ethereum", because one 0x address was read as one chain. The chain
+ * the user names now sticks; when they name none, this is what their answer to
+ * "which network?" lands in.
+ */
+export async function setDraftNetwork(chatId: number | string, network: string) {
+  const id = String(chatId);
+  const draft = await prisma.telegramDraft.findUnique({ where: { chatId: id } });
+  return prisma.telegramDraft.update({
+    where: { chatId: id },
+    data: { network, attempts: 0, expiresAt: expiryFor(!!draft?.asset && draft?.amount != null) },
   });
 }
 
@@ -205,7 +228,12 @@ export async function setDraftAsset(chatId: number | string, asset: string) {
   const draft = await prisma.telegramDraft.findUnique({ where: { chatId: id } });
   return prisma.telegramDraft.update({
     where: { chatId: id },
-    data: { asset, fiat: asset, attempts: 0, expiresAt: expiryFor(draft?.amount != null) },
+    data: {
+      asset,
+      fiat: asset,
+      attempts: 0,
+      expiresAt: expiryFor(!!draft?.network && draft?.amount != null),
+    },
   });
 }
 
@@ -327,6 +355,17 @@ export async function sendDraft(
       ok: false,
       wrongPin: false,
       message: `I still don't know which asset to send to that address — tell me which and I'll set it up.`,
+    };
+  }
+
+  // And the chain. An 0x address alone doesn't say whether the money should
+  // land on Ethereum, Arbitrum, Base or BNB Chain, and sending on the wrong one
+  // can put it somewhere the recipient will never see it.
+  if (draft.kind === "crypto" && !draft.network) {
+    return {
+      ok: false,
+      wrongPin: false,
+      message: `I still don't know which network to send that on — tell me the chain and I'll set it up.`,
     };
   }
 
