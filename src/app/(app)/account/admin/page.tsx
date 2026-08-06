@@ -6,6 +6,7 @@ import { Icon } from "@/components/Icon";
 import { PayoutDesk } from "@/components/PayoutDesk";
 import { Campaigns } from "@/components/admin/Campaigns";
 import { UsersCard } from "@/components/admin/UsersCard";
+import { AllTransactions } from "@/components/admin/AllTransactions";
 import { TelegramCard } from "@/components/admin/TelegramCard";
 
 /**
@@ -267,6 +268,8 @@ export default function AdminFundingPage() {
             <TelegramCard />
 
             <Campaigns />
+
+            <AllTransactions />
 
             <PayoutDesk />
 
