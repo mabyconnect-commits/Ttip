@@ -72,6 +72,7 @@ function label(type: string) {
     withdraw_wallet: "Sent to wallet", withdraw_bank: "Bank payout", bill: "Bill payment",
     card_fund: "Card funding", card_spend: "Card spend", referral_bonus: "Referral bonus",
     buy: "Crypto purchase", cashback: "Cashback", deposit_bonus: "First deposit bonus",
+    admin_adjust: "Balance adjustment",
   };
   return m[type] ?? type;
 }
