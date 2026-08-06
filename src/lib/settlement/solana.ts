@@ -49,6 +49,30 @@ export function solFeeReserve(): number {
 const RENT_EXEMPT_SOL = 0.00089088;
 
 /**
+ * A failure we detected BEFORE signing anything.
+ *
+ * The distinction is the whole difference between a safe refund and a double
+ * spend. If nothing was broadcast, the caller can hand the user their balance
+ * straight back; if we can't be sure, the withdrawal has to sit pending until
+ * the chain says. That decision used to be made by pattern-matching the text of
+ * an exception — so a treasury that ran out of SOL for fees produced a message
+ * nobody had thought to match, and the withdrawal was held as "unconfirmed"
+ * instead of refunded. Our own guards now say so in the type.
+ */
+export class TreasuryPreflightError extends Error {
+  readonly preBroadcast = true;
+  constructor(message: string) {
+    super(message);
+    this.name = "TreasuryPreflightError";
+  }
+}
+
+/** True when nothing was signed or sent, so refunding cannot double-pay. */
+export function isPreBroadcast(e: unknown): boolean {
+  return e instanceof TreasuryPreflightError;
+}
+
+/**
  * Our float ran short — say so without saying it that way.
  *
  * "Treasury SOL balance is too low for this withdrawal" went straight to a
@@ -58,14 +82,32 @@ const RENT_EXEMPT_SOL = 0.00089088;
  * loudly, in the logs — because this one is fixed by funding a wallet, and
  * nobody can fund a wallet they were never told was empty.
  */
-function treasuryShort(asset: string, need: number, have: number, address: string): Error {
+function treasuryShort(asset: string, need: number, have: number, address: string): TreasuryPreflightError {
   console.error(
     `[solana] TREASURY SHORT — cannot pay out ${need} ${asset}: wallet ${address} holds ${have} ${asset}. Fund it.`,
   );
-  return new Error(
+  return new TreasuryPreflightError(
     `${asset} withdrawals are paused for a few minutes while we top up our wallet. ` +
       `Your balance is untouched — try again shortly, or reach support if it persists.`,
   );
+}
+
+/**
+ * Enough SOL left to pay for this transaction — checked before we build one.
+ *
+ * Every send from this wallet costs SOL, whatever it is sending. A treasury
+ * holding plenty of USDC and no SOL can move nothing at all, and it fails deep
+ * inside the RPC call with a message about lamports that no caller was reading:
+ * the withdrawal was held "unconfirmed" rather than refunded, and the user was
+ * left staring at Pending with their balance gone. Catch it here instead, where
+ * it is unambiguously pre-broadcast.
+ */
+async function requireFeeReserve(conn: Connection, treasury: PublicKey): Promise<void> {
+  const lamports = await conn.getBalance(treasury);
+  const reserve = Math.round(solFeeReserve() * LAMPORTS_PER_SOL);
+  if (lamports < reserve) {
+    throw treasuryShort("SOL", solFeeReserve(), lamports / LAMPORTS_PER_SOL, treasury.toBase58());
+  }
 }
 
 /** Whether an asset can be withdrawn on-chain via the Solana treasury. */
@@ -106,6 +148,13 @@ export async function sendSolanaUsdc(opts: { toAddress: string; amount: number }
   const mint = new PublicKey(cfg.usdcMint);
   const to = new PublicKey(opts.toAddress);
   const amountRaw = BigInt(Math.round(opts.amount * 10 ** USDC_DECIMALS));
+
+  // SOL for the fee, before anything else. USDC does not pay for its own
+  // transfer, and getOrCreateAssociatedTokenAccount below will happily try to
+  // open (and pay rent for) the recipient's account first — so a dry wallet
+  // fails several calls deep, with a message about lamports, on a transaction
+  // we can no longer prove was never sent.
+  await requireFeeReserve(conn, treasury.publicKey);
 
   // Treasury's USDC account — must exist and hold enough.
   const fromAta = await getOrCreateAssociatedTokenAccount(conn, treasury, mint, treasury.publicKey);

@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { kindOf } from "../wallet";
 import { isLive, depositProvider, dextopusWithdrawEnabled } from "./config";
-import { sendSolanaUsdc, sendSolanaNative, solanaWithdrawSupported } from "./solana";
+import { sendSolanaUsdc, sendSolanaNative, solanaWithdrawSupported, isPreBroadcast } from "./solana";
 import { dextopusWithdraw, dextopusWithdrawStatus } from "./dextopus-withdraw";
 
 /**
@@ -75,7 +75,7 @@ async function dispatchCryptoWithdraw(req: CryptoWithdrawRequest): Promise<Crypt
       // an ambiguous failure must not be retried on another rail (double-spend).
       // Never for SOL: Dextopus can't deliver a native coin, so the "fallback"
       // would only replace a clear error with a confusing one.
-      const preBroadcast = /too low|valid|configured|amount|empty/i.test(message);
+      const preBroadcast = isPreBroadcast(e) || /too low|valid|configured|amount|empty/i.test(message);
       if (!native && dextopusWithdrawEnabled() && preBroadcast) {
         const dx = await dextopusWithdraw(req);
         return { provider: "dextopus", status: dx.status, txHash: dx.fundingTx, providerRef: dx.providerRef, message: dx.message };
@@ -151,7 +151,17 @@ export async function cryptoWithdraw(req: CryptoWithdrawRequest): Promise<Crypto
     // A crypto send that threw is the most dangerous of all to call "failed":
     // the transaction may already be broadcast, and refunding would hand the
     // user their balance back on top of coins that have left. Hold it pending.
-    result = { provider: "sandbox", status: "pending", message: (e as Error).message };
+    //
+    // Under the provider we were actually using, though — this used to record
+    // "sandbox", and reconciliation only ever looks at Dextopus rows, so a
+    // withdrawal that landed here was invisible to it: never polled, never
+    // finalised, never refunded. The user's balance was gone and the screen
+    // said Pending for good.
+    result = {
+      provider: dextopusWithdrawEnabled() ? "dextopus" : depositProvider(),
+      status: "pending",
+      message: (e as Error).message,
+    };
     console.error("[withdrawal] no response from provider — holding as pending", req.reference, e);
   }
 

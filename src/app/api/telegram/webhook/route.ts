@@ -751,7 +751,7 @@ async function handlePin(
   if (res.ok) {
     await clearDraft(chatId);
     await say(chatId, res.message + notWiped);
-    await sendReceipt(chatId, draft);
+    await sendReceipt(chatId, draft, res.pending === true);
     return;
   }
 
@@ -794,6 +794,7 @@ async function handlePin(
 async function sendReceipt(
   chatId: number,
   draft: NonNullable<Awaited<ReturnType<typeof liveDraft>>>,
+  pending = false,
 ): Promise<void> {
   try {
     const amount = Number(draft.amount);
@@ -808,9 +809,11 @@ async function sendReceipt(
     const png = await renderReceiptPng({
       amount: crypto ? `${amount} ${draft.asset}` : money(amount),
       kind: crypto ? `${draft.network} transfer` : "Bank transfer",
-      // A chain confirms in its own time, so claiming "completed" the instant
-      // we hand it over would be a promise we can't keep.
-      status: crypto ? "Sent" : "Completed",
+      // A receipt is the thing people FORWARD to whoever they paid, so what it
+      // says has to be true when it's read by a stranger. A queued withdrawal
+      // has not left; stamping "Sent" on a picture of it hands the user
+      // something to prove a payment that hasn't happened yet.
+      status: pending ? "Processing" : crypto ? "Sent" : "Completed",
       reference: `TG-${draft.id.slice(-10).toUpperCase()}`,
       rows: crypto
         ? [

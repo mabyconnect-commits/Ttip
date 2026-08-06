@@ -320,7 +320,16 @@ function cryptoPrompt(d: {
 }
 
 export type SendOutcome =
-  | { ok: true; message: string }
+  /**
+   * `pending` is the difference between "your money is there" and "we've asked
+   * the chain". A live crypto withdrawal is QUEUED — the treasury signs it, the
+   * provider delivers it, and only then does it complete. /api/send returns 200
+   * either way, and reading only that status code is how a queued send was
+   * announced as "Sent ✅" while the app's own history said Pending. The two
+   * screens were describing the same transfer and the user was right not to
+   * believe either.
+   */
+  | { ok: true; pending?: boolean; message: string }
   | { ok: false; wrongPin: boolean; message: string };
 
 /**
@@ -458,11 +467,20 @@ export async function sendDraft(
   }
 
   if (res.ok) {
+    const receipt = ((await res.json().catch(() => ({}))) as { receipt?: { status?: string } }).receipt;
+    // Only "completed" has actually left. Anything else is queued, and saying
+    // otherwise is a claim about someone's money that we cannot support.
+    const pending = draft.kind === "crypto" && receipt?.status !== "completed";
     return {
       ok: true,
-      message:
-        draft.kind === "crypto"
-          ? `Sent ✅ ${amount} ${draft.asset} on ${draft.network}. It can take a few minutes to confirm on-chain.`
+      pending,
+      message: pending
+        ? `Queued ⏳ ${amount} ${draft.asset} on ${draft.network}.\n\n` +
+          `It hasn't left yet — I've handed it to the chain and it usually goes through in a few minutes. ` +
+          `Your history will show **Sent** once it confirms, and if it doesn't go through your balance comes back automatically. ` +
+          `Don't send it again.`
+        : draft.kind === "crypto"
+          ? `Sent ✅ ${amount} ${draft.asset} on ${draft.network}.`
           : `Sent ✅ ${money(amount)} to ${draft.accountName}.`,
     };
   }

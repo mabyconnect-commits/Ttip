@@ -1,7 +1,7 @@
 import "server-only";
 import { dextopusConfig, dextopusWithdrawEnabled, dextopusPartnerFees, solanaConfig } from "./config";
 import { resolveTokenAddress } from "./dextopus";
-import { sendSolanaUsdc } from "./solana";
+import { sendSolanaUsdc, isPreBroadcast } from "./solana";
 import { toUsd, hasUsdPrice } from "../prices";
 import { chainIdForNetwork } from "../chains";
 
@@ -126,7 +126,15 @@ export async function dextopusWithdraw(req: DxWithdrawRequest): Promise<DxWithdr
   } catch (e) {
     const msg = (e as Error).message || "Funding failed";
     // Pre-broadcast failures never moved funds → safe to fail (refund).
-    if (/too low|valid|configured|amount/i.test(msg)) return { status: "failed", message: msg };
+    //
+    // Our own guards say so in the type. The regex stays for the messages that
+    // come back from the RPC rather than from us, but it must not be the only
+    // thing standing between a user and their refund: an empty fee wallet threw
+    // a lamports error nobody had thought to match, and the withdrawal sat
+    // "unconfirmed" with the user's balance already taken.
+    if (isPreBroadcast(e) || /too low|valid|configured|amount/i.test(msg)) {
+      return { status: "failed", message: msg };
+    }
     // Ambiguous (may have broadcast) → leave pending; ops/status reconcile. Never refund + deliver.
     return { status: "pending", providerRef: String(requestId ?? ""), message: `Funding unconfirmed — will reconcile: ${msg}` };
   }
