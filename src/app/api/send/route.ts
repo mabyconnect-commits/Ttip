@@ -64,8 +64,8 @@ const schema = z.object({
    * and capped far below everything else (lib/sms/limits.ts).
    */
   smsAuth: z.string().optional(),
-  /** Where it came from: "app" | "telegram" | "sms". Recorded, and capped on. */
-  surface: z.enum(["app", "telegram", "sms"]).optional(),
+  /** Where it came from. Recorded, and the chat surfaces are capped on it. */
+  surface: z.enum(["app", "telegram", "sms", "whatsapp"]).optional(),
   /**
    * One id per attempt, from the client. It becomes the payout reference, and
    * `Settlement.externalId` is unique — so a second tap on the same attempt

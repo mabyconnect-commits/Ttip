@@ -26,7 +26,10 @@ export async function verifySmsAuth(userId: string, token: string): Promise<bool
   if (!draftId || !mac) return false;
 
   const draft = await prisma.telegramDraft.findUnique({ where: { id: draftId } });
-  if (!draft || draft.userId !== userId || !draft.chatId.startsWith("sms:")) return false;
+  // Only ever a chat-surface draft. A Telegram draft is confirmed with a PIN
+  // and must never be unlockable by an authorisation minted for a code sheet.
+  const chatSurface = draft?.chatId.startsWith("sms:") || draft?.chatId.startsWith("wa:");
+  if (!draft || draft.userId !== userId || !chatSurface) return false;
 
   const a = Buffer.from(mac);
   const b = Buffer.from(smsAuth(draftId, userId));
@@ -98,15 +101,21 @@ export async function startSmsTransfer(input: {
  * fails — a user should not lose today's allowance to a transfer that never
  * happened.
  */
-export async function sentBySmsToday(userId: string): Promise<number> {
+export async function sentByChatToday(userId: string): Promise<number> {
   const since = new Date(Date.now() - 24 * 3600_000);
+  // SMS and WhatsApp share one cap because they share one authorisation — the
+  // same sheet of single-use codes. Counting them separately would let the same
+  // codes move twice the money for no extra proof of anything.
   const rows = await prisma.transaction.findMany({
     where: {
       userId,
       type: "withdraw_bank",
       status: { in: ["pending", "completed"] },
       createdAt: { gte: since },
-      meta: { path: ["surface"], equals: "sms" },
+      OR: [
+        { meta: { path: ["surface"], equals: "sms" } },
+        { meta: { path: ["surface"], equals: "whatsapp" } },
+      ],
     },
     select: { amountOut: true },
   });
@@ -126,8 +135,9 @@ export interface SmsSendOutcome {
  * idempotency key all inside it. `scheduleAuth` is not used here — SMS carries
  * its own authorisation, already spent by the caller before this is reached.
  */
-export async function sendSmsTransfer(
+export async function sendChatTransfer(
   draft: { id: string; userId: string; amount: unknown; fiat: string; accountNumber: string | null; bankName: string | null; accountName: string | null },
+  surface: "sms" | "whatsapp" = "sms",
 ): Promise<SmsSendOutcome> {
   const amount = Number(draft.amount);
   const money = (n: number) => `${draft.fiat === "NGN" ? "₦" : draft.fiat + " "}${n.toLocaleString("en-US")}`;
@@ -152,13 +162,13 @@ export async function sendSmsTransfer(
         bankName: draft.bankName,
         accountNumber: draft.accountNumber,
         accountName: draft.accountName,
-        note: "Sent by SMS",
+        note: surface === "whatsapp" ? "Sent on WhatsApp" : "Sent by SMS",
         // Not the PIN. The single-use code the user texted has already been
         // spent by the caller, and this is the server saying so — an HMAC over
         // this draft's own id, which /api/send checks and which nothing outside
         // this process can mint.
         smsAuth: `${draft.id}:${smsAuth(draft.id, draft.userId)}`,
-        surface: "sms",
+        surface,
         idempotencyKey: `sms-${draft.id}`,
       }),
     });

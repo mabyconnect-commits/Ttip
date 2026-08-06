@@ -550,6 +550,13 @@ export async function sendDraft(
  * send at the appointed time is funded from every wallet, like any other, and
  * says so if it comes up short.
  */
+/**
+ * Pass as the PIN when the surface already authorised the transfer another way
+ * — WhatsApp and SMS spend a single-use code instead, because neither can
+ * delete a message afterwards.
+ */
+export const PRE_AUTHORISED = "\u0000pre-authorised";
+
 export async function scheduleDraft(
   draft: {
     id: string;
@@ -574,7 +581,10 @@ export async function scheduleDraft(
     return { ok: false, wrongPin: false, message: "I can only schedule bank transfers, and I still need the details." };
   }
 
-  try {
+  // A chat that can't delete messages authorises with a single-use code, and
+  // the caller has already spent one. Asking for the PIN as well would be
+  // asking for the thing we have just told the user we never ask for.
+  if (pin !== PRE_AUTHORISED) try {
     await requireWithdrawPin(draft.userId, pin);
   } catch (e) {
     const status = (e as { status?: number }).status;

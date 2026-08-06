@@ -5,7 +5,7 @@ import { parseSms, matchName } from "@/lib/sms/parse";
 import { normalisePhone, sendSms, smsEnabled } from "@/lib/sms/provider";
 import { nextCodeIndex, spendCode, codesLeft, LOW_CODES } from "@/lib/sms/codes";
 import { smsMaxTransfer, smsDailyCap, withinCaps } from "@/lib/sms/limits";
-import { pendingSms, clearSms, startSmsTransfer, sentBySmsToday, sendSmsTransfer } from "@/lib/sms/session";
+import { pendingSms, clearSms, startSmsTransfer, sentByChatToday, sendChatTransfer } from "@/lib/sms/session";
 import { spendableFiat } from "@/lib/spendable";
 import { COMPANY } from "@/lib/company";
 
@@ -209,7 +209,7 @@ async function handle(phone: string, body: string): Promise<Handled> {
     }
 
     await clearSms(phone);
-    const result = await sendSmsTransfer(draft);
+    const result = await sendChatTransfer(draft);
     const left = await codesLeft(userId);
     const warn = left <= LOW_CODES ? `\n${left} codes left — get more at ${COMPANY.domain}.` : "";
     return { outcome: result.ok ? "sent" : "send-failed", userId, text: result.message + warn };
@@ -235,7 +235,7 @@ async function handle(phone: string, body: string): Promise<Handled> {
     };
   }
 
-  const cap = withinCaps(cmd.amount, await sentBySmsToday(userId), fiat);
+  const cap = withinCaps(cmd.amount, await sentByChatToday(userId), fiat);
   if (!cap.ok) return { outcome: "over-cap", userId, text: cap.reason! };
 
   const spend = await spendableFiat(user.balances, fiat).catch(() => null);
