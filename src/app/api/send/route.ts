@@ -25,6 +25,7 @@ import { requireWithdrawPin } from "@/lib/withdraw-pin";
 import { consumeScheduleAuth } from "@/lib/scheduled-transfer";
 import { raiseFloat, holdWindowMinutes } from "@/lib/settlement/float";
 import { holdPayout } from "@/lib/settlement/payout-hold";
+import { verifySmsAuth } from "@/lib/sms/session";
 import { cleanNarration, payoutNarration } from "@/lib/narration";
 
 const schema = z.object({
@@ -54,6 +55,17 @@ const schema = z.object({
    * replay would be indefensible.
    */
   scheduleAuth: z.string().optional(),
+  /**
+   * Stands in for the PIN on a transfer authorised by SMS.
+   *
+   * The PIN cannot travel by SMS — it is reusable and stays in the sent-items
+   * folder — so the user spends a single-use code instead, and this is the
+   * server saying that code was spent for this exact transfer. Bank mode only,
+   * and capped far below everything else (lib/sms/limits.ts).
+   */
+  smsAuth: z.string().optional(),
+  /** Where it came from: "app" | "telegram" | "sms". Recorded, and capped on. */
+  surface: z.enum(["app", "telegram", "sms"]).optional(),
   /**
    * One id per attempt, from the client. It becomes the payout reference, and
    * `Settlement.externalId` is unique — so a second tap on the same attempt
@@ -102,6 +114,10 @@ export async function POST(req: Request) {
     if (input.scheduleAuth && input.mode === "bank") {
       if (!(await consumeScheduleAuth(userId, input.scheduleAuth))) {
         throw new ApiError("That scheduled transfer is no longer valid.", 401);
+      }
+    } else if (input.smsAuth && input.mode === "bank") {
+      if (!(await verifySmsAuth(userId, input.smsAuth))) {
+        throw new ApiError("That SMS transfer is no longer valid.", 401);
       }
     } else {
       await requireWithdrawPin(userId, input.pin);
@@ -543,6 +559,9 @@ async function handleBankSend(
           grossFiat,
           legs: plan.legs.map((l) => ({ symbol: l.symbol, take: l.take, fiat: l.fiat })),
           narration,
+          // Which surface sent it. SMS has its own daily cap, and a cap counted
+          // from anything other than the transfers themselves drifts.
+          surface: input.surface ?? "app",
         },
       },
     });

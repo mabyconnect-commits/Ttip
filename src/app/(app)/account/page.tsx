@@ -27,6 +27,7 @@ export default function AccountPage() {
     { icon: "bank", label: "Beneficiaries", sub: "Manage saved bank accounts", href: "/account/beneficiaries" },
     { icon: "bell", label: "Notifications", sub: "Notification preferences", href: "/account/notifications" },
     { icon: "lock", label: "Security", sub: "Password & transaction PIN", href: "/account/security" },
+    { icon: "phone", label: "Send by text", sub: "Pay with no internet", href: "/account/sms" },
     { icon: "headset", label: "Support", sub: "Talk to us", href: "/account/support" },
   ];
 
