@@ -163,3 +163,58 @@ export async function finalizeBuy(
     return { updated: true, credited: false };
   });
 }
+
+/**
+ * How long a checkout is given before an unpaid one is written off.
+ *
+ * Long enough that somebody who opened the page, went to find their card and
+ * came back is not cut off mid-payment. Short enough that the list means
+ * something.
+ */
+const BUY_ABANDON_MS = 60 * 60_000;
+
+/**
+ * Finish the buys the webhook never finished.
+ *
+ * Every other money path here has a poller — bills have one, crypto withdrawals
+ * have one, payouts have a lazy refresh — and buys had nothing at all. So a
+ * missed collection webhook left a buy pending for ever, and the admin list
+ * filled with charges from days earlier that nobody could resolve: had the user
+ * paid and were they owed crypto, or had they walked away from the checkout?
+ *
+ * This asks the provider, which is the only thing that actually knows. Paid
+ * completes and credits the crypto; genuinely dead ones are failed once the
+ * checkout window has passed, so the queue means something. Anything the
+ * provider is still unsure about is left alone — an unknown answer must never
+ * become a decision about somebody's money.
+ */
+export async function reconcilePendingBuys(limit = 25): Promise<{ checked: number; settled: number; failed: number }> {
+  const { verifyCollection } = await import("./collection");
+
+  const pending = await prisma.settlement.findMany({
+    where: { kind: "buy", status: "pending" },
+    orderBy: { createdAt: "asc" },
+    take: limit,
+  });
+
+  let settled = 0;
+  let failed = 0;
+  for (const s of pending) {
+    const ref = s.reference ?? s.externalId;
+    if (!ref) continue;
+
+    const status = await verifyCollection(ref).catch(() => "pending" as const);
+    const ageMs = Date.now() - s.createdAt.getTime();
+
+    if (status === "completed") {
+      await finalizeBuy({ reference: ref }, "completed");
+      console.error(`[buy] reconciled ${ref} — the charge succeeded, crypto credited.`);
+      settled++;
+    } else if (status === "failed" && ageMs > BUY_ABANDON_MS) {
+      await finalizeBuy({ reference: ref }, "failed");
+      failed++;
+    }
+  }
+
+  return { checked: pending.length, settled, failed };
+}

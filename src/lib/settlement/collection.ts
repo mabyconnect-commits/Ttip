@@ -1,6 +1,7 @@
 import "server-only";
 import { isLive, paystackConfig, flutterwaveConfig } from "./config";
 import { toSubunit } from "./webhook";
+import { fwFetch } from "./flutterwave";
 
 /**
  * Fiat collection (charge a user's card/bank to bring money IN) — the front half
@@ -104,4 +105,85 @@ export async function initCollection(req: CollectionRequest): Promise<Collection
 
   // Sandbox: treat as paid immediately.
   return { provider: "sandbox", status: "completed", externalId: req.reference };
+}
+
+/**
+ * Ask the provider what actually happened to a charge.
+ *
+ * A buy is created pending and finished by the collection webhook. A webhook is
+ * a promise, not a guarantee: it can be misconfigured at the provider, dropped,
+ * or arrive at a deployment that has since been replaced — and when it doesn't
+ * come, the buy sits pending for ever. Which is exactly what happened: buys from
+ * three days earlier still reading "pending" on the admin list, with no way to
+ * tell whether the user had paid and was owed crypto, or had walked away from
+ * the checkout page.
+ *
+ * So the webhook stops being the only answer. This asks the provider directly,
+ * and it is the truth: they took the money or they didn't.
+ *
+ * Returns "pending" when we genuinely can't tell — never a guess, because
+ * guessing "completed" credits crypto nobody paid for and guessing "failed"
+ * denies crypto somebody did.
+ */
+export async function verifyCollection(reference: string): Promise<"pending" | "completed" | "failed"> {
+  const provider = collectionProvider();
+
+  if (provider === "paystack") {
+    const cfg = paystackConfig();
+    if (!cfg) return "pending";
+    try {
+      const res = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+        headers: { Authorization: `Bearer ${cfg.secretKey}` },
+      });
+      const json = (await res.json().catch(() => ({}))) as { status?: boolean; data?: { status?: string } };
+      // A 404 means Paystack has never heard of it — the user never started the
+      // charge, so it is safely dead rather than unknown.
+      if (res.status === 404) return "failed";
+      if (!res.ok || !json.status) return "pending";
+      switch ((json.data?.status ?? "").toLowerCase()) {
+        case "success":
+          return "completed";
+        case "failed":
+        case "abandoned":
+        case "reversed":
+          return "failed";
+        default:
+          return "pending";
+      }
+    } catch {
+      return "pending";
+    }
+  }
+
+  if (provider === "flutterwave") {
+    const cfg = flutterwaveConfig();
+    if (!cfg) return "pending";
+    try {
+      const res = await fwFetch(
+        `${cfg.baseUrl}/transactions/verify_by_reference?tx_ref=${encodeURIComponent(reference)}`,
+        { headers: { Authorization: `Bearer ${cfg.secretKey}` } },
+      );
+      const json = (await res.json().catch(() => ({}))) as {
+        status?: string;
+        data?: { status?: string };
+      };
+      if (res.status === 404) return "failed";
+      if (!res.ok) return "pending";
+      switch ((json.data?.status ?? "").toUpperCase()) {
+        case "SUCCESSFUL":
+          return "completed";
+        case "FAILED":
+        case "CANCELLED":
+          return "failed";
+        default:
+          return "pending";
+      }
+    } catch {
+      return "pending";
+    }
+  }
+
+  // Sandbox charges settle inline at creation, so anything still pending here
+  // was never going to complete.
+  return "failed";
 }

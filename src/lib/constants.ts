@@ -179,7 +179,7 @@ export const COLLECTION_FEE_PCT = 0.015; // 1.5%
 
 // Cashback: users earn this fraction of every buy/sell back into a separate
 // cashback balance, claimable once it reaches CASHBACK_MIN_CLAIM.
-export const CASHBACK_PCT = 0.0015; // 0.15%
+export const CASHBACK_PCT = 0.001; // 0.1%
 export const CASHBACK_MIN_CLAIM = 5000; // ₦5,000
 
 // The reward pots (user.cashback, user.referralEarned) and the reward

@@ -28,7 +28,7 @@ export { dextopusWithdrawEnabled } from "./config";
 export { dextopusValidateAddress, chainTypeForChainId, dextopusWithdrawPreview } from "./dextopus-withdraw";
 export { sendSolanaUsdc, sendSolanaNative, solanaWithdrawSupported, isValidSolanaAddress, SOLANA_WITHDRAW_ASSETS, solFeeReserve } from "./solana";
 export { solanaConfig, maxCryptoWithdrawal } from "./config";
-export { createBuyOrder, finalizeBuy } from "./buy";
+export { createBuyOrder, finalizeBuy, reconcilePendingBuys } from "./buy";
 export { ensureNairaAccount, creditNairaDeposit } from "./naira";
 export type { NairaAccountResult } from "./naira";
 // resolveAccountName is defined below (dispatches to the active provider).

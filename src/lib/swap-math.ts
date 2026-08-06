@@ -4,7 +4,7 @@ import { SWAP_FEE_PCT } from "./constants";
  * Free swaps per user per day. NONE by default.
  *
  * This was 3, and it was a straight loss on every one: a free swap earns 0%
- * while still accruing 0.15% cashback on its volume, so the platform paid the
+ * while still accruing cashback on its volume, so the platform paid the
  * user to trade. Every swap is now priced.
  *
  * Kept configurable so a promo can be run deliberately — set FREE_SWAPS_PER_DAY

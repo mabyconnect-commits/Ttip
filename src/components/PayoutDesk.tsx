@@ -149,7 +149,18 @@ export function PayoutDesk() {
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-2.5 mt-3">
+        {/* A webhook that never arrived leaves a buy or a payout pending for
+            ever. The cron chases them every five minutes; this is for when an
+            operator is looking at the list right now. */}
+        <button
+          disabled={busy === "reconcile"}
+          onClick={() => act({ action: "reconcile" }, "reconcile")}
+          className="w-full rounded-2xl border border-white/12 py-3 font-grotesk font-semibold text-[12.5px] mt-3 active:scale-[.99] disabled:opacity-50"
+        >
+          Chase pending transactions
+        </button>
+
+        <div className="grid grid-cols-2 gap-2.5 mt-2.5">
           <button
             disabled={busy === "ping"}
             onClick={() => act({ action: "ping" }, "ping")}

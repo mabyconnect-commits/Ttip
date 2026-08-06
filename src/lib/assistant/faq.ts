@@ -168,7 +168,7 @@ const INTENTS: Intent[] = [
   {
     match: ["cashback", "cash back"],
     answer: () =>
-      `You earn ${(CASHBACK_PCT * 100).toFixed(2)}% back on every buy, sell and swap. Once it reaches ${money(
+      `You earn ${(CASHBACK_PCT * 100).toFixed(2).replace(/\.?0+$/, "")}% back on every buy, sell and swap. Once it reaches ${money(
         CASHBACK_MIN_CLAIM,
       )} you can claim it from Account → Cashback and it goes straight into your balance.`,
   },

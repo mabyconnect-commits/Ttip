@@ -6,6 +6,7 @@ import { heldPayouts, resolveHold, failHold } from "@/lib/settlement/payout-hold
 import { openTopUps, completeTopUp, holdWindowMinutes, settleVenue, topupBuffer } from "@/lib/settlement/float";
 import { treasuryBalance, adjustTreasury } from "@/lib/settlement/treasury";
 import { settlementVenue } from "@/lib/settlement/venue";
+import { reconcilePendingBuys, refreshPayoutStatus } from "@/lib/settlement";
 import { explorerTxUrl } from "@/lib/chains";
 
 export const dynamic = "force-dynamic";
@@ -139,6 +140,30 @@ export async function POST(req: Request) {
       message: address
         ? `${venue.name} answered. Deposit address on ${address.chain}, balance ${balance ?? "unknown"}.`
         : `${venue.name} rejected the call — check the key's permissions and the server log for the exact reason.`,
+    });
+  }
+
+  /**
+   * Chase every pending transaction now, rather than waiting for the cron.
+   *
+   * A webhook that never arrived leaves a buy or a payout pending for ever, and
+   * an operator looking at a list of them wants an answer in this minute, not
+   * in the next five.
+   */
+  if (body.action === "reconcile") {
+    const buys = await reconcilePendingBuys().catch(() => ({ checked: 0, settled: 0, failed: 0 }));
+    const stale = await prisma.settlement.findMany({
+      where: { kind: "payout", status: "pending", createdAt: { lte: new Date(Date.now() - 60_000) } },
+      orderBy: { createdAt: "asc" },
+      take: 25,
+      select: { reference: true },
+    });
+    for (const s of stale) if (s.reference) await refreshPayoutStatus(s.reference).catch(() => null);
+    return NextResponse.json({
+      ok: true,
+      message:
+        `Checked ${buys.checked} buy(s) with the provider — ${buys.settled} had been paid and were credited, ` +
+        `${buys.failed} were never paid and are now marked failed. Re-checked ${stale.length} bank payout(s).`,
     });
   }
 
