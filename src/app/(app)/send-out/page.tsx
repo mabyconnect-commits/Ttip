@@ -30,7 +30,7 @@ interface DxToken { symbol: string; name: string }
 
 export default function SendOutPage() {
   const { state, action, toast } = useApp();
-  const { convert } = usePrices();
+  const { convert, ready: pricesReady } = usePrices();
   const router = useRouter();
   const [mode, setMode] = useState<"bank" | "wallet">("bank");
   const [sym, setSym] = useState(""); // bank-mode asset; defaulted once state loads
@@ -112,8 +112,22 @@ export default function SendOutPage() {
     setSym(fiatBal > 0 ? fiat : "USDT");
   }, [sym, fiat, fiatBal]);
 
-  const symIsFiat = sym === fiat;
-
+  /**
+   * Everything a bank payout can draw on, valued in the payout currency.
+   *
+   * A payout is funded from EVERY wallet at once — naira first, then crypto,
+   * sold as part of the send (see lib/funding-plan.ts). The screen didn't know
+   * that: it measured the amount against the ONE wallet in the chips, so a user
+   * holding USDC and no naira was told "No NGN to send" and went and swapped by
+   * hand — paying a spread for a conversion the send would have done for free.
+   * That seamlessness is the feature; this is the number it runs on.
+   */
+  const spendableWallets = state.portfolio.assets
+    .filter((a) => a.amount > 0)
+    .map((a) => ({ symbol: a.symbol, amount: a.amount, fiat: convert(a.amount, a.symbol, fiat) }))
+    .filter((w) => w.fiat > 0)
+    .sort((a, b) => b.fiat - a.fiat);
+  const spendableTotal = spendableWallets.reduce((sum, w) => sum + w.fiat, 0);
 
   // Preview of which wallets will pay, using the same planner the server runs.
   // Purely informational — the server plans again from real balances.
@@ -130,10 +144,22 @@ export default function SendOutPage() {
   // Only worth showing when more than one wallet is involved.
   const splitFunding = !!fundingPlan?.ok && (fundingPlan?.legs.length ?? 0) > 1;
 
+  /**
+   * Short for a BANK send means short across every wallet, not one of them.
+   *
+   * Only judged once prices are in: before that the crypto legs convert to zero
+   * and the plan looks short, and a false "you can't afford this" is the very
+   * bug being fixed. Until then the tap is allowed and the server — which plans
+   * again from real balances — has the final word.
+   */
+  const bankShort = mode === "bank" && pricesReady && !!fundingPlan && !fundingPlan.ok;
+
   // The active asset + destination differ by mode.
   const walletSym = selToken?.symbol ?? "";
   const activeSym = mode === "wallet" ? walletSym : sym;
   const bal = state.portfolio.assets.find((a) => a.symbol === activeSym)?.amount ?? 0;
+  // A crypto send really is one wallet: you cannot send USDT out of SOL.
+  const walletShort = mode === "wallet" && amt > bal;
   const feeInAsset = activeSym ? convert(WITHDRAW_FEE_USDT, "USDT", activeSym) : 0;
   const maxSendable = Math.max(0, bal - feeInAsset); // Max must leave room for the fee
   // Max on a bank send must leave room for the fee that now sits on top, or
@@ -142,7 +168,9 @@ export default function SendOutPage() {
     if (mode !== "bank" || !sym) return 0;
     const unit = convert(1, sym, fiat);
     if (!(unit > 0)) return bal;
-    const availableFiat = bal * unit;
+    // Across every wallet, for the same reason the button is: Max on a screen
+    // that spends all of them must offer all of them.
+    const availableFiat = spendableTotal;
     // Two passes: the fee tier depends on the amount, which depends on the fee.
     const first = availableFiat - (transferFee(availableFiat, fiat) ?? 0);
     const send = availableFiat - (transferFee(Math.max(0, first), fiat) ?? 0);
@@ -379,14 +407,38 @@ export default function SendOutPage() {
               </>
             );
           })()}
-          {(mode === "bank" || selToken) && (
-            <div className="flex justify-between">
-              <span>Balance</span>
-              <b className="text-white font-grotesk">
-                {/* Naira is a currency, not a token — don't print it to 6 decimals. */}
-                {symIsFiat && mode === "bank" ? formatFiat(bal, fiat) : `${formatCrypto(bal, activeSym)} ${activeSym}`}
-              </b>
-            </div>
+          {mode === "bank" ? (
+            <>
+              {/* Not "Balance" — the balance of one wallet was never the number
+                  that decides a bank payout, and printing it as though it were
+                  is what sent someone off to swap USDC to naira by hand. */}
+              <div className="flex justify-between">
+                <span>Available to send</span>
+                <b className="text-white font-grotesk">{formatFiat(spendableTotal, fiat)}</b>
+              </div>
+              {spendableWallets.length > 1 && (
+                <div className="text-[12px] text-white/40 leading-snug -mt-1">
+                  Across {spendableWallets.map((w) => `${formatCrypto(w.amount, w.symbol)} ${w.symbol}`).join(" + ")}
+                  {" — we convert as we send, so you never have to swap first."}
+                </div>
+              )}
+              {splitFunding && (
+                <div className="text-[12px] text-white/55 leading-snug">
+                  This one comes from{" "}
+                  <b className="text-white/80">
+                    {fundingPlan!.legs.map((l) => `${formatCrypto(l.take, l.symbol)} ${l.symbol}`).join(" + ")}
+                  </b>
+                  .
+                </div>
+              )}
+            </>
+          ) : (
+            selToken && (
+              <div className="flex justify-between">
+                <span>Balance</span>
+                <b className="text-white font-grotesk">{`${formatCrypto(bal, activeSym)} ${activeSym}`}</b>
+              </div>
+            )
           )}
         </div>
       </div>
@@ -405,15 +457,19 @@ export default function SendOutPage() {
         <GradientButton
           onClick={submit}
           loading={loading}
-          disabled={amt <= 0 || (mode === "wallet" && !selToken) || amt > bal}
+          disabled={amt <= 0 || (mode === "wallet" && !selToken) || walletShort || bankShort}
         >
-          {amt > bal
-            ? bal <= 0
-              ? `No ${activeSym} to send`
-              : "Insufficient balance"
-            : mode === "bank"
-              ? "Send to bank"
-              : "Send to wallet"}
+          {mode === "wallet"
+            ? walletShort
+              ? bal <= 0
+                ? `No ${activeSym} to send`
+                : "Insufficient balance"
+              : "Send to wallet"
+            : bankShort
+              ? spendableTotal <= 0
+                ? "Nothing to send yet"
+                : `Short by ${formatFiat(fundingPlan?.short ?? 0, fiat)}`
+              : "Send to bank"}
         </GradientButton>
       </div>
 
