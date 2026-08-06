@@ -7,7 +7,7 @@ import {
   isValidSolanaAddress,
   solFeeReserve,
 } from "@/lib/settlement";
-import { WITHDRAW_FEE_USDT } from "@/lib/constants";
+import { withdrawFeeUsd } from "@/lib/constants";
 import { convert } from "@/lib/prices";
 
 const schema = z.object({
@@ -39,9 +39,10 @@ export async function POST(req: Request) {
       if (!isValidSolanaAddress(input.address)) {
         return ok({ ok: false, message: "That isn't a valid Solana address." });
       }
-      // Our flat fee, charged in the asset being sent — the same number the
-      // send path debits, so the quote and the charge agree.
-      const fee = await convert(WITHDRAW_FEE_USDT, "USDT", input.symbol);
+      // Our fee — max(0.8%, $0.50) — charged in the asset being sent, the same
+      // number the send path debits, so the quote and the charge agree.
+      const amountUsdt = await convert(input.amount, input.symbol, "USDT");
+      const fee = await convert(withdrawFeeUsd(amountUsdt), "USDT", input.symbol);
       const out = input.amount - fee;
       if (!(out > 0)) {
         return ok({ ok: false, message: `That's below the ${input.symbol} withdrawal fee.` });

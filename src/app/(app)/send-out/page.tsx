@@ -7,7 +7,7 @@ import { apiGet, apiPost } from "@/lib/client";
 import { usePrices } from "@/lib/usePrices";
 import { BackHeader, Segmented, GradientButton, Sheet } from "@/components/ui";
 import { Icon } from "@/components/Icon";
-import { WITHDRAW_FEE_USDT } from "@/lib/constants";
+import { withdrawFeeUsd } from "@/lib/constants";
 import { sortChainsByPopularity } from "@/lib/chains";
 import { transferFee } from "@/lib/pricing";
 import { formatFiat, formatCrypto } from "@/lib/format";
@@ -160,8 +160,12 @@ export default function SendOutPage() {
   const bal = state.portfolio.assets.find((a) => a.symbol === activeSym)?.amount ?? 0;
   // A crypto send really is one wallet: you cannot send USDT out of SOL.
   const walletShort = mode === "wallet" && amt > bal;
-  const feeInAsset = activeSym ? convert(WITHDRAW_FEE_USDT, "USDT", activeSym) : 0;
-  const maxSendable = Math.max(0, bal - feeInAsset); // Max must leave room for the fee
+  // Withdrawal fee: max(0.8%, $0.50). Fee shown scales with the entered amount.
+  const feeUsd = activeSym ? withdrawFeeUsd(convert(amt, activeSym, "USDT")) : 0;
+  const feeInAsset = activeSym ? convert(feeUsd, "USDT", activeSym) : 0;
+  // Max must leave room for the fee — size it off the fee on the full balance.
+  const maxFeeInAsset = activeSym ? convert(withdrawFeeUsd(convert(bal, activeSym, "USDT")), "USDT", activeSym) : 0;
+  const maxSendable = Math.max(0, bal - maxFeeInAsset); // Max must leave room for the fee
   // Max on a bank send must leave room for the fee that now sits on top, or
   // tapping Max always comes up short. Expressed in the chosen asset.
   const maxBankSend = (() => {
@@ -372,7 +376,7 @@ export default function SendOutPage() {
           {mode === "wallet" && selToken && (
             <>
               <div className="flex justify-between"><span>Network</span><b className="text-white font-grotesk">{selChain?.name}</b></div>
-              <div className="flex justify-between"><span>Ttip fee</span><b className="text-white font-grotesk">${WITHDRAW_FEE_USDT.toFixed(2)}</b></div>
+              <div className="flex justify-between"><span>Ttip fee</span><b className="text-white font-grotesk">${feeUsd.toFixed(2)}</b></div>
               <div className="flex justify-between">
                 <span>Recipient gets</span>
                 {previewing ? (

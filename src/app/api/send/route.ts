@@ -7,7 +7,7 @@ import { handler, ok, unauthorized, ApiError } from "@/lib/api";
 import { getAppState } from "@/lib/serialize";
 import { convert, isCrypto, hasUsdPrice } from "@/lib/prices";
 import { adjust, balanceOf } from "@/lib/wallet";
-import { WITHDRAW_FEE_USDT } from "@/lib/constants";
+import { withdrawFeeUsd } from "@/lib/constants";
 import { dayStr, isYesterday } from "@/lib/format";
 import { payoutFiat, finalizePayout, payoutProvider, ensureFloat, debitFloat, cryptoWithdraw, settlementEnabled, demoEnabled, solanaWithdrawSupported, isValidSolanaAddress, maxCryptoWithdrawal, dextopusWithdrawEnabled, dextopusWithdrawPreview } from "@/lib/settlement";
 import { chainIdForNetwork } from "@/lib/chains";
@@ -305,8 +305,11 @@ async function handleWalletSend(userId: string, kycTier: number, defaultFiat: st
     if (!preview.ok) throw new ApiError(preview.message ?? "This withdrawal can't be processed.", 400);
   }
 
-  // network fee expressed in the sent asset
-  const feeInAsset = await convert(WITHDRAW_FEE_USDT, "USDT", symbol);
+  // Platform withdrawal fee: max(0.8%, $0.50). Computed from the withdrawal's
+  // USD value, then expressed in the sent asset.
+  const amountUsdt = await convert(amount, symbol, "USDT");
+  const feeUsd = withdrawFeeUsd(amountUsdt);
+  const feeInAsset = await convert(feeUsd, "USDT", symbol);
   const total = amount + feeInAsset;
   const bal = await balanceOf(userId, symbol);
   if (bal + 1e-12 < total) throw new ApiError(`Insufficient ${symbol} to cover amount + network fee`, 400);
@@ -358,7 +361,7 @@ async function handleWalletSend(userId: string, kycTier: number, defaultFiat: st
   // pot adds up in one honest number.
   if (result.status === "completed") {
     try {
-      const feeFiat = await convert(WITHDRAW_FEE_USDT, "USDT", defaultFiat);
+      const feeFiat = await convert(feeUsd, "USDT", defaultFiat);
       await prisma.$transaction(async (tx) => {
         await accrueReferralEarning(tx, userId, feeFiat, { fiat: defaultFiat, source: "crypto withdrawal" });
       });

@@ -52,9 +52,12 @@ export default function TtipPage() {
     apiGet<{ contacts: Contact[] }>("/api/contacts?q=" + encodeURIComponent(query))
       .then((d) => {
         setContacts(d.contacts);
-        if (!recipient && d.contacts.length && query === "") {
-          const preset = toParam ? d.contacts.find((c) => c.handle.replace(/^@/, "").toLowerCase() === toParam.toLowerCase()) : null;
-          setRecipient(preset ?? d.contacts[0]);
+        // Only preselect when the link explicitly targets someone (?to=handle).
+        // Never auto-pick a contact — the user chooses who to Ttip, so the page
+        // opens on "Choose someone" instead of a random (often demo) recipient.
+        if (!recipient && query === "" && toParam) {
+          const preset = d.contacts.find((c) => c.handle.replace(/^@/, "").toLowerCase() === toParam.toLowerCase());
+          if (preset) setRecipient(preset);
         }
       })
       .catch(() => {});

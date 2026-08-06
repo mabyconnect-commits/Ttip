@@ -161,10 +161,26 @@ export const GOVERNMENT_ID_TYPES = ["nin", "passport", "drivers_license"] as con
 export const SWAP_FEE_PCT = 0.009; // 0.9% after free swaps used
 export const NETWORK_FEE_USDT = 1; // flat network fee on external sends (USDT-equivalent)
 
-// Ttip's flat platform fee on a crypto withdrawal — charged ON TOP of the real
+// Ttip's platform fee on a crypto withdrawal — charged ON TOP of the real
 // on-chain/provider fee (which the provider already deducts and we show as
 // "recipient gets"). So the total a user pays is: actual network fee + this.
-export const WITHDRAW_FEE_USDT = 0.5; // $0.50 flat, nothing more
+//
+// Fee = max(0.8% of the amount, $0.50): a flat $0.50 minimum up to $62.50, then
+// 0.8% of the amount above that. Small withdrawals pay the $0.50 floor; larger
+// ones scale with size.
+export const WITHDRAW_FEE_PCT = 0.008; // 0.8%
+export const WITHDRAW_FEE_MIN_USD = 0.5; // $0.50 floor
+// Kept as the floor for any older reference; the real fee comes from withdrawFeeUsd().
+export const WITHDRAW_FEE_USDT = WITHDRAW_FEE_MIN_USD;
+
+/**
+ * The platform withdrawal fee in USD for a withdrawal worth `amountUsd`
+ * (USDT ≈ USD). max(0.8%, $0.50). Guards against NaN/negative input.
+ */
+export function withdrawFeeUsd(amountUsd: number): number {
+  const pct = Number.isFinite(amountUsd) && amountUsd > 0 ? amountUsd * WITHDRAW_FEE_PCT : 0;
+  return Math.max(pct, WITHDRAW_FEE_MIN_USD);
+}
 
 // The spread Ttip keeps on crypto↔fiat conversion. The user is quoted the live
 // market/P2P reference rate minus this margin; the difference is platform

@@ -138,8 +138,8 @@ primary market.
 - Supported payout currencies: ${supportedPayoutCurrencies().join(", ")}.
 - Not yet payable (users can hold/display these, but cash-out is coming soon):
   ${comingSoonCurrencies().join(", ")}.
-- Crypto withdrawal: the network fee is deducted by the network, plus a flat
-  $${WITHDRAW_FEE_USDT.toFixed(2)} Ttip fee. Nothing more.
+- Crypto withdrawal: the network fee is deducted by the network, plus a Ttip
+  fee of 0.8% of the amount (minimum $${WITHDRAW_FEE_USDT.toFixed(2)}). Nothing more.
 - An 0x address does NOT tell you which chain. The same address is valid on
   Ethereum, Base, Arbitrum, Polygon, BNB Chain, Optimism, Avalanche, Linea and
   Scroll, and each holds different money — Ttip can send on all of them. So

@@ -30,9 +30,17 @@ try {
   console.log("[setup-db] Creating / updating database tables…");
   run("npx prisma db push --skip-generate --accept-data-loss");
 } catch (e) {
-  console.warn("[setup-db] Could not reach the database to create tables:", e?.message ?? e);
-  console.warn("[setup-db] Check that DATABASE_URL is correct and the database is reachable.");
-  process.exit(0); // don't fail the build; app will surface a clear runtime error
+  // FAIL the build. We've just run `prisma generate`, so continuing would ship a
+  // Prisma client that expects columns the live database doesn't have — every
+  // query that reads those columns then 500s in production (e.g. /home,
+  // /api/wallet, and the app shows "Database tables are missing"). For a money
+  // app, failing the deploy and keeping the last good one live is far safer than
+  // shipping a client that's out of sync with the DB.
+  console.error("\n[setup-db] `prisma db push` FAILED — refusing to deploy a schema-mismatched build.");
+  console.error("[setup-db] Reason:", e?.message ?? e);
+  console.error("[setup-db] The database was unreachable or rejected the migration. Fix DATABASE_URL /");
+  console.error("[setup-db] database availability and redeploy. The previous working deployment stays live.\n");
+  process.exit(1);
 }
 
 // SAFETY: the demo seed creates accounts that hold balances nobody paid for,
