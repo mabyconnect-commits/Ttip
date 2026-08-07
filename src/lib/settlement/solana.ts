@@ -2,7 +2,7 @@ import "server-only";
 import { Connection, Keypair, PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { getOrCreateAssociatedTokenAccount, getAssociatedTokenAddress, transfer } from "@solana/spl-token";
 import bs58 from "bs58";
-import { solanaConfig } from "./config";
+import { solanaConfig, type SolanaConfig } from "./config";
 
 /**
  * On-chain USDC (SPL) sends from the treasury Solana wallet — the live rail for
@@ -133,6 +133,52 @@ function loadKeypair(secret: string): Keypair {
 }
 
 /**
+ * RPC endpoints to try, in order: the configured one(s) first, then public
+ * fallbacks. SOLANA_RPC_URL may be a comma-separated list, so an operator can
+ * put a paid endpoint first and keep a backup behind it.
+ */
+function rpcEndpoints(cfg: SolanaConfig): string[] {
+  const configured = cfg.rpcUrl.split(",").map((s) => s.trim()).filter(Boolean);
+  const fallbacks = [
+    "https://api.mainnet-beta.solana.com",
+    "https://solana-rpc.publicnode.com",
+    "https://rpc.ankr.com/solana",
+  ];
+  return [...new Set([...configured, ...fallbacks])];
+}
+
+/**
+ * A Connection on the first RPC endpoint that actually responds.
+ *
+ * The public default fails sends constantly ("Funding failed" with an empty
+ * message), so we probe each endpoint cheaply and use the first live one. This
+ * is chosen BEFORE any transaction is built, so the send still runs on exactly
+ * ONE connection — there is no retry across endpoints and therefore no risk of
+ * broadcasting the same transfer twice. If nothing responds it throws a
+ * pre-broadcast error, so the withdrawal refunds cleanly instead of hanging.
+ */
+async function healthyConnection(cfg: SolanaConfig): Promise<Connection> {
+  const endpoints = rpcEndpoints(cfg);
+  let lastErr: unknown;
+  for (const url of endpoints) {
+    try {
+      const conn = new Connection(url, "confirmed");
+      await Promise.race([
+        conn.getLatestBlockhash(),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("rpc probe timeout")), 4000)),
+      ]);
+      return conn;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  console.error(`[solana] no RPC endpoint responded (${endpoints.length} tried): ${String(lastErr)}`);
+  throw new TreasuryPreflightError(
+    "The network is busy right now — your balance is untouched, please try again in a moment.",
+  );
+}
+
+/**
  * Send `amount` USDC to `toAddress` on Solana from the treasury wallet. Creates
  * the recipient's associated token account if it doesn't exist (treasury pays
  * the small rent). Returns the confirmed transaction signature.
@@ -143,7 +189,7 @@ export async function sendSolanaUsdc(opts: { toAddress: string; amount: number }
   if (!(opts.amount > 0)) throw new Error("Enter a valid amount.");
   if (!isValidSolanaAddress(opts.toAddress)) throw new Error("Enter a valid Solana (USDC) address.");
 
-  const conn = new Connection(cfg.rpcUrl, "confirmed");
+  const conn = await healthyConnection(cfg);
   const treasury = loadKeypair(cfg.secretKey);
   const mint = new PublicKey(cfg.usdcMint);
   const to = new PublicKey(opts.toAddress);
@@ -190,7 +236,7 @@ export async function sendSolanaNative(opts: { toAddress: string; amount: number
   if (!(opts.amount > 0)) throw new Error("Enter a valid amount.");
   if (!isValidSolanaAddress(opts.toAddress)) throw new Error("Enter a valid Solana address.");
 
-  const conn = new Connection(cfg.rpcUrl, "confirmed");
+  const conn = await healthyConnection(cfg);
   const treasury = loadKeypair(cfg.secretKey);
   const to = new PublicKey(opts.toAddress);
 
@@ -232,7 +278,7 @@ export async function treasurySolanaBalances(): Promise<{ address: string; sol: 
   const cfg = solanaConfig();
   if (!cfg) return null;
   try {
-    const conn = new Connection(cfg.rpcUrl, "confirmed");
+    const conn = await healthyConnection(cfg);
     const treasury = loadKeypair(cfg.secretKey);
     const lamports = await conn.getBalance(treasury.publicKey);
     let usdc = 0;
