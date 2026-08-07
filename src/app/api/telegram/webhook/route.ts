@@ -191,9 +191,9 @@ async function handleMedia(chatId: number, m: NonNullable<Update["message"]>): P
       await say(chatId, "I couldn't make that out — say it again, or type it.");
       return "";
     }
-    // Echo it back. A misheard amount has to be visible BEFORE the PIN, not
-    // discovered afterwards.
-    await say(chatId, `I heard: *${said}*`);
+    // Don't echo the transcript back at the user ("I heard: …") — it reads as the
+    // bot repeating them. A misheard money amount is still caught safely: the
+    // transfer draft shows the parsed amount and recipient before the PIN.
     return said;
   }
 
