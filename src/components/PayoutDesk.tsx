@@ -179,6 +179,23 @@ export function PayoutDesk() {
             Record treasury USDC
           </button>
         </div>
+
+        {/* The naira float the app draws bank payouts from. It reads zero on a
+            fresh deploy, so EVERY bank payout is held for a top-up that never
+            comes — set it to the real balance in your payout account and payouts
+            go straight through instead of being held. */}
+        <button
+          disabled={busy === "float"}
+          onClick={() => {
+            const v = prompt(
+              "Set your NGN float — how much naira does your payout account (Flutterwave) actually hold right now?\n\nBank payouts are held whenever the app thinks this is short, so this must match your real balance.",
+            );
+            if (v && Number(v) >= 0) act({ action: "setTreasury", symbol: "NGN", amount: Number(v) }, "float");
+          }}
+          className="w-full rounded-2xl bg-good text-ink py-3 font-grotesk font-semibold text-[12.5px] mt-2.5 active:scale-[.99] disabled:opacity-50"
+        >
+          Set naira float — unblock bank payouts
+        </button>
       </div>
 
       {msg && <div className="text-[12px] text-white/70 mb-2">{msg}</div>}
