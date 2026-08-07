@@ -59,6 +59,26 @@ function fail(reference: string, message: string): DxWithdrawResult {
   return { status: "failed", message };
 }
 
+/**
+ * Turn a thrown Solana/RPC error into a human-readable reason. SendTransactionError
+ * frequently has an empty `.message` and hides the cause in its `.logs` (or an
+ * async `getLogs()`), which is why funding failures showed up as a bare
+ * "Funding failed" with nothing to act on.
+ */
+async function describeSendError(e: unknown): Promise<string> {
+  const err = e as any;
+  const parts = [err?.name && err.name !== "Error" ? err.name : "", err?.message ?? ""].map((s) => String(s).trim()).filter(Boolean);
+  let detail = parts.join(": ");
+  try {
+    const logs: unknown = err?.logs ?? (typeof err?.getLogs === "function" ? await err.getLogs() : null);
+    if (Array.isArray(logs) && logs.length) detail += `${detail ? " | " : ""}${logs.slice(-3).join(" ⏎ ")}`;
+  } catch {
+    /* logs unavailable */
+  }
+  if (!detail) detail = (() => { try { return String(err) === "[object Object]" ? JSON.stringify(err) : String(err); } catch { return "Funding failed"; } })();
+  return detail || "Funding failed";
+}
+
 function pick<T = unknown>(obj: any, ...keys: string[]): T | undefined {
   const root = obj?.data ?? obj;
   for (const k of keys) if (root?.[k] != null) return root[k] as T;
@@ -138,15 +158,15 @@ export async function dextopusWithdraw(req: DxWithdrawRequest): Promise<DxWithdr
     const sent = await sendSolanaUsdc({ toAddress: depositAddress, amount: usdc });
     fundingTx = sent.txHash;
   } catch (e) {
-    const msg = (e as Error).message || "Funding failed";
+    // Capture the REAL cause, not a swallowed "Funding failed". A Solana
+    // SendTransactionError often has an empty `.message` and puts the reason in
+    // its name and transaction logs — surface those so the admin "Reason" field
+    // says what actually happened (e.g. "insufficient funds for rent",
+    // blockhash-expired, a custom program error) instead of nothing.
+    const msg = await describeSendError(e);
     // Pre-broadcast failures never moved funds → safe to fail (refund).
-    //
-    // Our own guards say so in the type. The regex stays for the messages that
-    // come back from the RPC rather than from us, but it must not be the only
-    // thing standing between a user and their refund: an empty fee wallet threw
-    // a lamports error nobody had thought to match, and the withdrawal sat
-    // "unconfirmed" with the user's balance already taken.
-    if (isPreBroadcast(e) || /too low|valid|configured|amount/i.test(msg)) {
+    // Our own guards say so in the type; the regex covers RPC-side messages.
+    if (isPreBroadcast(e) || /too low|valid|configured|amount|insufficient|rent|blockhash|not a valid/i.test(msg)) {
       return fail(req.reference, msg);
     }
     // Ambiguous (may have broadcast) → leave pending; ops/status reconcile. Never refund + deliver.
