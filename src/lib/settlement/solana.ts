@@ -1,6 +1,11 @@
 import "server-only";
 import { Connection, Keypair, PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction, LAMPORTS_PER_SOL } from "@solana/web3.js";
-import { getOrCreateAssociatedTokenAccount, getAssociatedTokenAddress, transfer } from "@solana/spl-token";
+import {
+  getAssociatedTokenAddress,
+  getAccount,
+  createAssociatedTokenAccountIdempotentInstruction,
+  createTransferInstruction,
+} from "@solana/spl-token";
 import bs58 from "bs58";
 import { solanaConfig, type SolanaConfig } from "./config";
 
@@ -195,30 +200,38 @@ export async function sendSolanaUsdc(opts: { toAddress: string; amount: number }
   const to = new PublicKey(opts.toAddress);
   const amountRaw = BigInt(Math.round(opts.amount * 10 ** USDC_DECIMALS));
 
-  // SOL for the fee, before anything else. USDC does not pay for its own
-  // transfer, and getOrCreateAssociatedTokenAccount below will happily try to
-  // open (and pay rent for) the recipient's account first — so a dry wallet
-  // fails several calls deep, with a message about lamports, on a transaction
-  // we can no longer prove was never sent.
+  // SOL for the fee, before anything else. USDC does not pay for its own transfer
+  // (and opening the recipient's account costs rent), so a dry SOL wallet must
+  // fail HERE — unambiguously pre-broadcast — not deep inside a send.
   await requireFeeReserve(conn, treasury.publicKey);
 
-  // Treasury's USDC account — must exist and hold enough.
-  const fromAta = await getOrCreateAssociatedTokenAccount(conn, treasury, mint, treasury.publicKey);
-  if (fromAta.amount < amountRaw) {
-    throw treasuryShort(
-      "USDC",
-      opts.amount,
-      Number(fromAta.amount) / 10 ** USDC_DECIMALS,
-      treasury.publicKey.toBase58(),
-    );
+  // Associated token accounts. allowOwnerOffCurve: a provider deposit address can
+  // be an off-curve PDA, which would otherwise throw TokenOwnerOffCurveError.
+  const fromAta = await getAssociatedTokenAddress(mint, treasury.publicKey, true);
+  const toAta = await getAssociatedTokenAddress(mint, to, true);
+
+  // Treasury must exist and hold enough USDC.
+  let held: bigint;
+  try {
+    held = (await getAccount(conn, fromAta)).amount;
+  } catch {
+    throw treasuryShort("USDC", opts.amount, 0, treasury.publicKey.toBase58());
+  }
+  if (held < amountRaw) {
+    throw treasuryShort("USDC", opts.amount, Number(held) / 10 ** USDC_DECIMALS, treasury.publicKey.toBase58());
   }
 
-  // Recipient's USDC account — create if missing (treasury pays rent).
-  // allowOwnerOffCurve: provider deposit addresses can be off-curve (PDAs), which
-  // would otherwise throw TokenOwnerOffCurveError; a normal wallet is unaffected.
-  const toAta = await getOrCreateAssociatedTokenAccount(conn, treasury, mint, to, true);
-
-  const signature = await transfer(conn, treasury, fromAta.address, toAta.address, treasury.publicKey, amountRaw);
+  // ONE atomic transaction: create the recipient's token account if it's missing
+  // (idempotent — no error if it already exists), then transfer. This replaces
+  // getOrCreateAssociatedTokenAccount, whose create-then-read-back threw
+  // TokenAccountNotFoundError when the RPC hadn't yet propagated the new account —
+  // exactly the failure that stalled BNB withdrawals. Now the account and the
+  // transfer land together, or nothing does.
+  const tx = new Transaction().add(
+    createAssociatedTokenAccountIdempotentInstruction(treasury.publicKey, toAta, to, mint),
+    createTransferInstruction(fromAta, toAta, treasury.publicKey, amountRaw),
+  );
+  const signature = await sendAndConfirmTransaction(conn, tx, [treasury], { commitment: "confirmed" });
   return { txHash: signature };
 }
 
