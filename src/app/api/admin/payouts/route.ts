@@ -6,7 +6,7 @@ import { heldPayouts, resolveHold, failHold } from "@/lib/settlement/payout-hold
 import { openTopUps, completeTopUp, holdWindowMinutes, settleVenue, topupBuffer } from "@/lib/settlement/float";
 import { treasuryBalance, adjustTreasury } from "@/lib/settlement/treasury";
 import { settlementVenue } from "@/lib/settlement/venue";
-import { reconcilePendingBuys, refreshPayoutStatus } from "@/lib/settlement";
+import { reconcilePendingBuys, refreshPayoutStatus, finalizePayout, finalizeWithdrawal } from "@/lib/settlement";
 import { explorerTxUrl } from "@/lib/chains";
 
 export const dynamic = "force-dynamic";
@@ -106,7 +106,57 @@ export async function POST(req: Request) {
     note?: string;
     symbol?: string;
     amount?: number;
+    transactionId?: string;
+    outcome?: string;
+    txHash?: string;
   };
+
+  /**
+   * Manually resolve a stuck PENDING payout or crypto withdrawal, straight from
+   * the transactions view — mark it PAID (completed) or REJECT it (failed +
+   * refund). This is the "there was nowhere to click paid/rejected" gap.
+   *
+   * It reuses the exact same idempotent finalizers the webhooks and cron use, so
+   * a reject refunds every funding leg exactly once, and a paid can never fire a
+   * duplicate "your money landed" notice. Only pending withdrawals qualify, and
+   * every action is logged with the operator's email.
+   */
+  if (body.action === "resolveTx" && body.transactionId) {
+    const outcome = body.outcome;
+    if (outcome !== "paid" && outcome !== "rejected") {
+      return NextResponse.json({ ok: false, message: "Choose paid or rejected." }, { status: 400 });
+    }
+    const txn = await prisma.transaction.findUnique({ where: { id: body.transactionId } });
+    if (!txn) return NextResponse.json({ ok: false, message: "Transaction not found." }, { status: 404 });
+    if (txn.status !== "pending") {
+      return NextResponse.json({ ok: false, message: `Already ${txn.status} — nothing to resolve.` }, { status: 409 });
+    }
+    const reference = (txn.meta as { reference?: string } | null)?.reference;
+    if (!reference) {
+      return NextResponse.json({ ok: false, message: "No reference on this transaction — can't resolve it automatically." }, { status: 422 });
+    }
+    const status = outcome === "paid" ? "completed" : "failed";
+    let result: { updated: boolean; refunded?: boolean };
+    if (txn.type === "withdraw_bank") {
+      result = await finalizePayout({ reference }, status);
+    } else if (txn.type === "withdraw_wallet") {
+      result = await finalizeWithdrawal({ reference }, status, outcome === "paid" ? body.txHash || undefined : undefined);
+    } else {
+      return NextResponse.json({ ok: false, message: "Only bank payouts and crypto withdrawals can be resolved here." }, { status: 400 });
+    }
+    console.error(
+      `[payout-desk] ${admin.email} manually marked ${reference} (${txn.type}) as ${outcome}${result.refunded ? " — refunded" : ""}`,
+    );
+    return NextResponse.json({
+      ok: result.updated,
+      refunded: !!result.refunded,
+      message: !result.updated
+        ? "That one was already resolved — no change."
+        : outcome === "paid"
+          ? "Marked as paid — the user now sees it completed."
+          : `Rejected and ${result.refunded ? "refunded to the user's balance." : "marked failed."}`,
+    });
+  }
 
   if (body.action === "sent" && body.reference) {
     return NextResponse.json(await resolveHold(body.reference, admin.email, body.note));

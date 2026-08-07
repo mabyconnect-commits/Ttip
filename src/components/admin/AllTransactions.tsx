@@ -79,6 +79,39 @@ export function AllTransactions() {
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState<Row | null>(null);
+  const [resolving, setResolving] = useState(false);
+  const [resolveMsg, setResolveMsg] = useState<string | null>(null);
+
+  /**
+   * Manually resolve a stuck pending payout/withdrawal — paid, or reject+refund.
+   * Hits the payout desk (which owns the audit row) and reuses the same safe
+   * finalizers as the webhooks, so a reject refunds exactly once.
+   */
+  async function resolveTx(row: Row, outcome: "paid" | "rejected") {
+    const verb = outcome === "paid" ? "mark this as PAID (completed)" : "REJECT this and refund the user";
+    const amt = row.amountOut ? `${row.amountOut} ${row.assetOut ?? ""}` : "";
+    if (!window.confirm(`Are you sure you want to ${verb}?\n\n${row.user.name} · ${amt}\n${row.counterparty ?? ""}`)) return;
+    setResolving(true);
+    setResolveMsg(null);
+    try {
+      const r = await fetch("/api/admin/payouts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "resolveTx", transactionId: row.id, outcome }),
+      });
+      const j = (await r.json().catch(() => ({}))) as { ok?: boolean; message?: string };
+      setResolveMsg(j.message ?? (r.ok ? "Done." : `Error ${r.status}`));
+      if (r.ok && j.ok) {
+        const newStatus = outcome === "paid" ? "completed" : "failed";
+        setOpen((o) => (o && o.id === row.id ? { ...o, status: newStatus } : o));
+        setRows((prev) => prev.map((x) => (x.id === row.id ? { ...x, status: newStatus } : x)));
+      }
+    } catch {
+      setResolveMsg("Couldn't reach the server.");
+    } finally {
+      setResolving(false);
+    }
+  }
 
   const load = useCallback(
     async (cursor?: string) => {
@@ -182,7 +215,7 @@ export function AllTransactions() {
           return (
             <button
               key={t.id}
-              onClick={() => setOpen(t)}
+              onClick={() => { setOpen(t); setResolveMsg(null); }}
               className="flex items-start gap-3 bg-surface border border-white/[.06] rounded-[16px] px-3.5 py-3 text-left active:scale-[.99] transition"
             >
               <span className="w-9 h-9 rounded-full bg-surface2 flex items-center justify-center text-[15px] shrink-0">
@@ -288,6 +321,39 @@ export function AllTransactions() {
               >
                 View on explorer <Icon name="share" size={14} />
               </a>
+            )}
+
+            {/* Manual resolution — only for a pending payout / crypto withdrawal.
+                Reuses the same idempotent refund/settle path as the webhooks. */}
+            {open.status === "pending" && (open.type === "withdraw_bank" || open.type === "withdraw_wallet") && (
+              <div className="mt-4 border-t border-white/[.06] pt-4">
+                <div className="text-white/40 text-[11px] mb-2.5">
+                  Resolve manually — same safe refund/settle path as the automatic reconcile.
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button
+                    disabled={resolving}
+                    onClick={() => resolveTx(open, "paid")}
+                    className="rounded-2xl bg-good text-ink py-3 font-grotesk font-semibold text-[13px] active:scale-[.99] disabled:opacity-50"
+                  >
+                    Mark paid
+                  </button>
+                  <button
+                    disabled={resolving}
+                    onClick={() => resolveTx(open, "rejected")}
+                    className="rounded-2xl border border-bad/50 text-bad py-3 font-grotesk font-semibold text-[13px] active:scale-[.99] disabled:opacity-50"
+                  >
+                    Reject &amp; refund
+                  </button>
+                </div>
+                <div className="text-white/35 text-[10.5px] mt-2 leading-snug">
+                  Mark paid = you sent it yourself; the user sees “completed”. Reject = it isn’t going out; the debited balance is returned.
+                </div>
+              </div>
+            )}
+
+            {resolveMsg && (
+              <div className="mt-3 text-center text-[12px] text-white/80 bg-surface2 rounded-xl py-2.5 px-3">{resolveMsg}</div>
             )}
           </div>
         </div>
