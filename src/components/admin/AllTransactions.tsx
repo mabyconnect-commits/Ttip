@@ -36,6 +36,7 @@ interface Row {
   reference: string | null;
   surface: string | null;
   network: string | null;
+  destination: string | null;
   explorerUrl: string | null;
 }
 
@@ -290,6 +291,7 @@ export function AllTransactions() {
                 ["In", open.amountIn ? `${open.amountIn} ${open.assetIn ?? ""}` : null],
                 ["Out", open.amountOut ? `${open.amountOut} ${open.assetOut ?? ""}` : null],
                 ["To / From", open.counterparty ? prettifyChains(open.counterparty) : null],
+                [open.type === "withdraw_bank" ? "Account number" : "Destination", open.destination],
                 ["Network", open.network ? prettifyChains(open.network) : null],
                 ["Note", open.note],
                 ["Surface", open.surface],

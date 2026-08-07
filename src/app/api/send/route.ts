@@ -624,14 +624,19 @@ async function handleBankSend(
     const state = await getAppState(userId);
     return ok({
       ...state,
+      // Same shape as the normal bank receipt below (symbol/amount/fiat/
+      // fiatAmount/fee/bank) — the client render reads those exact fields, and a
+      // held payout that returned a different shape (amount-as-fiat, no
+      // fiatAmount/symbol) is what crashed the receipt after the PIN.
       receipt: {
         kind: "bank",
+        symbol,
+        amount,
+        narration: cleanNarration(input.note) || null,
         fiat,
-        amount: fiatAmount,
-        accountNumber,
-        accountName: input.accountName ?? bankLabel,
-        bankName: input.bankName ?? user.bankName ?? null,
+        fiatAmount,
         fee,
+        bank: bankLabel,
         reference,
         status: "pending",
         message:

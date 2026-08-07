@@ -7,8 +7,12 @@ export function fiatSymbol(code: string): string {
 /** Format a fiat amount like ₦4,268,540.22 */
 export function formatFiat(amount: number, code: string, opts?: { decimals?: number }): string {
   const sym = fiatSymbol(code);
-  const decimals = opts?.decimals ?? (code === "USD" ? 2 : 2);
-  const n = amount.toLocaleString("en-US", {
+  const decimals = opts?.decimals ?? 2;
+  // Never throw on a missing/NaN amount — a receipt with one undefined field must
+  // still render (as 0), not crash the whole screen. `undefined.toLocaleString()`
+  // is exactly how the send receipt white-screened after the PIN.
+  const value = Number.isFinite(amount) ? amount : 0;
+  const n = value.toLocaleString("en-US", {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   });
@@ -33,9 +37,12 @@ export function formatFiatCompact(amount: number, code: string): string {
  * dropped, so `0.01820000` stays `0.0182`.
  */
 export function formatCrypto(amount: number, symbol: string): string {
-  if (amount === 0) return "0";
-  const decimals = symbol === "BTC" ? 6 : symbol === "ETH" ? 5 : Math.abs(amount) < 1 ? 6 : 4;
-  return parseFloat(amount.toFixed(decimals)).toLocaleString("en-US", { maximumFractionDigits: decimals });
+  // Null/undefined/NaN-safe: a missing amount renders as "0", never a thrown
+  // `undefined.toFixed()` that white-screens the receipt.
+  const value = Number.isFinite(amount) ? amount : 0;
+  if (value === 0) return "0";
+  const decimals = symbol === "BTC" ? 6 : symbol === "ETH" ? 5 : Math.abs(value) < 1 ? 6 : 4;
+  return parseFloat(value.toFixed(decimals)).toLocaleString("en-US", { maximumFractionDigits: decimals });
 }
 
 export function formatUsd(amount: number): string {

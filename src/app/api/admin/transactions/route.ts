@@ -79,6 +79,22 @@ export async function GET(req: Request) {
   const hasMore = rows.length > PAGE;
   const page = hasMore ? rows.slice(0, PAGE) : rows;
 
+  // The destination that actually got paid — the FULL bank account number (or
+  // wallet address) — lives on the settlement, not the transaction (whose
+  // counterparty is masked, e.g. "Opay ••4909"). An operator doing a manual
+  // payout needs the whole number, so fetch it for the references on this page
+  // in one query and attach it.
+  const refs = page
+    .map((t) => (t.meta as { reference?: string } | null)?.reference)
+    .filter((r): r is string => !!r);
+  const settlements = refs.length
+    ? await prisma.settlement.findMany({
+        where: { reference: { in: refs }, kind: { in: ["payout", "withdrawal"] } },
+        select: { reference: true, address: true },
+      })
+    : [];
+  const destByRef = new Map(settlements.map((s) => [s.reference, s.address]));
+
   return NextResponse.json({
     transactions: page.map((t) => {
       const meta = (t.meta ?? {}) as {
@@ -107,6 +123,8 @@ export async function GET(req: Request) {
         reference: meta.reference ?? null,
         surface: meta.surface ?? null,
         network: meta.network ?? null,
+        // Full destination (bank account number / wallet address) for manual payouts.
+        destination: meta.reference ? (destByRef.get(meta.reference) ?? null) : null,
         explorerUrl: explorerTxUrl(meta.chainId, meta.txHash),
       };
     }),
