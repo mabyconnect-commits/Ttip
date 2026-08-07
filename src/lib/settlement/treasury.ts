@@ -5,6 +5,21 @@ import { kindOf } from "../wallet";
 import { convert } from "../prices";
 import { liquidityProvider } from "./liquidity";
 import { nettedSellAmount, nettableBuyDemand } from "./netting";
+import { payoutProvider } from "./config";
+import { flutterwaveBalance } from "./flutterwave";
+
+/**
+ * The LIVE balance that actually funds a fiat payout — the money in the payout
+ * provider's own wallet, read from its API. This is the truth a float check
+ * should use: the internal ledger reads zero on a fresh deploy and drifts
+ * otherwise, which held every payout for a top-up that was never needed. Returns
+ * null when the provider has no balance API or the call fails (caller falls back
+ * to the ledger).
+ */
+async function livePayoutBalance(fiat: string): Promise<number | null> {
+  if (payoutProvider() === "flutterwave") return flutterwaveBalance(fiat).catch(() => null);
+  return null;
+}
 
 /**
  * Treasury — the platform's own money. Crypto swept from user deposits lands
@@ -49,7 +64,13 @@ export async function ensureFloat(
   amountFiat: number,
   opts: { preferAsset?: string } = {},
 ): Promise<EnsureFloatResult> {
-  const floatBefore = await treasuryBalance(fiat);
+  // Trust the payout provider's LIVE wallet balance first — that's the real
+  // naira that funds the transfer. Only fall back to the internal ledger when the
+  // provider has no balance API or it can't be reached. This is what stops every
+  // bank payout being held just because a manual ledger read zero.
+  const ledgerFloat = await treasuryBalance(fiat);
+  const providerFloat = await livePayoutBalance(fiat);
+  const floatBefore = providerFloat != null ? Math.max(providerFloat, ledgerFloat) : ledgerFloat;
   if (floatBefore + 1e-9 >= amountFiat) return { floatBefore, liquidated: false };
 
   const asset = opts.preferAsset ?? "USDT";

@@ -372,6 +372,29 @@ export async function flutterwaveCreateVirtualAccount(
   return { accountNumber: json.data.account_number, bankName: json.data.bank_name || "" };
 }
 
+/**
+ * The LIVE available balance in the Flutterwave payout wallet for a currency —
+ * the real naira that actually funds a bank transfer. This is the number the
+ * payout float check should trust, so we never hold a payout the provider can
+ * already cover. Returns null if it can't be read (caller falls back).
+ * Docs: https://developer.flutterwave.com/reference/get-balance-by-currency
+ */
+export async function flutterwaveBalance(currency: string): Promise<number | null> {
+  const cfg = flutterwaveConfig();
+  if (!cfg) return null;
+  try {
+    const res = await fwFetch(`${cfg.baseUrl}/balances/${encodeURIComponent(currency)}`, {
+      headers: { Authorization: `Bearer ${cfg.secretKey}` },
+    });
+    const json = (await res.json().catch(() => null)) as { status?: string; data?: { available_balance?: number } } | null;
+    if (!res.ok || json?.status !== "success") return null;
+    const bal = json?.data?.available_balance;
+    return typeof bal === "number" && Number.isFinite(bal) ? bal : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Verify a Flutterwave webhook using the shared verif-hash header. */
 export function verifyFlutterwaveWebhook(signature: string | null): boolean {
   const cfg = flutterwaveConfig();
