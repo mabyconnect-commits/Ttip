@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Base application theme. -->
     <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
@@ -13,6 +13,14 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <!--
+          Android 15 (API 35) forces "edge-to-edge": the app draws UNDER the
+          status and navigation bars, so the bottom tab bar sat on top of the
+          system nav buttons. Opt out of the forced enforcement so the WebView is
+          inset above the system bars and the bottom bar no longer overlaps.
+          (Ignored on older Android, so it's safe.)
+        -->
+        <item name="android:windowOptOutEdgeToEdgeEnforcement" tools:targetApi="35">true</item>
     </style>
 
 
