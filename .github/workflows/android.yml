@@ -17,11 +17,19 @@ name: Android app
 on:
   workflow_dispatch:
   push:
+    branches: ["claude/ttip-webapp-production-5z0n6p"]
     tags: ["v*"]
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    # `secrets` CANNOT be used in a step-level `if:` — it isn't an allowed context
+    # there, and referencing it makes the WHOLE workflow fail to start
+    # ("Unrecognized named-value: 'secrets'"). That was the bug: every run was a
+    # 0-job startup failure. A job-level `env` CAN read secrets, and `env` IS
+    # allowed in a step `if:`, so we map it to a boolean here and gate on that.
+    env:
+      HAS_SIGNING: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -60,12 +68,10 @@ jobs:
           path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
-      # ---- release, only when a keystore is configured ----
-      # `secrets` is readable in a step `if`; a step's own `env` is not, so the
-      # condition has to test the secret directly or the step never runs.
+      # ---- release, only when the signing secrets are configured ----
       - name: Decode keystore
         id: keystore
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        if: env.HAS_SIGNING == 'true'
         env:
           KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
