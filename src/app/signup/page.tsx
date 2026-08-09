@@ -35,7 +35,8 @@ export default function SignupPage() {
 
 function SignupInner() {
   const params = useSearchParams();
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -73,6 +74,15 @@ function SignupInner() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr("");
+    // Require both parts of the name so accounts, receipts and tip pages read as
+    // a real person rather than a single handle.
+    const first = firstName.trim();
+    const last = lastName.trim();
+    if (!first || !last) {
+      setErr("Please enter both your first and last name");
+      return;
+    }
+    const name = `${first} ${last}`;
     setLoading(true);
     try {
       await apiPost("/api/auth/signup", {
@@ -106,7 +116,10 @@ function SignupInner() {
         <p className="text-white/50 text-sm mb-6">Free to join. Buy, sell and cash out in seconds.</p>
 
         <form onSubmit={submit} className="flex flex-col gap-3">
-          <Field label="Full name" value={name} onChange={setName} placeholder="Kola Adeyemi" autoFocus />
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="First name" value={firstName} onChange={setFirstName} placeholder="Kola" autoComplete="given-name" autoFocus />
+            <Field label="Last name" value={lastName} onChange={setLastName} placeholder="Adeyemi" autoComplete="family-name" />
+          </div>
           <div>
             <Field
               label="Username"
@@ -144,7 +157,7 @@ function SignupInner() {
             )}
           </div>
           <Field label="Email" value={email} onChange={setEmail} placeholder="you@email.com" type="email" />
-          <Field label="Password" value={password} onChange={setPassword} placeholder="At least 8 characters" type="password" />
+          <Field label="Password" value={password} onChange={setPassword} placeholder="At least 8 characters" type="password" autoComplete="new-password" />
 
           <div>
             <span className="text-[12px] text-white/50 font-medium ml-1">Cash out to</span>
