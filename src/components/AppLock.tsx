@@ -7,6 +7,15 @@ import { apiPost } from "@/lib/client";
 import { PinPad } from "@/components/PinPad";
 import { Icon } from "@/components/Icon";
 import { deviceCanAuthenticate, signInWithPasskey } from "@/lib/passkey";
+import { Capacitor } from "@capacitor/core";
+
+/**
+ * In the native app the fingerprint sensor is reached through the OS, not
+ * WebAuthn — the Android WebView doesn't reliably expose a platform authenticator,
+ * which is why the "Face ID / fingerprint" button never appeared in the APK. On
+ * the web (PWA / mobile browser) WebAuthn is the right path and this is false.
+ */
+const IS_NATIVE = typeof window !== "undefined" && Capacitor.isNativePlatform();
 
 const KEY = "ttip_unlocked";
 /** When the app was last put away. Used to decide whether to re-lock. */
@@ -41,7 +50,23 @@ export function AppLock({ children }: { children: React.ReactNode }) {
   const [bioBusy, setBioBusy] = useState(false);
 
   useEffect(() => {
-    deviceCanAuthenticate().then(setCanBiometric);
+    let alive = true;
+    (async () => {
+      if (IS_NATIVE) {
+        // Native app: ask the OS whether a fingerprint/face is enrolled.
+        try {
+          const { BiometricAuth } = await import("@aparajita/capacitor-biometric-auth");
+          const info = await BiometricAuth.checkBiometry();
+          if (alive) setCanBiometric(!!info.isAvailable);
+        } catch {
+          if (alive) setCanBiometric(false);
+        }
+      } else {
+        const ok = await deviceCanAuthenticate();
+        if (alive) setCanBiometric(ok);
+      }
+    })();
+    return () => { alive = false; };
   }, []);
 
   /**
@@ -53,6 +78,30 @@ export function AppLock({ children }: { children: React.ReactNode }) {
    */
   async function unlockWithDevice() {
     setBioBusy(true);
+    // Native app: the OS fingerprint/face prompt. The session is still valid here
+    // (the lock is re-entry protection, not a fresh login), so a successful local
+    // verification simply lifts the lock — exactly how a banking app's app-lock works.
+    if (IS_NATIVE) {
+      try {
+        const { BiometricAuth } = await import("@aparajita/capacitor-biometric-auth");
+        await BiometricAuth.authenticate({
+          reason: "Unlock Ttip",
+          androidTitle: "Unlock Ttip",
+          androidSubtitle: "Use your fingerprint to continue",
+          allowDeviceCredential: true,
+        });
+        unlockSession();
+        setLocked(false);
+      } catch (e: any) {
+        // A cancel is a decision, not an error; only surface a real failure.
+        const code = e?.code as string | undefined;
+        if (code && !/cancel/i.test(code)) toast("Couldn't verify — enter your PIN", "bad");
+      } finally {
+        setBioBusy(false);
+      }
+      return;
+    }
+    // Web / PWA: WebAuthn passkey (also re-mints the session).
     const res = await signInWithPasskey();
     setBioBusy(false);
     if (res.ok) {
