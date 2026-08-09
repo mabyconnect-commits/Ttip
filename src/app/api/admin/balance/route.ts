@@ -90,15 +90,87 @@ const schema = z.object({
   idempotencyKey: z.string().regex(/^[a-zA-Z0-9._:-]{6,80}$/, "idempotencyKey must be 6-80 url-safe chars."),
 });
 
+/**
+ * Remove a junk balance row outright. A mis-credited deposit can mint a balance
+ * under a garbage "symbol" (e.g. a leaked bc1q… address holding raw satoshis) —
+ * a line the normal, symbol-validated adjust path can't touch (it only knows
+ * listed tickers). This deletes that exact row and audits the removal. It never
+ * moves real value: use `delta` credits to make the user whole afterwards.
+ */
+const removeSchema = z.object({
+  action: z.literal("removeBalance"),
+  user: z.string().min(1, "Provide the user's email, @username or id."),
+  symbol: z.string().min(1).max(120), // any exact symbol string, including junk addresses
+  reason: z.string().min(3, "A reason is required (it's the audit trail)."),
+  idempotencyKey: z.string().regex(/^[a-zA-Z0-9._:-]{6,80}$/, "idempotencyKey must be 6-80 url-safe chars."),
+});
+
+async function handleRemoveBalance(admin: string, body: unknown) {
+  let input: z.infer<typeof removeSchema>;
+  try {
+    input = removeSchema.parse(body);
+  } catch (e: any) {
+    const msg = e?.issues?.[0]?.message ?? "Invalid request.";
+    return NextResponse.json({ error: msg }, { status: 422 });
+  }
+
+  const user = await resolveUser(input.user);
+  if (!user) return NextResponse.json({ error: "No user matches that email / @username / id." }, { status: 404 });
+
+  const existing = await prisma.balance.findUnique({ where: { userId_symbol: { userId: user.id, symbol: input.symbol } } });
+  if (!existing) {
+    return NextResponse.json({ error: `No balance "${input.symbol}" for that user.` }, { status: 404 });
+  }
+
+  const externalId = `rmbal_${input.idempotencyKey}`;
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.settlement.create({
+        data: {
+          userId: user.id,
+          kind: "adjustment",
+          provider: "admin",
+          externalId,
+          reference: externalId,
+          status: "completed",
+          asset: input.symbol,
+          amount: new Prisma.Decimal(existing.amount).negated(),
+          raw: { adminEmail: admin, reason: input.reason, action: "removeBalance", removed: Number(existing.amount) } as Prisma.InputJsonValue,
+        },
+      });
+      await tx.balance.delete({ where: { userId_symbol: { userId: user.id, symbol: input.symbol } } });
+    });
+  } catch (e: any) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      return NextResponse.json({ ok: true, alreadyApplied: true, idempotencyKey: input.idempotencyKey });
+    }
+    return NextResponse.json({ error: e?.message ?? "Removal failed." }, { status: 400 });
+  }
+
+  return NextResponse.json({
+    ok: true,
+    removed: { symbol: input.symbol, amount: Number(existing.amount) },
+    user: { id: user.id, email: user.email, username: user.username },
+    reason: input.reason,
+  });
+}
+
 export async function POST(req: Request) {
   const me = await getUserId();
   if (!me) return notFound();
   const admin = await adminEmail(me);
   if (!admin) return notFound();
 
+  const body = await req.json().catch(() => ({}));
+  // Junk-balance cleanup is a distinct action with its own (looser) validation,
+  // since the whole point is to remove a symbol the normal path won't accept.
+  if ((body as { action?: string })?.action === "removeBalance") {
+    return handleRemoveBalance(admin, body);
+  }
+
   let input: z.infer<typeof schema>;
   try {
-    input = schema.parse(await req.json());
+    input = schema.parse(body);
   } catch (e: any) {
     const msg = e?.issues?.[0]?.message ?? "Invalid request.";
     return NextResponse.json({ error: msg }, { status: 422 });

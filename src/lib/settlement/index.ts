@@ -12,7 +12,24 @@ import { adjustTreasury } from "./treasury";
 import { chainName } from "../chains";
 import { notifyUser, pushMoney, type PushMessage } from "../push";
 import { COMPANY } from "../company";
+import { CRYPTO_BY_SYMBOL, FIAT_BY_CODE } from "../constants";
 import type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
+
+/**
+ * Is this a real, listed asset ticker (BTC, USDC, NGN, …) — not a leaked
+ * on-chain address or some other junk string?
+ *
+ * A balance is keyed by its symbol, so whatever lands in `deposit.asset` becomes
+ * a spendable line on the user's home screen. When a Bitcoin deposit came in with
+ * the receiving ADDRESS in the asset field, that minted a balance literally named
+ * "bc1q…" holding a raw satoshi count — money that looked credited but was junk.
+ * Deposits whose asset doesn't resolve to a listed ticker must be held for manual
+ * review, never auto-credited.
+ */
+function isListedAsset(symbol: string): boolean {
+  const s = (symbol ?? "").toUpperCase();
+  return Boolean(CRYPTO_BY_SYMBOL[s as keyof typeof CRYPTO_BY_SYMBOL] || FIAT_BY_CODE[s as keyof typeof FIAT_BY_CODE]);
+}
 
 export type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
 export { settlementMode, isLive, payoutProvider, billProvider, demoEnabled, settlementEnabled, settlementStatus } from "./config";
@@ -63,6 +80,35 @@ export async function creditDeposit(
   }
 
   const resolvedUserId = userId;
+
+  // Guardrail: never credit a balance under an unrecognized asset. This is what
+  // turned a real Bitcoin deposit into a junk "bc1q…" balance holding a raw
+  // satoshi count — the address leaked into the asset field and got minted as a
+  // spendable line. Record such a deposit for manual review (idempotently) and
+  // credit nothing, so the user's funds surface to an admin instead of appearing
+  // as fake balance.
+  if (!isListedAsset(deposit.asset)) {
+    try {
+      await prisma.settlement.create({
+        data: {
+          userId: resolvedUserId,
+          kind: "deposit",
+          provider: deposit.provider,
+          externalId: deposit.externalId,
+          status: "review",
+          asset: deposit.asset,
+          amount: new Prisma.Decimal(deposit.amount),
+          chain: deposit.chain,
+          address: deposit.address,
+          raw: (deposit.raw ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+        },
+      });
+    } catch (e) {
+      // A duplicate delivery is fine — it's already flagged.
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002")) throw e;
+    }
+    return { credited: false, userId: resolvedUserId, reason: `unrecognized asset "${deposit.asset}" — held for review` };
+  }
 
   try {
     const result = await prisma.$transaction(async (tx) => {
