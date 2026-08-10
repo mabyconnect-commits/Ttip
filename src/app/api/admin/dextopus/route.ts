@@ -3,6 +3,8 @@ import { getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { dextopusConfig } from "@/lib/settlement/config";
 import { resolveTokenAddress } from "@/lib/settlement/dextopus";
+import { resolveDepositAsset } from "@/lib/settlement/asset-resolve";
+import { releaseHeldDeposits } from "@/lib/settlement";
 import { treasurySolanaBalances } from "@/lib/settlement/solana";
 import { chainIdForNetwork, explorerTxUrl } from "@/lib/chains";
 import { toUsd } from "@/lib/prices";
@@ -56,6 +58,38 @@ export async function GET(req: Request) {
     } catch (e) {
       return { error: String((e as Error)?.message ?? e) };
     }
+  }
+
+  // ── Held deposits ─────────────────────────────────────────────────────────
+  // ?held=1[&release=1] → deposits the asset guard refused to credit.
+  //
+  // Nothing else in the app reads status "review", so without this a held
+  // deposit is money that exists on-chain and nowhere else. `release=1` runs
+  // the resolver over them now instead of waiting for the reconcile cron.
+  if (url.searchParams.get("held") === "1") {
+    const released = url.searchParams.get("release") === "1" ? await releaseHeldDeposits(50) : null;
+    const rows = await prisma.settlement.findMany({
+      where: { kind: "deposit", status: "review" },
+      orderBy: { createdAt: "asc" },
+      take: 50,
+    });
+    return NextResponse.json({
+      released,
+      stillHeld: rows.length,
+      deposits: await Promise.all(
+        rows.map(async (r) => ({
+          externalId: r.externalId,
+          userId: r.userId,
+          // What the provider called it, and what that resolves to (if anything).
+          providerAsset: r.asset,
+          resolvesTo: await resolveDepositAsset(r.asset, Number(r.chain) || undefined).catch(() => null),
+          amount: Number(r.amount),
+          chain: r.chain,
+          address: r.address,
+          ageMinutes: Math.round((Date.now() - r.createdAt.getTime()) / 60000),
+        })),
+      ),
+    });
   }
 
   // ── Withdrawal diagnostics ────────────────────────────────────────────────

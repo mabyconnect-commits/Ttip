@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { reconcilePendingBuys, refreshPayoutStatus } from "@/lib/settlement";
+import { reconcilePendingBuys, refreshPayoutStatus, releaseHeldDeposits } from "@/lib/settlement";
 import { reconcileGiftCards } from "@/lib/settlement/giftcard-reconcile";
 
 export const dynamic = "force-dynamic";
@@ -53,6 +53,14 @@ export async function GET(req: Request) {
     payoutsChecked++;
   }
 
+  // Deposits held because the provider named the asset by its contract address
+  // rather than its ticker. Now that the name can be resolved, credit them —
+  // this is real money that had stopped existing from the user's side.
+  const heldDeposits = await releaseHeldDeposits(25).catch((e) => {
+    console.error("[reconcile] held deposits failed", e);
+    return { checked: 0, credited: 0 };
+  });
+
   // Gift cards: a code that wasn't ready at purchase is collected here, and an
   // order the provider never received releases the money back.
   const giftcards = await reconcileGiftCards(25).catch((e) => {
@@ -60,5 +68,5 @@ export async function GET(req: Request) {
     return { checked: 0, delivered: 0, refunded: 0 };
   });
 
-  return NextResponse.json({ ok: true, buys, payoutsChecked, giftcards });
+  return NextResponse.json({ ok: true, buys, payoutsChecked, heldDeposits, giftcards });
 }

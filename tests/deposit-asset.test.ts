@@ -1,0 +1,63 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { isListedAsset, resolveDepositAsset } from "../src/lib/settlement/asset-resolve";
+
+/**
+ * The regression this file exists for:
+ *
+ * A real USDT deposit settled into treasury and never reached the user's
+ * balance. The asset guard asked "is this a listed ticker?" of a string that
+ * was the token's CONTRACT ADDRESS — which is what our own settlement config
+ * sends and what the provider echoes back — got "no", and held the deposit in a
+ * status nothing in the app reads. The money existed on-chain and nowhere else.
+ *
+ * Resolving the name before refusing to credit is the fix, so these cases are
+ * pinned.
+ */
+
+test("plain tickers are recognized, junk is not", () => {
+  assert.equal(isListedAsset("USDT"), true);
+  assert.equal(isListedAsset("usdt"), true);
+  assert.equal(isListedAsset("NGN"), true);
+  assert.equal(isListedAsset("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"), false);
+  assert.equal(isListedAsset(""), false);
+});
+
+test("a ticker resolves to itself, in our own casing", async () => {
+  assert.equal(await resolveDepositAsset("USDT"), "USDT");
+  // Lowercase must NOT become its own wallet row — "usdt" and "USDT" being two
+  // balances is how a deposit lands somewhere the user can't see or spend.
+  assert.equal(await resolveDepositAsset("usdt"), "USDT");
+  assert.equal(await resolveDepositAsset(" Usdc "), "USDC");
+});
+
+test("a ticker with the network glued on still resolves", async () => {
+  // Providers name the same asset a dozen ways; only the ticker part counts,
+  // and it still has to be one we list.
+  assert.equal(await resolveDepositAsset("USDT_TRON"), "USDT");
+  assert.equal(await resolveDepositAsset("USDT.TRC20"), "USDT");
+  assert.equal(await resolveDepositAsset("USDC.e"), "USDC");
+  assert.equal(await resolveDepositAsset("USDT-BEP20"), "USDT");
+});
+
+test("an unidentifiable asset resolves to null, never to a guess", async () => {
+  // Held for review is the right ending here. Inventing a ticker would credit
+  // someone real balance for a token we can't price or sell.
+  assert.equal(await resolveDepositAsset(""), null);
+  assert.equal(await resolveDepositAsset("SOMERANDOMTOKEN"), null);
+  // An address we can't find in the catalogue must not be credited either.
+  assert.equal(await resolveDepositAsset("0x1111111111111111111111111111111111111111"), null);
+});
+
+test("a contract address is never itself treated as the ticker", async () => {
+  // The exact shape that broke: our Ethereum USDC settlement asset. Without a
+  // provider catalogue to look it up in, the honest answer is null (held) —
+  // what must never happen is it coming back as a spendable symbol.
+  const evmUsdc = await resolveDepositAsset("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48");
+  assert.notEqual(evmUsdc, "0XA0B86991C6218B36C1D19D4A2E9EB0CE3606EB48");
+  assert.ok(evmUsdc === null || evmUsdc === "USDC");
+
+  const tronUsdt = await resolveDepositAsset("TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t");
+  assert.notEqual(tronUsdt, "TR7NHQJEKQXGTCI8Q8ZY4PL8OTSZGJLJ6T");
+  assert.ok(tronUsdt === null || tronUsdt === "USDT");
+});
