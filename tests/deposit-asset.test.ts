@@ -49,15 +49,15 @@ test("an unidentifiable asset resolves to null, never to a guess", async () => {
   assert.equal(await resolveDepositAsset("0x1111111111111111111111111111111111111111"), null);
 });
 
-test("a contract address is never itself treated as the ticker", async () => {
-  // The exact shape that broke: our Ethereum USDC settlement asset. Without a
-  // provider catalogue to look it up in, the honest answer is null (held) —
-  // what must never happen is it coming back as a spendable symbol.
-  const evmUsdc = await resolveDepositAsset("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48");
-  assert.notEqual(evmUsdc, "0XA0B86991C6218B36C1D19D4A2E9EB0CE3606EB48");
-  assert.ok(evmUsdc === null || evmUsdc === "USDC");
-
-  const tronUsdt = await resolveDepositAsset("TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t");
-  assert.notEqual(tronUsdt, "TR7NHQJEKQXGTCI8Q8ZY4PL8OTSZGJLJ6T");
-  assert.ok(tronUsdt === null || tronUsdt === "USDT");
+test("our settlement contracts resolve with no network call", async () => {
+  // The exact shape that broke, and the reason it must not depend on the
+  // provider catalogue being reachable: these are the addresses our own
+  // settlement config sends, so they resolve offline.
+  assert.equal(await resolveDepositAsset("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"), "USDC"); // Ethereum
+  assert.equal(await resolveDepositAsset("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"), "USDC"); // Solana
+  assert.equal(await resolveDepositAsset("TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"), "USDT"); // Tron
+  assert.equal(await resolveDepositAsset("0xdAC17F958D2ee523a2206206994597C13D831ec7"), "USDT"); // Ethereum, mixed case
+  // And a contract must never come back as its own "ticker".
+  const v = await resolveDepositAsset("0x1111111111111111111111111111111111111111");
+  assert.equal(v, null);
 });
