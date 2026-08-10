@@ -58,6 +58,7 @@ model User {
   passkeys         Passkey[]
   pushSubs         PushSubscription[]
   telegramDrafts   TelegramDraft[]
+  giftCards        GiftCardOrder[]
   scheduledSends   ScheduledTransfer[]
   phoneLink        PhoneLink?
   createdAt        DateTime             @default(now())
@@ -585,4 +586,56 @@ model SmsCommand {
   createdAt DateTime @default(now())
 
   @@index([phone, createdAt])
+}
+
+/// A gift card someone bought — and the code itself, encrypted.
+///
+/// The code IS the money. Anyone who reads it can spend it, it cannot be
+/// cancelled, and there is nobody to call. So it is encrypted at rest with a
+/// key derived from AUTH_SECRET, never logged, and only ever returned to the
+/// account that bought it.
+///
+/// Same money shape as a bill: the user is debited and a pending row written in
+/// one atomic step, the provider is asked, and a failure refunds every funding
+/// leg. A card that never arrives must never leave someone out of pocket.
+model GiftCardOrder {
+  id     String @id @default(cuid())
+  userId String
+
+  /// Provider's product id, and what the user sees.
+  productId    String
+  brand        String
+  country      String
+  /// Face value and its currency, e.g. 25 USD.
+  faceValue    Decimal @db.Decimal(18, 2)
+  faceCurrency String
+
+  /// What the user actually paid, in their own currency.
+  costFiat Decimal @db.Decimal(24, 8)
+  fiat     String
+
+  /// pending → delivered | failed
+  status      String  @default("pending")
+  provider    String
+  reference   String  @unique
+  /// Provider's own order id, for status re-queries.
+  providerRef String?
+  error       String?
+
+  /// AES-256-GCM. Null until the provider hands the card over.
+  codeCipher String?
+  /// Shown in the list without decrypting anything.
+  codeHint   String?
+  /// Some brands need a PIN alongside the code.
+  pinCipher  String?
+  /// Set the first time the user reveals it — so "who has seen this" is answerable.
+  revealedAt DateTime?
+
+  createdAt   DateTime  @default(now())
+  deliveredAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
 }

@@ -227,7 +227,7 @@ const INTENTS: Intent[] = [
     answer: () =>
       `${COMPANY.product} turns crypto into spendable cash across Africa. You can deposit crypto or naira, ` +
       `buy and sell BTC, ETH, USDT and more, swap between them, and cash out straight to your bank in seconds. ` +
-      `You can also pay bills — airtime, data, electricity, TV, internet — send money instantly to another ` +
+      `You can also pay bills — airtime, data, electricity, TV, internet — buy gift cards, send money instantly to another ` +
       `${COMPANY.product} user by @username, and earn cashback on every trade plus ${(REFERRAL_EARN_PCT * 100).toFixed(0)}% of the swap and crypto-withdrawal fees from ` +
       `anyone you invite. Payouts run in ${supportedPayoutCurrencies().join(", ")}.`,
   },

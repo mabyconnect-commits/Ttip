@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { reconcilePendingBuys, refreshPayoutStatus } from "@/lib/settlement";
+import { reconcileGiftCards } from "@/lib/settlement/giftcard-reconcile";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -52,5 +53,12 @@ export async function GET(req: Request) {
     payoutsChecked++;
   }
 
-  return NextResponse.json({ ok: true, buys, payoutsChecked });
+  // Gift cards: a code that wasn't ready at purchase is collected here, and an
+  // order the provider never received releases the money back.
+  const giftcards = await reconcileGiftCards(25).catch((e) => {
+    console.error("[reconcile] gift cards failed", e);
+    return { checked: 0, delivered: 0, refunded: 0 };
+  });
+
+  return NextResponse.json({ ok: true, buys, payoutsChecked, giftcards });
 }

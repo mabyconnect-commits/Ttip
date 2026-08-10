@@ -59,6 +59,7 @@ const TYPES = [
   { label: "Swaps", v: "swap" },
   { label: "Ttips", v: "ttip_out" },
   { label: "Bills", v: "bill" },
+  { label: "Gift cards", v: "giftcard" },
 ];
 
 function when(iso: string): string {

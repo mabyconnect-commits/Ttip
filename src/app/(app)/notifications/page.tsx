@@ -51,6 +51,8 @@ function title(t: Txn): string {
     // Don't claim delivery until the provider has actually confirmed it —
     // "… delivered" next to a Pending status is a contradiction.
     case "bill": return `${t.note ?? "Bill"}${t.status === "completed" ? " delivered" : t.status === "failed" ? " failed" : " processing"}`;
+    case "giftcard":
+      return `${t.counterparty ?? "Gift"} card${t.status === "completed" ? " ready" : t.status === "failed" ? " failed — refunded" : " processing"}`;
     case "card_fund": return `Card funded`;
     case "buy": return `Bought ${t.assetOut ?? "crypto"}`;
     case "referral_bonus": return `Referral bonus · ${t.counterparty ?? ""}`;

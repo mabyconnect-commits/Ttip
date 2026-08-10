@@ -103,15 +103,18 @@ export default function HomePage() {
           </button>
         </div>
 
-        {/* quick actions */}
-        <div className="grid grid-cols-5 gap-2 px-5 pt-5">
+        {/* quick actions. Three across rather than five: the sixth action
+            wouldn't fit on one row, and a lone tile on a second row reads as a
+            layout bug rather than a feature. */}
+        <div className="grid grid-cols-3 gap-x-2 gap-y-4 px-5 pt-5">
           <QuickAction icon="plus" label="Buy" onClick={() => router.push("/buy")} />
           <QuickAction icon="swap" label="Swap" onClick={() => router.push("/swap")} />
           <QuickAction icon="zap" label="Ttip" accent onClick={() => router.push("/ttip")} />
+          <QuickAction icon="bills" label="Bills" onClick={() => router.push("/bills")} />
+          <QuickAction icon="gift" label="Gift cards" onClick={() => router.push("/giftcards")} />
           {/* Virtual cards aren't live yet — say so rather than opening a screen
               that can't actually issue one. */}
           <QuickAction icon="card" label="Card" soon onClick={() => toast("Virtual cards are coming soon", "info")} />
-          <QuickAction icon="bills" label="Bills" onClick={() => router.push("/bills")} />
         </div>
 
         {/* assets */}

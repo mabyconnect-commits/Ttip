@@ -79,8 +79,8 @@ export function ttipKnowledge(): string {
 Ttip (ttip.site) is an African crypto-to-cash app, a product of ${COMPANY.legalName}${
     COMPANY.rcNumber ? ` (${COMPANY.rcNumber})` : ""
   }. Users buy and sell crypto, swap between assets, cash out to a local bank
-account, tip other Ttip users instantly, and pay bills. Nigeria/naira is the
-primary market.
+account, tip other Ttip users instantly, pay bills and buy gift cards.
+Nigeria/naira is the primary market.
 
 ## What each screen does
 - Home — total balance, assets, and the quick actions below.
@@ -92,6 +92,10 @@ primary market.
 - Ttip — send money instantly to another Ttip user by @username. Free, instant.
 - Bills — ${BILL_CATEGORIES.map((c) => c.title).join(", ")}. Bills are always
   priced and paid in naira, whatever your display currency.
+- Gift cards — buy Amazon, Google Play, PlayStation, Steam, iTunes and more,
+  paid for from any wallet. The code appears in the app under Gift cards, and
+  is only shown when the user taps to reveal it. Ttip does NOT buy gift cards
+  from users — that side does not exist, so never tell anyone to sell one here.
 - Card — virtual cards are COMING SOON. They cannot be issued yet.
 - Referrals — your invite link, referral earnings, and cashback.
 - Account — profile, KYC, limits, beneficiaries, security (PIN, app lock),

@@ -20,6 +20,7 @@ export const dynamic = "force-dynamic";
  *   swap spread       swap.meta.spreadFiat            margin on a crypto<->fiat swap
  *   crypto withdrawals withdraw_wallet.meta.fee       the flat withdrawal fee
  *   buy spread        settlement.raw.spreadFiat       margin on fiat -> crypto
+ *   gift cards        giftcard.meta.fee               our markup over the distributor's price
  *
  * CRYPTO deposits are absent: Ttip charges nothing to receive crypto. FIAT
  * deposits do carry a fee — the provider bills us to collect them.
@@ -65,6 +66,7 @@ type Meta = {
   feeCurrency?: string;
   feePct?: number;
   grossFiat?: number;
+  costFiat?: number;
 } | null;
 
 export async function GET(req: Request) {
@@ -93,6 +95,7 @@ export async function GET(req: Request) {
   let referralPaid = 0;
   let cashbackPaid = 0;
   let depositBonusPaid = 0;
+  let giftCardFees = 0;
   let volume = 0;
 
   for (const t of txns) {
@@ -159,6 +162,17 @@ export async function GET(req: Request) {
         volume += await usd(Number(t.amountOut ?? t.amountIn ?? 0), cur);
         break;
       }
+      // Gift cards: the distributor sells us face value at a discount and the
+      // markup we add on top is the whole margin. A failed order is refunded in
+      // full, so only the ones that completed count.
+      case "giftcard": {
+        // Only delivered orders reach here — the query above is completed-only,
+        // and a refunded order is left at failed.
+        const cur = meta?.feeCurrency ?? "NGN";
+        if (meta?.fee) giftCardFees += await usd(meta.fee, cur);
+        volume += await usd(meta?.costFiat ?? 0, cur);
+        break;
+      }
       case "buy":
       case "ttip_out":
         volume += await usd(Number(t.amountOut ?? t.amountIn ?? 0), t.assetOut ?? t.assetIn ?? "NGN");
@@ -187,7 +201,8 @@ export async function GET(req: Request) {
     swapSpread +
     cryptoWithdrawalFees +
     buySpread +
-    sellSpread;
+    sellSpread +
+    giftCardFees;
   const rewardsTotal = referralPaid + cashbackPaid + depositBonusPaid;
 
   return NextResponse.json({
@@ -201,6 +216,7 @@ export async function GET(req: Request) {
       cryptoWithdrawals: cryptoWithdrawalFees,
       buySpread,
       sellSpread,
+      giftCards: giftCardFees,
       // Ttip doesn't charge to receive crypto, so there is no deposit fee.
       cryptoDeposits: 0,
       total: feeTotal,
