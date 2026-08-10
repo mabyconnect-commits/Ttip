@@ -5,13 +5,13 @@ import { prisma } from "@/lib/db";
 import { getUserId } from "@/lib/auth";
 import { handler, ok, unauthorized, ApiError } from "@/lib/api";
 import { getAppState } from "@/lib/serialize";
-import { convert, isCrypto, hasUsdPrice } from "@/lib/prices";
+import { convert, isCrypto, hasUsdPrice, toUsd } from "@/lib/prices";
 import { adjust, balanceOf } from "@/lib/wallet";
-import { WITHDRAW_FEE_USDT } from "@/lib/constants";
 import { dayStr, isYesterday } from "@/lib/format";
 import { payoutFiat, finalizePayout, payoutProvider, ensureFloat, debitFloat, cryptoWithdraw, settlementEnabled, demoEnabled, solanaWithdrawSupported, isValidSolanaAddress, maxCryptoWithdrawal, dextopusWithdrawEnabled, dextopusWithdrawPreview } from "@/lib/settlement";
 import { chainIdForNetwork } from "@/lib/chains";
 import { quoteSell, transferFee } from "@/lib/pricing";
+import { cryptoWithdrawFeeUsd } from "@/lib/fees";
 import { planFunding, type FundingSource } from "@/lib/funding-plan";
 // Shared with Ada's account snapshot, so "what can you spend" has exactly one
 // answer — an assistant that disagrees with the checkout is worse than silent.
@@ -305,8 +305,13 @@ async function handleWalletSend(userId: string, kycTier: number, defaultFiat: st
     if (!preview.ok) throw new ApiError(preview.message ?? "This withdrawal can't be processed.", 400);
   }
 
-  // network fee expressed in the sent asset
-  const feeInAsset = await convert(WITHDRAW_FEE_USDT, "USDT", symbol);
+  // Our fee: 0.8% of what's being withdrawn, with a $0.50 floor — so a $10 send
+  // still pays $0.50 and a $10,000 send pays $80 rather than the same 50 cents.
+  // Priced from the USD value of THIS withdrawal, then expressed in the asset
+  // actually leaving, so the debit and the quote are the same number.
+  const amountUsd = await toUsd(amount, symbol).catch(() => 0);
+  const feeUsd = cryptoWithdrawFeeUsd(amountUsd);
+  const feeInAsset = await convert(feeUsd, "USDT", symbol);
   const total = amount + feeInAsset;
   const bal = await balanceOf(userId, symbol);
   if (bal + 1e-12 < total) throw new ApiError(`Insufficient ${symbol} to cover amount + network fee`, 400);
@@ -358,7 +363,7 @@ async function handleWalletSend(userId: string, kycTier: number, defaultFiat: st
   // pot adds up in one honest number.
   if (result.status === "completed") {
     try {
-      const feeFiat = await convert(WITHDRAW_FEE_USDT, "USDT", defaultFiat);
+      const feeFiat = await convert(feeUsd, "USDT", defaultFiat);
       await prisma.$transaction(async (tx) => {
         await accrueReferralEarning(tx, userId, feeFiat, { fiat: defaultFiat, source: "crypto withdrawal" });
       });

@@ -161,10 +161,11 @@ export const GOVERNMENT_ID_TYPES = ["nin", "passport", "drivers_license"] as con
 export const SWAP_FEE_PCT = 0.009; // 0.9% after free swaps used
 export const NETWORK_FEE_USDT = 1; // flat network fee on external sends (USDT-equivalent)
 
-// Ttip's flat platform fee on a crypto withdrawal — charged ON TOP of the real
-// on-chain/provider fee (which the provider already deducts and we show as
-// "recipient gets"). So the total a user pays is: actual network fee + this.
-export const WITHDRAW_FEE_USDT = 0.5; // $0.50 flat, nothing more
+// Ttip's platform fee on a crypto withdrawal now scales — 0.8% of the amount
+// with a $0.50 floor — so it lives in fees.ts with the rest of the schedule
+// (cryptoWithdrawFeeUsd), where it is pure, testable and shared with the
+// client. Charged ON TOP of the real on-chain fee, which the network deducts
+// itself and we show as "recipient gets".
 
 // The spread Ttip keeps on crypto↔fiat conversion. The user is quoted the live
 // market/P2P reference rate minus this margin; the difference is platform

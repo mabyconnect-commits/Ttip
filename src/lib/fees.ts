@@ -241,3 +241,71 @@ export function cryptoDepositFeePct(): number {
   const v = Number(process.env.CRYPTO_DEPOSIT_FEE_PCT);
   return Number.isFinite(v) && v >= 0 && v < 0.05 ? v : 0;
 }
+
+/**
+ * Ttip's fee on a crypto withdrawal: 0.8%, with a $0.50 floor.
+ *
+ * A flat $0.50 was fair on a $60 send and a giveaway on a $10,000 one — the
+ * work and the risk of a large withdrawal scale with the amount, and the fee
+ * didn't. A pure percentage has the opposite problem: 0.8% of $5 is four cents,
+ * which doesn't cover the cost of looking at it.
+ *
+ * So: whichever is larger. Flat $0.50 up to $62.50, then 0.8% above — the two
+ * meet exactly at $62.50, so there is no step in the curve where sending one
+ * dollar more suddenly costs less.
+ *
+ * Charged ON TOP of the real on-chain/provider fee, which the network deducts
+ * separately.
+ *
+ * Dependency-free and shared with the client, because the fee the user is shown
+ * before confirming has to be the exact fee the server charges.
+ */
+export function cryptoWithdrawFeePct(): number {
+  const raw = (process.env.NEXT_PUBLIC_WITHDRAW_FEE_PCT ?? "").trim();
+  const n = Number(raw);
+  return raw !== "" && Number.isFinite(n) && n >= 0 && n < 0.1 ? n : 0.008;
+}
+
+export function cryptoWithdrawFeeMinUsd(): number {
+  const raw = (process.env.NEXT_PUBLIC_WITHDRAW_FEE_MIN_USD ?? "").trim();
+  const n = Number(raw);
+  return raw !== "" && Number.isFinite(n) && n >= 0 ? n : 0.5;
+}
+
+/** The fee in USD for withdrawing `amountUsd` of crypto. */
+export function cryptoWithdrawFeeUsd(amountUsd: number): number {
+  if (!(amountUsd > 0)) return cryptoWithdrawFeeMinUsd();
+  return Math.max(amountUsd * cryptoWithdrawFeePct(), cryptoWithdrawFeeMinUsd());
+}
+
+/** Where the percentage overtakes the floor — $62.50 at 0.8% / $0.50. */
+export function cryptoWithdrawFeeBreakevenUsd(): number {
+  const pct = cryptoWithdrawFeePct();
+  return pct > 0 ? cryptoWithdrawFeeMinUsd() / pct : Infinity;
+}
+
+/**
+ * The most that can be withdrawn from a balance, fee included.
+ *
+ * "Max" has to solve `amount + fee(amount) = balance`, and with a percentage
+ * fee that is no longer "balance minus a constant". Get this wrong and tapping
+ * Max always comes back one fee short — which is exactly the bug the bank-send
+ * Max had before it did the same two-pass sum.
+ *
+ * Both branches are computed and the larger valid one wins, so the answer is
+ * right on either side of the breakeven without a special case.
+ */
+export function maxCryptoWithdrawUsd(balanceUsd: number): number {
+  if (!(balanceUsd > 0)) return 0;
+  const min = cryptoWithdrawFeeMinUsd();
+  const pct = cryptoWithdrawFeePct();
+
+  // Two regimes, and exactly one of them is valid for a given balance — they
+  // agree at the breakeven, so there is no gap and no overlap. Picking the
+  // larger of the two (the obvious-looking shortcut) is wrong: below the
+  // breakeven the proportional answer overstates, because the fee there is the
+  // flat floor and not a percentage at all.
+  const flat = balanceUsd - min;
+  if (flat <= cryptoWithdrawFeeBreakevenUsd()) return flat > 0 ? flat : 0;
+  return balanceUsd / (1 + pct);
+}

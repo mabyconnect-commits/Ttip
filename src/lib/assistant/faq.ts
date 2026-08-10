@@ -1,10 +1,10 @@
+import { cryptoWithdrawFeePct, cryptoWithdrawFeeMinUsd } from "./../fees";
 import {
   KYC_TIERS,
   CASHBACK_PCT,
   CASHBACK_MIN_CLAIM,
   REFERRAL_EARN_PCT,
   SWAP_FEE_PCT,
-  WITHDRAW_FEE_USDT,
   DEPOSIT_BONUS_NGN,
   DEPOSIT_BONUS_MIN_USD,
   DEPOSIT_BONUS_HOLD_HOURS,
@@ -136,7 +136,7 @@ const INTENTS: Intent[] = [
     match: ["fee", "fees", "charge", "how much do you take", "cost"],
     answer: () =>
       `Bank transfer out: ${feeLine()}. Swaps: ${(SWAP_FEE_PCT * 100).toFixed(1)}%. ` +
-      `Crypto withdrawal: a flat $${WITHDRAW_FEE_USDT.toFixed(2)} plus the network fee. ` +
+      `Crypto withdrawal: ${(cryptoWithdrawFeePct() * 100).toFixed(1)}% of the amount, minimum $${cryptoWithdrawFeeMinUsd().toFixed(2)}, plus the network fee. ` +
       `Bills carry a small service fee, capped at ${money(billFee(1_000_000))}. Ttip transfers between users are free.`,
   },
   {
@@ -194,7 +194,7 @@ const INTENTS: Intent[] = [
     match: ["send crypto", "wallet address", "withdraw crypto", "network", "trc20", "erc20"],
     answer: () =>
       `Send out → To wallet. Pick the network and asset, paste the address, and check the preview of what actually arrives. ` +
-      `Our fee is a flat $${WITHDRAW_FEE_USDT.toFixed(2)} plus the network's own fee. Sending on the wrong network can lose the funds permanently, so check it twice.`,
+      `Our fee is ${(cryptoWithdrawFeePct() * 100).toFixed(1)}% of the amount (minimum $${cryptoWithdrawFeeMinUsd().toFixed(2)}) plus the network's own fee. Sending on the wrong network can lose the funds permanently, so check it twice.`,
   },
   {
     match: [

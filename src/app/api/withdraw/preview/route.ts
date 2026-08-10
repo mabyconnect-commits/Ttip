@@ -7,8 +7,8 @@ import {
   isValidSolanaAddress,
   solFeeReserve,
 } from "@/lib/settlement";
-import { WITHDRAW_FEE_USDT } from "@/lib/constants";
-import { convert } from "@/lib/prices";
+import { cryptoWithdrawFeeUsd } from "@/lib/fees";
+import { convert, toUsd } from "@/lib/prices";
 
 const schema = z.object({
   symbol: z.string(),
@@ -39,9 +39,12 @@ export async function POST(req: Request) {
       if (!isValidSolanaAddress(input.address)) {
         return ok({ ok: false, message: "That isn't a valid Solana address." });
       }
-      // Our flat fee, charged in the asset being sent — the same number the
-      // send path debits, so the quote and the charge agree.
-      const fee = await convert(WITHDRAW_FEE_USDT, "USDT", input.symbol);
+      // Our fee — 0.8% with a $0.50 floor — charged in the asset being sent.
+      // Priced the same way the send path prices it, so the quote and the
+      // charge agree; two answers to "what does this cost" is worse than one
+      // that's slightly off.
+      const amountUsd = await toUsd(input.amount, input.symbol).catch(() => 0);
+      const fee = await convert(cryptoWithdrawFeeUsd(amountUsd), "USDT", input.symbol);
       const out = input.amount - fee;
       if (!(out > 0)) {
         return ok({ ok: false, message: `That's below the ${input.symbol} withdrawal fee.` });

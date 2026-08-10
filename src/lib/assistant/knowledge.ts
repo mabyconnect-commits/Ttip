@@ -9,6 +9,7 @@
  * Dependency-free (no server-only, no Prisma) so it can be unit-tested.
  */
 
+import { cryptoWithdrawFeePct, cryptoWithdrawFeeMinUsd, cryptoWithdrawFeeBreakevenUsd } from "../fees";
 import {
   KYC_TIERS,
   FIATS,
@@ -17,7 +18,6 @@ import {
   REFERRAL_EARN_PCT,
   SWAP_FEE_PCT,
   PLATFORM_MARGIN_PCT,
-  WITHDRAW_FEE_USDT,
   DEPOSIT_BONUS_NGN,
   DEPOSIT_BONUS_MIN_USD,
   DEPOSIT_BONUS_HOLD_HOURS,
@@ -138,8 +138,11 @@ primary market.
 - Supported payout currencies: ${supportedPayoutCurrencies().join(", ")}.
 - Not yet payable (users can hold/display these, but cash-out is coming soon):
   ${comingSoonCurrencies().join(", ")}.
-- Crypto withdrawal: the network fee is deducted by the network, plus a flat
-  $${WITHDRAW_FEE_USDT.toFixed(2)} Ttip fee. Nothing more.
+- Crypto withdrawal: the network fee is deducted by the network, plus a Ttip fee
+  of ${(cryptoWithdrawFeePct() * 100).toFixed(1)}% of the amount with a
+  $${cryptoWithdrawFeeMinUsd().toFixed(2)} minimum — so small sends pay the
+  $${cryptoWithdrawFeeMinUsd().toFixed(2)} floor and anything above
+  $${cryptoWithdrawFeeBreakevenUsd().toFixed(2)} pays the percentage. Nothing more.
 - An 0x address does NOT tell you which chain. The same address is valid on
   Ethereum, Base, Arbitrum, Polygon, BNB Chain, Optimism, Avalanche, Linea and
   Scroll, and each holds different money — Ttip can send on all of them. So
