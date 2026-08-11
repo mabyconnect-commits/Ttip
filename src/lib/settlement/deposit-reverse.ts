@@ -2,15 +2,17 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { adjustTreasury } from "./treasury";
-import { implausibleDeposit, depositUnitCeiling } from "./asset-resolve";
+import { FIAT_BY_CODE } from "../constants";
 
 /**
  * Undoing a deposit that should never have been credited.
  *
  * A deposit arrived in RAW BASE UNITS and was credited verbatim — ten
- * quintillion USDT in a wallet, spendable. The guard that stops it happening
- * again is in creditDeposit; this is how the ones already credited are taken
- * back out.
+ * quintillion USDT in a wallet, spendable. This takes those back out.
+ *
+ * It touches NOTHING in the deposit path. It reads settlements and writes
+ * corrections, and it imports nothing from the crediting code, so keeping it
+ * can never be a reason to reopen deposits.
  *
  * Three rules, because reversing money is as dangerous as crediting it:
  *
@@ -25,6 +27,31 @@ import { implausibleDeposit, depositUnitCeiling } from "./asset-resolve";
  *     spent, the balance floors at zero and the shortfall is recorded — an
  *     operator needs to know a real loss happened rather than see it hidden.
  */
+
+/**
+ * The most of one crypto asset a single deposit can hold without looking wrong.
+ *
+ * Deliberately self-contained — this tool reads and reverses, it does not sit in
+ * the deposit path and must never be a reason to touch it.
+ */
+export function depositUnitCeiling(): number {
+  const raw = (process.env.DEPOSIT_MAX_UNITS ?? "").trim();
+  const n = Number(raw);
+  return raw !== "" && Number.isFinite(n) && n > 0 ? n : 1_000_000;
+}
+
+/**
+ * An amount too large to be a real deposit.
+ *
+ * A $0.10 deposit credited as 10,290,000,000,000,000,000 USDT — 10.29 tokens in
+ * RAW BASE UNITS on an 18-decimal contract. Fiat is exempt: a million naira is
+ * an ordinary sum.
+ */
+export function implausibleDeposit(symbol: string, amount: number): boolean {
+  if (!Number.isFinite(amount) || amount <= 0) return true;
+  if (FIAT_BY_CODE[symbol.toUpperCase() as keyof typeof FIAT_BY_CODE]) return false;
+  return amount > depositUnitCeiling();
+}
 
 export interface SuspectDeposit {
   externalId: string;

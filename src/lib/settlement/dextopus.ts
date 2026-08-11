@@ -282,33 +282,8 @@ export async function resolveTokenAddress(
   return hit?.tokens.find((t) => t.symbol === value.toUpperCase())?.address;
 }
 
-/**
- * The reverse of `resolveTokenAddress`: a contract address back to its ticker.
- *
- * Settlement assets are configured as ADDRESSES (Ethereum USDC is `0xa0b8…`,
- * Tron USDT is `TR7N…`), and Dextopus echoes that address back on the webhook.
- * Crediting a balance keyed by it is what produced a wallet line literally named
- * after a contract, so the address has to become "USDC" before anything is
- * written down.
- *
- * `chainId` narrows the search when we know it; without it the same address is
- * looked for across every chain, which is safe because a contract address is
- * unique to its chain anyway.
- */
-export async function symbolForTokenAddress(address: string, chainId?: number): Promise<string | undefined> {
-  const needle = (address ?? "").trim().toLowerCase();
-  if (!needle) return undefined;
-  const chains = await catalog();
-  const search = chainId ? chains.filter((c) => c.chainId === chainId) : chains;
-  for (const c of search.length ? search : chains) {
-    const hit = c.tokens.find((t) => t.address.toLowerCase() === needle);
-    if (hit?.symbol) return hit.symbol.toUpperCase();
-  }
-  return undefined;
-}
-
 /** An on-chain token identifier rather than a ticker. */
-export function looksLikeTokenAddress(v: string): boolean {
+function looksLikeTokenAddress(v: string): boolean {
   if (/^0x[a-fA-F0-9]{40}$/.test(v)) return true; // EVM
   if (/^(bc1|[13])[a-zA-HJ-NP-Z0-9]{20,}$/.test(v)) return true; // Bitcoin
   if (/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(v)) return true; // Tron
