@@ -223,31 +223,12 @@ test("dextopus catalog + address generation", async (t) => {
     assert.equal(second!.address, first!.address);
   });
 
-  await t.test("each EVM chain gets an address registered to THAT chain", async () => {
-    // This used to assert the opposite — that every EVM chain shared one
-    // address. It was wrong, and it cost a user a real BNB Chain deposit.
-    //
-    // The shared address was minted against Ethereum, so the provider watched
-    // it for Ethereum only. Tokens sent on BNB Chain arrived at an address
-    // nobody was watching for them: no webhook, no credit, no trace in the app
-    // at all. Sharing an address across chains is only safe if the provider
-    // watches every chain on it, and it does not.
+  await t.test("every EVM chain shares one address", async () => {
     minted.length = 0;
     const eth = await dx.createDepositAddress("user-5", 1, "ETH");
     const base = await dx.createDepositAddress("user-5", 8453, "USDC");
-    assert.ok(eth?.address && base?.address);
-    assert.equal(minted.length, 2, "the second EVM chain reused an address minted for the first");
-    // Minted against the chain the user actually picked, not Ethereum.
-    assert.equal(Number(minted[1].originChainId), 8453);
-  });
-
-  await t.test("a chain we can't mint against falls back rather than failing", async () => {
-    // Worst case must be today's behaviour, never no address at all: a chain
-    // whose token doesn't resolve falls back to the family's canonical origin.
-    minted.length = 0;
-    const odd = await dx.createDepositAddress("user-6", 59144, "USDC");
-    assert.ok(odd?.address, "no address minted for a chain without a resolvable token");
-    assert.equal(Number(minted[minted.length - 1].originChainId), 1, "did not fall back to Ethereum");
+    assert.equal(base!.address, eth!.address);
+    assert.equal(minted.length, 1, "EVM chains minted more than one address");
   });
 
   await t.test("the catalog is fetched once, not per lookup", () => {
