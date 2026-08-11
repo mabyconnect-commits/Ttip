@@ -35,8 +35,24 @@ async function guard(): Promise<string | null> {
   return (await isAdmin(userId)) ? userId : null;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   if (!(await guard())) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  // ?confirm=yes reverses, for the same reason as the gift card tool: this gets
+  // run from a phone browser, where opening a URL is the only available verb. A
+  // preview you cannot act on is not a safety feature, it is a dead end.
+  if (new URL(req.url).searchParams.get("confirm") === "yes") {
+    const live = await suspectDeposits(200);
+    const done = [];
+    for (const s of live) done.push(await reverseDeposit(s.externalId, "raw base units credited"));
+    return NextResponse.json({
+      done: true,
+      considered: live.length,
+      reversed: done.filter((r) => r.reversed).length,
+      shortfalls: done.filter((r) => (r.shortfall ?? 0) > 0),
+      results: done,
+    });
+  }
 
   const suspects = await suspectDeposits(200);
   return NextResponse.json({
@@ -46,7 +62,7 @@ export async function GET() {
       return acc;
     }, {}),
     deposits: suspects,
-    howToApply: "POST to this URL with { \"confirm\": true } to reverse all of the above.",
+    howToApply: "Open this same URL with ?confirm=yes on the end to reverse all of the above.",
   });
 }
 

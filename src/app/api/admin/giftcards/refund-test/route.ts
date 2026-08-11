@@ -24,6 +24,46 @@ async function isAdmin(userId: string): Promise<boolean> {
   return !!user?.email && admins.includes(user.email.toLowerCase());
 }
 
+/**
+ * GET shows what would be refunded; GET with ?confirm=yes does it.
+ *
+ * A mutating GET is normally the wrong shape, and it is deliberate here: the
+ * operator runs this from a phone browser, where the only thing you can do to a
+ * URL is open it. A POST-only endpoint is one that cannot be used at all, and an
+ * unusable refund tool leaves real money with the wrong people. The blast radius
+ * is bounded — admin session required, idempotent, and the only effect is giving
+ * users back money we should not have taken.
+ */
+export async function GET(req: Request) {
+  const userId = await getUserId();
+  if (!userId || !(await isAdmin(userId))) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  if (new URL(req.url).searchParams.get("confirm") === "yes") {
+    return NextResponse.json({ done: true, ...(await refundTestModeOrders()) });
+  }
+
+  const pending = await prisma.giftCardOrder.findMany({
+    where: { provider: "sandbox", status: { in: ["pending", "delivered"] } },
+    take: 500,
+  });
+  return NextResponse.json({
+    toRefund: pending.length,
+    totalByCurrency: pending.reduce<Record<string, number>>((acc, o) => {
+      acc[o.fiat] = (acc[o.fiat] ?? 0) + Number(o.costFiat);
+      return acc;
+    }, {}),
+    orders: pending.map((o) => ({
+      brand: o.brand,
+      faceValue: Number(o.faceValue),
+      charged: Number(o.costFiat),
+      fiat: o.fiat,
+      status: o.status,
+      createdAt: o.createdAt,
+    })),
+    howToApply: "Open this same URL with ?confirm=yes on the end to refund all of them.",
+  });
+}
+
 export async function POST() {
   const userId = await getUserId();
   if (!userId || !(await isAdmin(userId))) return NextResponse.json({ error: "Not found" }, { status: 404 });
