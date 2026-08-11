@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { couldBeAddress } from "./asset-resolve";
 import type { NormalizedDeposit } from "./types";
 
 /**
@@ -111,7 +112,11 @@ export function parseDextopusDeposit(body: unknown): NormalizedDeposit {
   return {
     externalId,
     address: String(d.depositAddress ?? ""),
-    asset: asset.toUpperCase(),
+    // A ticker is normalised; an ADDRESS is left exactly as sent. Upper-casing
+    // an address destroys it — `0xa0b8…` becomes `0XA0B8…`, and a Tron address
+    // gains letters base58 doesn't use — after which every shape test rejects
+    // it as junk and a real deposit is held instead of credited.
+    asset: couldBeAddress(asset) ? asset : asset.toUpperCase(),
     chain,
     amount,
     status: confirmed ? "confirmed" : "pending",

@@ -109,41 +109,61 @@ export async function resolveDepositAsset(asset: string, chainId?: number): Prom
   const upper = raw.toUpperCase();
   if (isListedAsset(upper)) return canonical(upper);
 
-  // 2. A contract address. Ask the provider's own catalogue what it is. This is
-  //    the case our settlement config actually produces.
-  if (looksLikeTokenAddress(raw)) {
-    const lower = raw.toLowerCase();
+  // 2. An address we know by heart.
+  //
+  //    Checked BEFORE any judgement about the string's shape, and always
+  //    case-insensitively, because by the time an asset reaches here its case
+  //    has usually been destroyed. The webhook uppercases the settlement asset,
+  //    which turns `0xa0b8…` into `0XA0B8…` and a Tron address into one
+  //    containing letters base58 does not use — so a shape test run first
+  //    rejects real addresses, and the deposit is held. That is exactly what
+  //    was happening, and rows already written that way still have to resolve.
+  const lower = raw.toLowerCase();
 
-    // Our own settlement contracts first — no network call, so a catalogue
-    // outage can't turn a good deposit back into a held one.
-    const known = KNOWN_TOKENS[lower];
-    if (known && isListedAsset(known)) return canonical(known);
+  const known = KNOWN_TOKENS[lower];
+  if (known && isListedAsset(known)) return canonical(known);
 
-    // The chain's own coin, reported as a placeholder address.
-    const nativeAnywhere = NATIVE_ANY_CHAIN[lower];
-    if (nativeAnywhere && isListedAsset(nativeAnywhere)) return canonical(nativeAnywhere);
+  const nativeAnywhere = NATIVE_ANY_CHAIN[lower];
+  if (nativeAnywhere && isListedAsset(nativeAnywhere)) return canonical(nativeAnywhere);
 
-    if (EVM_NATIVE_PLACEHOLDER.has(lower)) {
-      const native = chainId ? EVM_NATIVE_BY_CHAIN[chainId] : undefined;
-      // No chain, no answer. `0x000…0` is ETH, BNB or POL depending on where it
-      // came from, and crediting the wrong one is worse than holding it.
-      return native && isListedAsset(native) ? canonical(native) : null;
-    }
+  if (EVM_NATIVE_PLACEHOLDER.has(lower)) {
+    const native = chainId ? EVM_NATIVE_BY_CHAIN[chainId] : undefined;
+    // No chain, no answer. `0x000…0` is ETH, BNB or POL depending on where it
+    // came from, and crediting the wrong one is worse than holding it.
+    return native && isListedAsset(native) ? canonical(native) : null;
+  }
 
+  // 3. Some other contract address — ask the provider's own catalogue.
+  //    `couldBeAddress` is deliberately loose: no ticker we list is anywhere
+  //    near this long, so the only cost of asking is a cache lookup, and the
+  //    catalogue answers undefined for anything it doesn't know.
+  if (couldBeAddress(raw)) {
     const symbol = await symbolForTokenAddress(raw, chainId).catch(() => undefined);
     if (symbol && isListedAsset(symbol)) return canonical(symbol);
-    // A known address we don't list (some random token someone sent) must NOT
-    // be credited — falling through to review is the correct ending.
+    // An address we can't name must NOT be credited — held is the right ending.
     return null;
   }
 
-  // 3. A ticker with the network glued on: USDT_TRON, USDC.e, USDT-BEP20.
+  // 4. A ticker with the network glued on: USDT_TRON, USDC.e, USDT-BEP20.
   //    Only the first segment can be the ticker, and it still has to be listed —
   //    so this widens what we recognise without inventing assets.
   const head = upper.split(/[._\-/]/)[0];
   if (head && head !== upper && isListedAsset(head)) return canonical(head);
 
   return null;
+}
+
+/**
+ * Long enough to be an on-chain identifier rather than a ticker.
+ *
+ * Case-insensitive and forgiving on purpose. The strict per-chain patterns
+ * elsewhere assume the original casing, which webhooks do not preserve; the
+ * longest ticker we list is four characters, so anything this long is not one.
+ */
+export function couldBeAddress(v: string): boolean {
+  const s = v.trim();
+  if (/^0[xX][a-fA-F0-9]{40}$/.test(s)) return true; // EVM, either case
+  return s.length >= 26 && /^[A-Za-z0-9]+$/.test(s); // base58 / bech32-ish
 }
 
 /** The symbol in the case our own tables use, so balances never split in two. */

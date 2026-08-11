@@ -45,8 +45,15 @@ export async function POST(req: Request) {
       // amount (deposit.settled). Relabelling an ORIGIN-amount credit to the
       // settlement asset is the mis-credit that turned 1.3 SOL into "1.3 USDC",
       // so an origin-pair credit keeps its own asset.
+      //
+      // NOT uppercased. The settlement asset is configured as a CONTRACT
+      // ADDRESS, and upper-casing one corrupts it: `0xa0b8…` becomes `0XA0B8…`,
+      // and a Tron address gains letters base58 does not contain. Every shape
+      // test downstream then rejects it as junk and the deposit is held instead
+      // of credited. creditDeposit canonicalises the name itself, so the raw
+      // value is what it needs.
       if (deposit.settled && process.env.DEXTOPUS_SETTLEMENT_ASSET) {
-        deposit.asset = process.env.DEXTOPUS_SETTLEMENT_ASSET.toUpperCase();
+        deposit.asset = process.env.DEXTOPUS_SETTLEMENT_ASSET.trim();
       }
       const result = await creditDeposit(deposit);
       return NextResponse.json({ ok: true, ...result });

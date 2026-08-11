@@ -80,3 +80,25 @@ test("an EVM native placeholder is only resolved when we know the chain", async 
   // A chain we don't have a native coin for stays held rather than guessing.
   assert.equal(await resolveDepositAsset("0x0000000000000000000000000000000000000000", 99999), null);
 });
+
+test("addresses resolve even after a webhook has shouted them", async () => {
+  // THE LIVE BUG. parseDextopusDeposit uppercased the asset and the webhook
+  // route uppercased DEXTOPUS_SETTLEMENT_ASSET on top, so what reached the
+  // guard was "0XA0B8…" — which the EVM pattern rejects, because it demands a
+  // lowercase "0x". The Tron address fared worse: uppercasing introduced an
+  // "O", a character base58 does not use, so it failed too. Both were held.
+  //
+  // Both upstream uppercases are gone now, but rows already written that way
+  // are still in the database and must resolve, so this stays pinned.
+  assert.equal(await resolveDepositAsset("0XA0B86991C6218B36C1D19D4A2E9EB0CE3606EB48"), "USDC");
+  assert.equal(await resolveDepositAsset("TR7NHQJEKQXGTCI8Q8ZY4PL8OTSZGJLJ6T"), "USDT");
+  assert.equal(await resolveDepositAsset("EPJFWDD5AUFQSSQEM2QN1XZYBAPC8G4WEGGKZWYTDT1V"), "USDC");
+  assert.equal(await resolveDepositAsset("0XDAC17F958D2EE523A2206206994597C13D831EC7"), "USDT");
+});
+
+test("a shouted ticker is still just a ticker", async () => {
+  // The loosened address test must not start swallowing ordinary symbols.
+  assert.equal(await resolveDepositAsset("USDT"), "USDT");
+  assert.equal(await resolveDepositAsset("BTC"), "BTC");
+  assert.equal(await resolveDepositAsset("NGN"), "NGN");
+});
