@@ -53,11 +53,47 @@ export async function creditDeposit(
   // Resolve the user: passed directly (simulator), echoed by the provider
   // (Dextopus sets our userId), or looked up by deposit address.
   let userId = opts.userId ?? deposit.userId ?? null;
-  if (!userId) {
-    const addr = await prisma.walletAddress.findFirst({ where: { address: deposit.address } });
+  if (!userId && deposit.address) {
+    // CASE-INSENSITIVE. An EVM address is the same address whether it is
+    // checksummed (`0xAbC…`) or lower-cased (`0xabc…`), but Postgres string
+    // equality is not, so a provider that mints in one case and reports the
+    // deposit in the other finds nothing here. That miss used to end the whole
+    // function without writing anything down at all.
+    const addr =
+      (await prisma.walletAddress.findFirst({ where: { address: deposit.address } })) ??
+      (await prisma.walletAddress.findFirst({
+        where: { address: { equals: deposit.address, mode: "insensitive" } },
+      }));
     userId = addr?.userId ?? null;
   }
-  if (!userId) return { credited: false, userId: null, reason: "no user for address" };
+
+  // An unattributed deposit is still money that arrived. It used to return here
+  // silently: no settlement, no transaction, no trace — the funds settled into
+  // treasury and the app had no idea they existed. Whatever else is unknown, the
+  // fact of it gets written down.
+  if (!userId) {
+    await prisma.settlement
+      .create({
+        data: {
+          kind: "deposit",
+          provider: deposit.provider,
+          externalId: deposit.externalId,
+          status: "review",
+          asset: deposit.asset,
+          amount: new Prisma.Decimal(deposit.amount),
+          chain: deposit.chain,
+          address: deposit.address,
+          raw: (deposit.raw ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+        },
+      })
+      .catch((e) => {
+        if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002")) {
+          console.error("[deposit] could not record unattributed deposit", deposit.externalId, e);
+        }
+      });
+    console.error(`[deposit] no user for address ${deposit.address} — recorded for review`);
+    return { credited: false, userId: null, reason: "no user for address — recorded for review" };
+  }
 
   if (deposit.status !== "confirmed") {
     return { credited: false, userId, reason: "not yet confirmed" };
