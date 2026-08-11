@@ -61,3 +61,22 @@ test("our settlement contracts resolve with no network call", async () => {
   const v = await resolveDepositAsset("0x1111111111111111111111111111111111111111");
   assert.equal(v, null);
 });
+
+test("a chain's own coin, sent as a placeholder address, resolves", async () => {
+  // Native SOL arrives as the Solana System Program id. Seen in real Dextopus
+  // data — without this it matches no token in any catalogue and is held for
+  // ever.
+  assert.equal(await resolveDepositAsset("11111111111111111111111111111111"), "SOL");
+  assert.equal(await resolveDepositAsset("So11111111111111111111111111111111111111112"), "SOL");
+});
+
+test("an EVM native placeholder is only resolved when we know the chain", async () => {
+  // 0x000…0 is ETH on Ethereum, BNB on BNB Chain, POL on Polygon. Crediting the
+  // wrong coin is worse than holding, so no chain means no answer.
+  assert.equal(await resolveDepositAsset("0x0000000000000000000000000000000000000000"), null);
+  assert.equal(await resolveDepositAsset("0x0000000000000000000000000000000000000000", 1), "ETH");
+  assert.equal(await resolveDepositAsset("0x0000000000000000000000000000000000000000", 56), "BNB");
+  assert.equal(await resolveDepositAsset("0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE", 137), "MATIC");
+  // A chain we don't have a native coin for stays held rather than guessing.
+  assert.equal(await resolveDepositAsset("0x0000000000000000000000000000000000000000", 99999), null);
+});

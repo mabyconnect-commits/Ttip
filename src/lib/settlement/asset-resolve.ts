@@ -50,6 +50,40 @@ const KNOWN_TOKENS: Record<string, string> = {
   es9vmfrzacermjfrf4h2fyd4kconky11mcce8benwnyb: "USDT", // Solana
 };
 
+/**
+ * Placeholders that mean "the chain's own coin" rather than a listed token.
+ *
+ * These never appear in the token catalogue, so no lookup will ever find them.
+ * A native SOL deposit arrives as the Solana System Program id — 32 ones — and
+ * without this it resolves to nothing and the deposit is held for ever.
+ *
+ * Split in two on purpose. The Solana ids name exactly one coin, so they are
+ * safe to resolve on sight. The EVM ones do NOT: `0x000…0` means ETH on
+ * Ethereum, BNB on BNB Chain and POL on Polygon, so they are only safe with the
+ * chain in hand. Guessing ETH there would credit the wrong asset, which is
+ * worse than holding — so an EVM placeholder with no chain stays held.
+ */
+const NATIVE_ANY_CHAIN: Record<string, string> = {
+  "11111111111111111111111111111111": "SOL", // Solana System Program
+  so11111111111111111111111111111111111111112: "SOL", // wrapped SOL
+};
+
+const EVM_NATIVE_PLACEHOLDER = new Set([
+  "0x0000000000000000000000000000000000000000",
+  "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+]);
+
+/** The coin that pays gas on each EVM chain we settle through. */
+const EVM_NATIVE_BY_CHAIN: Record<number, string> = {
+  1: "ETH", // Ethereum
+  10: "ETH", // Optimism
+  56: "BNB", // BNB Chain
+  137: "MATIC", // Polygon
+  8453: "ETH", // Base
+  42161: "ETH", // Arbitrum
+  43114: "AVAX", // Avalanche
+};
+
 /** Is this already a listed ticker — BTC, USDC, NGN — exactly as written? */
 export function isListedAsset(symbol: string): boolean {
   const s = (symbol ?? "").trim().toUpperCase();
@@ -78,10 +112,23 @@ export async function resolveDepositAsset(asset: string, chainId?: number): Prom
   // 2. A contract address. Ask the provider's own catalogue what it is. This is
   //    the case our settlement config actually produces.
   if (looksLikeTokenAddress(raw)) {
+    const lower = raw.toLowerCase();
+
     // Our own settlement contracts first — no network call, so a catalogue
     // outage can't turn a good deposit back into a held one.
-    const known = KNOWN_TOKENS[raw.toLowerCase()];
+    const known = KNOWN_TOKENS[lower];
     if (known && isListedAsset(known)) return canonical(known);
+
+    // The chain's own coin, reported as a placeholder address.
+    const nativeAnywhere = NATIVE_ANY_CHAIN[lower];
+    if (nativeAnywhere && isListedAsset(nativeAnywhere)) return canonical(nativeAnywhere);
+
+    if (EVM_NATIVE_PLACEHOLDER.has(lower)) {
+      const native = chainId ? EVM_NATIVE_BY_CHAIN[chainId] : undefined;
+      // No chain, no answer. `0x000…0` is ETH, BNB or POL depending on where it
+      // came from, and crediting the wrong one is worse than holding it.
+      return native && isListedAsset(native) ? canonical(native) : null;
+    }
 
     const symbol = await symbolForTokenAddress(raw, chainId).catch(() => undefined);
     if (symbol && isListedAsset(symbol)) return canonical(symbol);
