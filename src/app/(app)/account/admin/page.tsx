@@ -7,6 +7,7 @@ import { PayoutDesk } from "@/components/PayoutDesk";
 import { Campaigns } from "@/components/admin/Campaigns";
 import { UsersCard } from "@/components/admin/UsersCard";
 import { BalanceDesk } from "@/components/admin/BalanceDesk";
+import { CleanupDesk } from "@/components/admin/CleanupDesk";
 import { AllTransactions } from "@/components/admin/AllTransactions";
 import { TelegramCard } from "@/components/admin/TelegramCard";
 
@@ -196,6 +197,8 @@ export default function AdminFundingPage() {
             <UsersCard />
 
             <BalanceDesk />
+
+            <CleanupDesk />
 
             {/* revenue */}
             <div className="font-grotesk font-semibold text-[14px] mt-2 mb-2">Platform revenue</div>
