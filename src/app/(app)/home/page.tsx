@@ -58,10 +58,6 @@ export default function HomePage() {
           <button onClick={() => router.push("/notifications")} className="w-9 h-9 rounded-full border border-white/10 flex items-center justify-center text-white/70 active:scale-95">
             <Icon name="bell" size={17} />
           </button>
-          <button onClick={() => router.push("/referrals")} className="w-9 h-9 rounded-full border border-white/10 flex items-center justify-center text-white/70 active:scale-95">
-            {/* Not a gift icon: that now means Gift cards, one screen down. */}
-            <Icon name="share" size={17} />
-          </button>
         </div>
       </div>
 
