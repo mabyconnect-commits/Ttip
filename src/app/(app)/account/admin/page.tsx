@@ -84,6 +84,7 @@ interface Revenue {
     total: number;
   };
   rewards?: { referralCommission: number; cashback: number; depositBonus: number; total: number };
+  excludedAsImplausible?: number;
   netRevenue?: number;
   volume?: number;
   error?: string;
@@ -241,10 +242,23 @@ export default function AdminFundingPage() {
                   </div>
                   <div className="rounded-2xl bg-surface border border-white/[.08] p-4">
                     <div className="text-white/45 text-[11.5px]">Total volume</div>
-                    <div className="font-grotesk font-bold text-[19px] mt-1">{usd(rev.volume ?? 0)}</div>
+                    <div className="font-grotesk font-bold text-[19px] mt-1 break-all">{usd(rev.volume ?? 0)}</div>
                     <div className="text-white/35 text-[10.5px] mt-0.5">value moved through Ttip</div>
                   </div>
                 </div>
+
+                {/* A silent exclusion is worse than a wrong number: the operator
+                    has to know the report is incomplete, and where to fix it. */}
+                {!!rev.excludedAsImplausible && (
+                  <div
+                    className="rounded-2xl px-4 py-3 mt-2.5 text-[12px] text-white/75"
+                    style={{ background: "rgba(255,196,61,.07)", border: "1px solid rgba(255,196,61,.25)" }}
+                  >
+                    {rev.excludedAsImplausible} entr{rev.excludedAsImplausible === 1 ? "y was" : "ies were"} left out
+                    of these figures for being too large to be real — almost always a mis-credit. Reverse them in
+                    Clean-up above and this report becomes accurate.
+                  </div>
+                )}
 
                 <div className="rounded-2xl bg-surface border border-white/[.08] p-4 mt-2.5">
                   <div className="flex justify-between items-baseline">
@@ -280,6 +294,19 @@ export default function AdminFundingPage() {
                     </div>
                   </div>
                 </div>
+
+                {/* A silent exclusion is worse than a wrong number: the operator
+                    has to know the report is incomplete, and where to fix it. */}
+                {!!rev.excludedAsImplausible && (
+                  <div
+                    className="rounded-2xl px-4 py-3 mt-2.5 text-[12px] text-white/75"
+                    style={{ background: "rgba(255,196,61,.07)", border: "1px solid rgba(255,196,61,.25)" }}
+                  >
+                    {rev.excludedAsImplausible} entr{rev.excludedAsImplausible === 1 ? "y was" : "ies were"} left out
+                    of these figures for being too large to be real — almost always a mis-credit. Reverse them in
+                    Clean-up above and this report becomes accurate.
+                  </div>
+                )}
 
                 <div className="rounded-2xl bg-surface border border-white/[.08] p-4 mt-2.5">
                   <div className="flex justify-between items-baseline">

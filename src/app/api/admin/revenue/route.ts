@@ -46,17 +46,46 @@ async function isAdmin(userId: string): Promise<boolean> {
 }
 
 /** Cache FX/price lookups per symbol so one pass doesn't re-fetch per row. */
+/**
+ * A single row is not allowed to destroy the whole report.
+ *
+ * A mis-credited deposit — raw base units written in as a real amount — made
+ * total volume read $10,281,099,150,000,038,000. Every other figure on the page
+ * became unreadable next to it, which is the opposite of what a dashboard is
+ * for: the one bad row hid the ninety good ones.
+ *
+ * So a line worth more than this is left out of the totals and counted
+ * separately, and the response says how many were dropped. Excluding it quietly
+ * would be worse than the bad number — the operator has to know the report is
+ * incomplete and why. Overridable if the platform ever legitimately moves this
+ * much in one transaction.
+ */
+function sanityCapUsd(): number {
+  const raw = (process.env.ADMIN_MAX_TXN_USD ?? "").trim();
+  const n = Number(raw);
+  return raw !== "" && Number.isFinite(n) && n > 0 ? n : 10_000_000;
+}
+
 function usdConverter() {
   const cache = new Map<string, number>();
-  return async (amount: number, symbol: string): Promise<number> => {
+  const cap = sanityCapUsd();
+  let dropped = 0;
+  const convert = async (amount: number, symbol: string): Promise<number> => {
     if (!(amount > 0) || !symbol) return 0;
     let unit = cache.get(symbol);
     if (unit === undefined) {
       unit = await toUsd(1, symbol);
       cache.set(symbol, unit);
     }
-    return amount * unit;
+    const value = amount * unit;
+    if (!Number.isFinite(value) || value > cap) {
+      dropped++;
+      return 0;
+    }
+    return value;
   };
+  convert.droppedCount = () => dropped;
+  return convert;
 }
 
 type Meta = {
@@ -229,6 +258,10 @@ export async function GET(req: Request) {
     },
     netRevenue: feeTotal - rewardsTotal,
     volume,
+    // Lines left out of every figure above because they were too large to be
+    // real — almost always a mis-credit. Non-zero means this report is
+    // incomplete, and the Clean-up desk is where those get reversed.
+    excludedAsImplausible: usd.droppedCount(),
     currency: "USD",
     note: "Computed from the fee recorded on each transaction at the time it happened, not from today's rates.",
   });
