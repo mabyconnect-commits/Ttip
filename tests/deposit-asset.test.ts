@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isListedAsset, resolveDepositAsset } from "../src/lib/settlement/asset-resolve";
+import { isListedAsset, resolveDepositAsset, implausibleDeposit } from "../src/lib/settlement/asset-resolve";
 
 /**
  * The regression this file exists for:
@@ -101,4 +101,25 @@ test("a shouted ticker is still just a ticker", async () => {
   assert.equal(await resolveDepositAsset("USDT"), "USDT");
   assert.equal(await resolveDepositAsset("BTC"), "BTC");
   assert.equal(await resolveDepositAsset("NGN"), "NGN");
+});
+
+test("a raw-base-units amount is never creditable", async () => {
+  // What actually happened: 10.29 USDT on an 18-decimal token arrived as
+  // 10290000000000000000 and was credited verbatim. Ten quintillion USDT in a
+  // wallet, spendable.
+  assert.equal(implausibleDeposit("USDT", 1.029e19), true);
+  assert.equal(implausibleDeposit("USDC", 986415000000000000), true);
+  // Real deposits are unaffected.
+  assert.equal(implausibleDeposit("USDT", 10.29), false);
+  assert.equal(implausibleDeposit("USDC", 0.986415), false);
+  assert.equal(implausibleDeposit("BTC", 0.01), false);
+  // Nonsense is never creditable either.
+  assert.equal(implausibleDeposit("USDT", 0), true);
+  assert.equal(implausibleDeposit("USDT", Number.NaN), true);
+  assert.equal(implausibleDeposit("USDT", -5), true);
+});
+
+test("fiat is exempt from the unit ceiling", () => {
+  // A million naira is an ordinary sum, not a raw-units bug.
+  assert.equal(implausibleDeposit("NGN", 5_000_000), false);
 });

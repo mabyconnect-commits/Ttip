@@ -80,15 +80,22 @@ export function parseDextopusDeposit(body: unknown): NormalizedDeposit {
   // an unchecked key is exactly how a 1.3 SOL deposit became "1.3 USDC": the
   // parse missed it, fell back to the ORIGIN (SOL) amount, and the route then
   // relabelled that origin quantity to the settlement asset. So we look widely.
+  // FORMATTED FIELDS ONLY, unless nothing formatted exists.
+  //
+  // The unformatted fields carry RAW BASE UNITS. A 10.29 USDT deposit on an
+  // 18-decimal token is 10290000000000000000 there, and crediting that number
+  // put ten quintillion USDT in someone's wallet. Every "…Formatted" key is
+  // tried first, and a raw value is only considered when the provider sent no
+  // formatted one at all — at which point the sanity ceiling in creditDeposit
+  // is what stops it reaching a balance.
   const settlementAmount = firstPositive(
-    d.settlementAmountFormatted, d.settlementAmount,
-    d.destinationAmountFormatted, d.destinationAmount,
-    d.amountOutFormatted, d.amountOut, d.settledAmount, d.settledAmountFormatted,
-  );
+    d.settlementAmountFormatted, d.destinationAmountFormatted, d.amountOutFormatted, d.settledAmountFormatted,
+  ) || firstPositive(d.settlementAmount, d.destinationAmount, d.amountOut, d.settledAmount);
   const settlementAsset = String(d.settlementAsset ?? d.destinationAsset ?? d.settlementToken ?? "");
 
   // What the user sent (origin) — the fallback, and what we show as the source.
-  const originAmount = firstPositive(d.originAmountFormatted, d.originAmount, d.amountInFormatted, d.amountIn);
+  const originAmount =
+    firstPositive(d.originAmountFormatted, d.amountInFormatted) || firstPositive(d.originAmount, d.amountIn);
   const originAsset = String(d.originAsset ?? d.sourceAsset ?? "");
 
   // Credit asset and amount MUST come from the same side. Prefer the settlement

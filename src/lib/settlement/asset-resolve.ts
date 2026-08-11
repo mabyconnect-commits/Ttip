@@ -175,3 +175,32 @@ function canonical(symbol: string): string {
     s
   );
 }
+
+/**
+ * The most of one crypto asset a single deposit may credit without a human
+ * looking at it first.
+ *
+ * This exists because an amount arrived in RAW BASE UNITS — 10.29 USDT on an
+ * 18-decimal token is 10290000000000000000 — and was credited verbatim. Ten
+ * quintillion USDT appeared in a wallet, and the balance was spendable.
+ *
+ * A ceiling can't tell a raw amount from a real one in general. It doesn't have
+ * to: nothing on this platform legitimately deposits a million units of
+ * anything in one go, and anything that does is worth ten seconds of an
+ * operator's attention. Held is recoverable. Credited-and-spent is not.
+ *
+ * Fiat is exempt — a million naira is an ordinary sum.
+ */
+export function depositUnitCeiling(): number {
+  const raw = (process.env.DEPOSIT_MAX_UNITS ?? "").trim();
+  const n = Number(raw);
+  return raw !== "" && Number.isFinite(n) && n > 0 ? n : 1_000_000;
+}
+
+/** True when an amount is too large to credit unattended. */
+export function implausibleDeposit(symbol: string, amount: number): boolean {
+  if (!Number.isFinite(amount) || amount <= 0) return true;
+  // Fiat codes are not capped — only crypto, where raw base units happen.
+  if (FIAT_BY_CODE[symbol.toUpperCase() as keyof typeof FIAT_BY_CODE]) return false;
+  return amount > depositUnitCeiling();
+}

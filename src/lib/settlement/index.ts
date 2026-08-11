@@ -12,7 +12,7 @@ import { adjustTreasury } from "./treasury";
 import { chainName } from "../chains";
 import { notifyUser, pushMoney, type PushMessage } from "../push";
 import { COMPANY } from "../company";
-import { resolveDepositAsset } from "./asset-resolve";
+import { resolveDepositAsset, implausibleDeposit } from "./asset-resolve";
 import type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
 
 export type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
@@ -78,7 +78,12 @@ export async function creditDeposit(
   // assets, and holding them was silently swallowing good money. Only something
   // that still can't be named after resolution is held.
   const symbol = await resolveDepositAsset(deposit.asset, deposit.chainId);
-  if (!symbol) {
+
+  // A number too large to be real never reaches a balance. Raw base units are
+  // indistinguishable from a genuine amount at this layer, so the only safe
+  // move is to stop and let a person look.
+  const tooBig = symbol ? implausibleDeposit(symbol, deposit.amount) : false;
+  if (!symbol || tooBig) {
     try {
       await prisma.settlement.create({
         data: {
@@ -98,7 +103,13 @@ export async function creditDeposit(
       // A duplicate delivery is fine — it's already flagged.
       if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002")) throw e;
     }
-    return { credited: false, userId: resolvedUserId, reason: `unrecognized asset "${deposit.asset}" — held for review` };
+    return {
+      credited: false,
+      userId: resolvedUserId,
+      reason: tooBig
+        ? `implausible amount ${deposit.amount} ${symbol} — held for review`
+        : `unrecognized asset "${deposit.asset}" — held for review`,
+    };
   }
 
   try {
@@ -207,6 +218,9 @@ export async function releaseHeldDeposits(limit = 25): Promise<{ checked: number
     const userId = row.userId;
     const amount = Number(row.amount);
     if (!(amount > 0)) continue;
+    // The same ceiling as the live path. Releasing held rows without it is how
+    // rows that were being held for a GOOD reason got credited in bulk.
+    if (implausibleDeposit(symbol, amount)) continue;
 
     try {
       await prisma.$transaction(async (tx) => {
