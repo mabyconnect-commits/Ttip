@@ -25,13 +25,16 @@ import { dextopusConfig, type DextopusConfig } from "./config";
  *    they are not the set you can actually mint an address for. Reading the
  *    wrong list gives you tokens that then fail at generate time.
  *
- * 3. ADDRESSES ARE MINTED PER FAMILY, NOT PER TOKEN. Each user gets one
- *    reusable address for EVM, one for Solana, one for Tron and one for
- *    Bitcoin, each minted through that family's canonical origin. Any
- *    chain+token the user picks inside a family resolves to that family's
- *    single address. Minting per (chain, token) is what fails on the non-EVM
- *    families — which is why Solana and Bitcoin never produced an address
- *    while EVM appeared to work.
+ * 3. ADDRESSES ARE MINTED PER ORIGIN, AND THE ORIGIN MATTERS. Minting per
+ *    (chain, token) is what failed on the non-EVM families, which is why
+ *    Solana and Bitcoin never produced an address; falling back to a per-family
+ *    canonical origin fixed them. But applying that to EVM collapsed every EVM
+ *    chain onto Ethereum — the address shown on the BNB Chain screen was the
+ *    SAME string as the Ethereum one, registered to watch Ethereum USDC. Tokens
+ *    sent on BNB Chain therefore landed at an address the provider wasn't
+ *    watching for them, no webhook fired, and the deposit simply never arrived.
+ *    So the chain the user picked is tried first and the family canonical is
+ *    the fallback.
  *
  * The endpoint for minting is `POST /deposit/static/addresses` (we were posting
  * to /deposit/static/generate), and `GET /deposit/static/addresses?userId=`
@@ -98,9 +101,11 @@ export function chainFamily(chainId: number, name = ""): ChainFamily {
 /**
  * The origin each family's address is minted through.
  *
- * One address per family covers every chain and token in that family, so a user
- * has four addresses rather than one per asset. Overridable with
- * DEXTOPUS_CANONICAL_ORIGINS (JSON) if Dextopus ever reprices these routes.
+ * The FALLBACK origin, used when a chain can't be minted against directly.
+ * Overridable with DEXTOPUS_CANONICAL_ORIGINS (JSON).
+ *
+ * Not the first choice any more: collapsing every EVM chain onto Ethereum is
+ * what silently broke BNB Chain deposits.
  */
 const DEFAULT_CANONICAL_ORIGIN: Record<ChainFamily, { chainId: number; asset: string }> = {
   evm: { chainId: 1, asset: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" }, // Ethereum USDC
@@ -363,12 +368,22 @@ export async function createDepositAddress(
   const cfg = dextopusConfig();
   if (!cfg || cfg.settlementChainId == null || !cfg.settlementAsset || !cfg.settlementAddress) return null;
 
-  // The family is what decides the address; the chain the user picked only
-  // tells us which family they're in.
+  // Which origin to register the address against.
+  //
+  // This used to be the family's canonical origin, always — EVM meant Ethereum
+  // USDC no matter which EVM chain the user picked. That is why per-family
+  // minting fixed Solana and Bitcoin and quietly broke BNB Chain: the address
+  // shown on the BNB screen was the SAME string as the Ethereum one, registered
+  // to watch Ethereum, so tokens sent on BNB landed at an address the provider
+  // was not watching for them and no webhook ever fired.
+  //
+  // So the chain the user actually picked is tried FIRST, and the family
+  // canonical is kept as the fallback — if a chain genuinely can't be minted
+  // against directly, behaviour is exactly what it was before.
   const chains = await catalog();
   const chain = chains.find((c) => c.chainId === originChainId);
   const family = chainFamily(originChainId, chain?.name);
-  const origin = canonicalOrigin(family);
+  const fallback = canonicalOrigin(family);
 
   const settlementAsset = await resolveTokenAddress(cfg, cfg.settlementChainId, cfg.settlementAsset);
   if (!settlementAsset) {
@@ -376,59 +391,86 @@ export async function createDepositAddress(
     return null;
   }
 
-  // Reuse before minting: a user who cleared their record shouldn't collect a
-  // second address for the same route, and Dextopus indexes by userId.
-  const existing = await listUserAddresses(cfg, userId);
-  const match = existing.find(
-    (a) =>
-      a.depositAddress &&
-      sameId(a.originChainId, origin.chainId) &&
-      sameAddr(a.originAsset, origin.asset) &&
-      sameId(a.settlementChainId, cfg.settlementChainId) &&
-      sameAddr(a.settlementAsset, settlementAsset) &&
-      sameAddr(a.settlementAddress, cfg.settlementAddress),
-  );
-  if (match?.depositAddress) {
-    return { id: match.id ?? "", address: match.depositAddress, originChainId, originAsset: originSymbol };
+  // EVM ONLY. Solana, Tron and Bitcoin each have exactly one chain, so their
+  // canonical origin already IS the chain the user picked — and minting them
+  // per (chain, token) is the thing that failed and left them with no address
+  // at all. They keep the path that works, untouched.
+  const exact =
+    family === "evm" && originChainId !== fallback.chainId
+      ? await resolveTokenAddress(cfg, originChainId, originSymbol).catch(() => undefined)
+      : undefined;
+  const candidates: { chainId: number; asset: string }[] = [];
+  if (exact) candidates.push({ chainId: originChainId, asset: exact });
+  if (!candidates.some((c) => sameId(c.chainId, fallback.chainId) && sameAddr(c.asset, fallback.asset))) {
+    candidates.push(fallback);
   }
 
   const refundTo = refundFor(family, cfg);
 
-  let res: Response;
-  try {
-    res = await fetch(`${cfg.baseUrl}/deposit/static/addresses`, {
-      method: "POST",
-      headers: { "x-api-key": cfg.apiKey, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userId,
-        originChainId: origin.chainId,
-        originAsset: origin.asset,
-        settlementChainId: cfg.settlementChainId,
-        settlementAsset,
-        settlementAddress: cfg.settlementAddress,
-        // Only when we actually have one — a blank refundTo is rejected.
-        ...(refundTo ? { refundTo } : {}),
-        metadata: { source: "ttip", family },
-      }),
-    });
-  } catch (e) {
-    console.error("[dextopus] generate threw", e);
-    return null;
-  }
+  // Reuse before minting, PER CANDIDATE and in order.
+  //
+  // The check and the mint have to be interleaved. Doing every reuse check
+  // first is what quietly reinstated the bug: once any EVM address existed, the
+  // fallback candidate matched it and every other EVM chain was handed that
+  // same Ethereum-registered address again. The chain the user picked has to be
+  // fully exhausted — look for one, then mint one — before the fallback is even
+  // considered.
+  const existing = await listUserAddresses(cfg, userId);
 
-  const json = (await res.json().catch(() => ({}))) as {
+  let json: {
     success?: boolean;
     data?: { id?: string; depositAddress?: string };
     depositAddress?: string;
     message?: string;
     error?: string;
-  };
+  } = {};
 
-  if (!res.ok || json.success === false) {
+  for (const origin of candidates) {
+    const match = existing.find(
+      (a) =>
+        a.depositAddress &&
+        sameId(a.originChainId, origin.chainId) &&
+        sameAddr(a.originAsset, origin.asset) &&
+        sameId(a.settlementChainId, cfg.settlementChainId) &&
+        sameAddr(a.settlementAsset, settlementAsset) &&
+        sameAddr(a.settlementAddress, cfg.settlementAddress),
+    );
+    if (match?.depositAddress) {
+      return { id: match.id ?? "", address: match.depositAddress, originChainId, originAsset: originSymbol };
+    }
+
+    let res: Response;
+    try {
+      res = await fetch(`${cfg.baseUrl}/deposit/static/addresses`, {
+        method: "POST",
+        headers: { "x-api-key": cfg.apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId,
+          originChainId: origin.chainId,
+          originAsset: origin.asset,
+          settlementChainId: cfg.settlementChainId,
+          settlementAsset,
+          settlementAddress: cfg.settlementAddress,
+          // Only when we actually have one — a blank refundTo is rejected.
+          ...(refundTo ? { refundTo } : {}),
+          metadata: { source: "ttip", family },
+        }),
+      });
+    } catch (e) {
+      console.error("[dextopus] generate threw", e, { triedChainId: origin.chainId });
+      continue;
+    }
+
+    json = (await res.json().catch(() => ({}))) as typeof json;
+    if (res.ok && json.success !== false && (json.data?.depositAddress ?? json.depositAddress)) break;
+
     // Logged loudly: this is the failure users see as "not available right
     // now", and without the provider's own message it's unguessable.
-    console.error("[dextopus] generate failed", res.status, json.message ?? json.error ?? "", { family, originChainId });
-    return null;
+    console.error("[dextopus] generate failed", res.status, json.message ?? json.error ?? "", {
+      family,
+      triedChainId: origin.chainId,
+    });
+    json = {};
   }
 
   const address = json.data?.depositAddress ?? json.depositAddress;
