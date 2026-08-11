@@ -10,7 +10,7 @@ import { convert } from "@/lib/prices";
 import { planFunding, type FundingSource } from "@/lib/funding-plan";
 import { sellValue } from "@/lib/spendable";
 import { requireWithdrawPin } from "@/lib/withdraw-pin";
-import { giftCardProvider, giftCardPrice, type GiftCardOrderResult } from "@/lib/settlement/giftcard";
+import { giftCardProvider, giftCardPrice, giftCardsLive, type GiftCardOrderResult } from "@/lib/settlement/giftcard";
 import { deliverOrder, refundOrder } from "@/lib/settlement/giftcard-order";
 import { accrueCashback } from "@/lib/cashback";
 import { COMPANY } from "@/lib/company";
@@ -54,6 +54,17 @@ export async function POST(req: Request) {
     if (!user) return unauthorized();
 
     const input = schema.parse(await req.json());
+
+    // NOTHING IS SOLD IN TEST MODE.
+    //
+    // The sandbox provider hands back a fake code and the purchase path debited
+    // a real balance for it — the user paid actual money for a string that
+    // redeems nowhere. A demo catalogue is fine to LOOK at; charging for it is
+    // not. Until a real provider is configured, this is the hard stop, on the
+    // server, where the client cannot talk its way past it.
+    if (!giftCardsLive()) {
+      throw new ApiError("Gift cards aren't live yet — nothing has been charged.", 503);
+    }
 
     // A gift card code is irreversible the moment it's shown — the same test a
     // bank payout meets, so the same PIN.

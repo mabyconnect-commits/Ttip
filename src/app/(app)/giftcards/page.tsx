@@ -184,7 +184,10 @@ export default function GiftCardsPage() {
                   <span className="shrink-0 text-[#FFC43D]">
                     <Icon name="flag" size={15} />
                   </span>
-                  <span>Test mode — these are demo cards and the codes won&apos;t redeem anywhere.</span>
+                  <span>
+                    Coming soon — you can browse the catalogue, but buying is switched off until this goes
+                    live. Nothing will be charged.
+                  </span>
                 </div>
               )}
 
@@ -331,9 +334,13 @@ export default function GiftCardsPage() {
               setPinOpen(true);
             }}
             loading={buying}
-            disabled={!option || !affordable(option.cost)}
+            disabled={!cat?.live || !option || !affordable(option.cost)}
           >
-            {option ? `Buy for ${formatFiat(option.cost, fiat, { decimals: 0 })}` : "Choose an amount"}
+            {!cat?.live
+              ? "Coming soon"
+              : option
+                ? `Buy for ${formatFiat(option.cost, fiat, { decimals: 0 })}`
+                : "Choose an amount"}
           </GradientButton>
         </div>
         <p className="text-[11.5px] text-white/35 mt-3 text-center leading-relaxed">

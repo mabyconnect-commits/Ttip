@@ -59,7 +59,8 @@ export default function HomePage() {
             <Icon name="bell" size={17} />
           </button>
           <button onClick={() => router.push("/referrals")} className="w-9 h-9 rounded-full border border-white/10 flex items-center justify-center text-white/70 active:scale-95">
-            <Icon name="gift" size={17} />
+            {/* Not a gift icon: that now means Gift cards, one screen down. */}
+            <Icon name="share" size={17} />
           </button>
         </div>
       </div>
@@ -103,18 +104,17 @@ export default function HomePage() {
           </button>
         </div>
 
-        {/* quick actions. Three across rather than five: the sixth action
-            wouldn't fit on one row, and a lone tile on a second row reads as a
-            layout bug rather than a feature. */}
-        <div className="grid grid-cols-3 gap-x-2 gap-y-4 px-5 pt-5">
+        {/* quick actions — one row, five tiles.
+            Ttip isn't here because it's the big centre button in the tab bar,
+            and "Card" isn't here because it only fires a toast. Dropping both
+            makes room for Gift cards and Split without a second row, so this
+            screen is shorter than it was, not taller. */}
+        <div className="grid grid-cols-5 gap-2 px-5 pt-5">
           <QuickAction icon="plus" label="Buy" onClick={() => router.push("/buy")} />
           <QuickAction icon="swap" label="Swap" onClick={() => router.push("/swap")} />
-          <QuickAction icon="zap" label="Ttip" accent onClick={() => router.push("/ttip")} />
           <QuickAction icon="bills" label="Bills" onClick={() => router.push("/bills")} />
           <QuickAction icon="gift" label="Gift cards" onClick={() => router.push("/giftcards")} />
-          {/* Virtual cards aren't live yet — say so rather than opening a screen
-              that can't actually issue one. */}
-          <QuickAction icon="card" label="Card" soon onClick={() => toast("Virtual cards are coming soon", "info")} />
+          <QuickAction icon="list" label="Split" onClick={() => router.push("/split")} />
         </div>
 
         {/* assets */}
