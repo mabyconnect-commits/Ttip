@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { rateLimit } from "@/lib/rate-limit";
@@ -78,6 +79,43 @@ const HELP =
   `Then reply with the code we ask for.\n` +
   `Everything else: ${COMPANY.domain}`;
 
+/**
+ * Is this really our aggregator?
+ *
+ * Without this, anyone who knows the URL can POST {from, text} and the system
+ * treats it as a text from that person's phone — which is an instruction to
+ * move their money. The confirmation code is a second line of defence, but a
+ * caller who can forge inbound messages can also forge code guesses, so the
+ * door has to be shut at the front.
+ *
+ * The secret is checked against a header, a query parameter, or a field in the
+ * body, because aggregators differ in where they will put one. Set the same
+ * value in Termii under Settings → Webhooks and in SMS_WEBHOOK_SECRET.
+ *
+ * Unset means REJECT, not allow. A deployment that forgets the secret must go
+ * quiet rather than accept anything the internet sends it.
+ */
+function authorised(req: Request, url: URL, body: Record<string, unknown>): boolean {
+  const secret = process.env.SMS_WEBHOOK_SECRET?.trim();
+  if (!secret) {
+    console.error("[sms] SMS_WEBHOOK_SECRET is not set — inbound rejected");
+    return false;
+  }
+  const offered = [
+    req.headers.get("x-webhook-secret"),
+    req.headers.get("x-termii-signature"),
+    req.headers.get("authorization")?.replace(/^Bearer\s+/i, ""),
+    url.searchParams.get("secret"),
+    typeof body.secret === "string" ? body.secret : null,
+  ].filter((v): v is string => !!v && v.length > 0);
+
+  return offered.some((candidate) => {
+    const a = Buffer.from(candidate);
+    const b = Buffer.from(secret);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  });
+}
+
 export async function POST(req: Request) {
   // Always 200. An aggregator that gets an error retries, and a retried
   // money instruction is the one thing worse than a dropped one.
@@ -85,6 +123,11 @@ export async function POST(req: Request) {
     const raw = await req
       .json()
       .catch(async () => Object.fromEntries(new URLSearchParams(await req.text())));
+    // Checked before anything is parsed or acted on.
+    if (!authorised(req, new URL(req.url), raw as Record<string, unknown>)) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+
     const msg = readInbound(raw as Record<string, unknown>);
     if (!msg) return NextResponse.json({ ok: true });
 

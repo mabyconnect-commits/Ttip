@@ -24,6 +24,19 @@ export function smsEnabled(): boolean {
   return smsProvider() !== null;
 }
 
+/**
+ * Termii's API host.
+ *
+ * Termii 4.0 moved accounts to a per-account base URL — the dashboard shows it
+ * under Overview, e.g. https://v4-api.termii.com. Older accounts stay on
+ * api.ng.termii.com, so that remains the default and the new host is set with
+ * TERMII_BASE_URL rather than guessed. A wrong host is a silent 404 and no
+ * message, which is the hardest kind of failure to spot.
+ */
+function termiiBase(): string {
+  return (process.env.TERMII_BASE_URL || "https://api.ng.termii.com").trim().replace(/\/+$/, "");
+}
+
 /** The number or sender id our messages come from. */
 export function smsSender(): string {
   return process.env.SMS_SENDER_ID?.trim() || "Ttip";
@@ -38,7 +51,7 @@ export async function sendSms(to: string, body: string): Promise<boolean> {
 
   try {
     if (provider === "termii") {
-      const res = await fetch("https://api.ng.termii.com/api/sms/send", {
+      const res = await fetch(`${termiiBase()}/api/sms/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
