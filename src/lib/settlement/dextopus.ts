@@ -62,6 +62,12 @@ interface CatalogToken {
   symbol: string;
   name: string;
   address: string;
+  /**
+   * How many base units make one token. THE most important field here and the
+   * one we used to throw away — Dextopus reports settlement amounts in base
+   * units, so without this a 0.725902 USDC deposit is credited as 725902.
+   */
+  decimals: number | null;
 }
 
 interface CatalogChain {
@@ -194,7 +200,13 @@ async function catalog(): Promise<CatalogChain[]> {
       const address = String(t.address ?? t.contractAddress ?? t.mint ?? "");
       if (!symbol || !address || seen.has(symbol)) continue;
       seen.add(symbol);
-      tokens.push({ symbol, address, name: String(t.name ?? symbol) });
+      const dec = Number(t.decimals ?? t.decimal ?? t.tokenDecimals);
+      tokens.push({
+        symbol,
+        address,
+        name: String(t.name ?? symbol),
+        decimals: Number.isInteger(dec) && dec >= 0 && dec <= 36 ? dec : null,
+      });
     }
     if (!tokens.length) continue;
 
@@ -280,6 +292,33 @@ export async function resolveTokenAddress(
   const chains = await catalog();
   const hit = chains.find((c) => c.chainId === chainId);
   return hit?.tokens.find((t) => t.symbol === value.toUpperCase())?.address;
+}
+
+/**
+ * How many decimals a token uses, by contract address OR ticker.
+ *
+ * Dextopus sends settlement amounts in BASE UNITS, so this is what turns their
+ * number into money. Asked of the provider's own catalogue rather than a table
+ * we maintain, because the same ticker differs by chain — USDT is 6 decimals on
+ * Tron and Ethereum and 18 on BNB Chain, which is exactly how one bug produced
+ * both a mildly wrong balance and a ten-quintillion one.
+ *
+ * Returns null when it cannot be established. The caller must then decline to
+ * credit rather than assume: assuming 6 where it is 18 is a factor of a
+ * trillion.
+ */
+export async function tokenDecimals(addressOrSymbol: string, chainId?: number): Promise<number | null> {
+  const needle = (addressOrSymbol ?? "").trim().toLowerCase();
+  if (!needle) return null;
+  const chains = await catalog();
+  const search = chainId ? chains.filter((c) => c.chainId === chainId) : chains;
+  for (const c of search.length ? search : chains) {
+    const hit = c.tokens.find(
+      (t) => t.address.toLowerCase() === needle || t.symbol.toLowerCase() === needle,
+    );
+    if (hit && hit.decimals != null) return hit.decimals;
+  }
+  return null;
 }
 
 /** An on-chain token identifier rather than a ticker. */

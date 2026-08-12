@@ -10,6 +10,19 @@ export interface NormalizedDeposit {
   chain: string;
   /** Amount of `asset` received. */
   amount: number;
+  /**
+   * True when `amount` came from an UNFORMATTED provider field and is therefore
+   * in base units, not tokens. Nothing may credit it until it has been scaled by
+   * the token's decimals — 725902 base units is 0.725902 USDC, not 725,902.
+   */
+  amountIsRaw?: boolean;
+  /**
+   * The unformatted figure exactly as sent, kept as a string.
+   *
+   * 10290000000000000000 is past the point where a JS number is exact, so the
+   * scaling has to be done on this with BigInt rather than on `amount`.
+   */
+  rawAmount?: string;
   /** "confirmed" credits immediately; "pending" is recorded but not credited. */
   status: "confirmed" | "pending";
   /** Which provider produced this event. */

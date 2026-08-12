@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { scaleDepositAmount } from "@/lib/settlement/deposit-amount";
 import {
   creditDeposit,
   parseDeposit,
@@ -38,7 +39,24 @@ export async function POST(req: Request) {
       if (meta?.source === "ttip-withdrawal") {
         return NextResponse.json({ ok: true, ignored: "withdrawal" });
       }
-      const deposit = parseDextopusDeposit(payload);
+      let deposit = parseDextopusDeposit(payload);
+
+      // Dextopus reports amounts in BASE UNITS unless it sent a "…Formatted"
+      // field. Scale before anything else touches the number — crediting the
+      // base-unit integer is what put 725,902 USDC in a wallet for a deposit
+      // worth 73 cents. A 503 rather than a silent drop: nothing is credited,
+      // and the provider retries once the catalogue can name the token.
+      const scaled = await scaleDepositAmount(deposit);
+      if (!scaled.deposit) {
+        console.error("[deposit] refusing to credit an unscalable amount", {
+          externalId: deposit.externalId,
+          asset: deposit.asset,
+          rawAmount: deposit.rawAmount,
+          reason: scaled.reason,
+        });
+        return NextResponse.json({ error: `cannot scale amount: ${scaled.reason}` }, { status: 503 });
+      }
+      deposit = scaled.deposit;
       // A Dextopus deposit cross-chain-settles to our treasury asset, which the
       // payload may report as a mint/contract ADDRESS. Relabel that to our
       // configured symbol — but ONLY when the credited amount is the SETTLEMENT

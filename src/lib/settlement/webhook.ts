@@ -79,15 +79,24 @@ export function parseDextopusDeposit(body: unknown): NormalizedDeposit {
   // an unchecked key is exactly how a 1.3 SOL deposit became "1.3 USDC": the
   // parse missed it, fell back to the ORIGIN (SOL) amount, and the route then
   // relabelled that origin quantity to the settlement asset. So we look widely.
-  const settlementAmount = firstPositive(
-    d.settlementAmountFormatted, d.settlementAmount,
-    d.destinationAmountFormatted, d.destinationAmount,
-    d.amountOutFormatted, d.amountOut, d.settledAmount, d.settledAmountFormatted,
+  // FORMATTED FIRST, AND NEVER SILENTLY MIXED.
+  //
+  // Dextopus reports amounts in BASE UNITS. Falling from a "…Formatted" key
+  // through to its unformatted sibling and treating both the same is what
+  // credited 725902 for a 0.725902 USDC deposit, and 10290000000000000000 for
+  // 10.29 USDT. The two are different units and must be labelled as such.
+  const settlementFormatted = firstPositive(
+    d.settlementAmountFormatted, d.destinationAmountFormatted,
+    d.amountOutFormatted, d.settledAmountFormatted,
   );
+  const settlementRaw = firstString(d.settlementAmount, d.destinationAmount, d.amountOut, d.settledAmount);
+  const settlementAmount = settlementFormatted || Number(settlementRaw || 0);
   const settlementAsset = String(d.settlementAsset ?? d.destinationAsset ?? d.settlementToken ?? "");
 
   // What the user sent (origin) — the fallback, and what we show as the source.
-  const originAmount = firstPositive(d.originAmountFormatted, d.originAmount, d.amountInFormatted, d.amountIn);
+  const originFormatted = firstPositive(d.originAmountFormatted, d.amountInFormatted);
+  const originRaw = firstString(d.originAmount, d.amountIn);
+  const originAmount = originFormatted || Number(originRaw || 0);
   const originAsset = String(d.originAsset ?? d.sourceAsset ?? "");
 
   // Credit asset and amount MUST come from the same side. Prefer the settlement
@@ -96,10 +105,20 @@ export function parseDextopusDeposit(body: unknown): NormalizedDeposit {
   let asset: string;
   let amount: number;
   let settled: boolean;
+  let amountIsRaw: boolean;
+  let rawAmount: string | undefined;
   if (settlementAmount > 0 && settlementAsset) {
-    asset = settlementAsset; amount = settlementAmount; settled = true;
+    asset = settlementAsset;
+    amount = settlementAmount;
+    settled = true;
+    amountIsRaw = !settlementFormatted;
+    rawAmount = settlementFormatted ? undefined : settlementRaw;
   } else {
-    asset = originAsset; amount = originAmount; settled = false;
+    asset = originAsset;
+    amount = originAmount;
+    settled = false;
+    amountIsRaw = !originFormatted;
+    rawAmount = originFormatted ? undefined : originRaw;
   }
 
   // Where the user actually sent from (origin) is what to show them.
@@ -115,6 +134,8 @@ export function parseDextopusDeposit(body: unknown): NormalizedDeposit {
     chain,
     amount,
     status: confirmed ? "confirmed" : "pending",
+    amountIsRaw,
+    rawAmount,
     provider: "dextopus",
     settled,
     userId: d.userId ? String(d.userId) : undefined,
@@ -125,6 +146,16 @@ export function parseDextopusDeposit(body: unknown): NormalizedDeposit {
 }
 
 /** First strictly-positive finite number among the candidates, else 0. */
+/** The first present value, kept as a STRING so big integers stay exact. */
+function firstString(...vals: unknown[]): string | undefined {
+  for (const v of vals) {
+    if (typeof v === "string" && v.trim()) return v.trim();
+    if (typeof v === "number" && Number.isFinite(v) && v > 0) return String(v);
+    if (typeof v === "bigint") return v.toString();
+  }
+  return undefined;
+}
+
 function firstPositive(...vals: unknown[]): number {
   for (const v of vals) {
     const n = Number(v);
