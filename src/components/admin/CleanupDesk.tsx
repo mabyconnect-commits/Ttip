@@ -21,6 +21,18 @@ interface Suspect {
   amount: number;
   balanceNow: number;
 }
+interface Trace {
+  externalId: string;
+  status: string;
+  asset: string;
+  amount: number;
+  chain: string | null;
+  user: string;
+  transaction: { status: string; asset: string | null; amount: number } | null;
+  balanceNow: number | null;
+  verdict: string;
+  createdAt: string;
+}
 interface TestCard {
   brand: string;
   faceValue: number;
@@ -35,6 +47,8 @@ export function CleanupDesk() {
   const [msg, setMsg] = useState<string | null>(null);
   const [suspects, setSuspects] = useState<Suspect[] | null>(null);
   const [cards, setCards] = useState<TestCard[] | null>(null);
+  const [trace, setTrace] = useState<Trace[] | null>(null);
+  const [q, setQ] = useState("");
 
   async function call(url: string, init?: RequestInit) {
     const res = await fetch(url, { credentials: "include", ...init });
@@ -172,6 +186,59 @@ export function CleanupDesk() {
                   {c.brand} · {c.faceCurrency ?? ""} {c.faceValue}
                 </span>
                 <span className="font-grotesk font-semibold">{money(c.charged, c.fiat)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* trace — read only, writes nothing */}
+      <div className="mt-4 pt-3 border-t border-white/[.06]">
+        <div className="font-sans font-semibold text-[13px]">Find a deposit</div>
+        <div className="text-[11.5px] text-white/45 mt-0.5">
+          &ldquo;It reached the treasury but never showed up.&rdquo; This says which of three things happened.
+          Read only — it changes nothing.
+        </div>
+
+        <div className="flex gap-2 mt-2.5">
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="@username, email, or blank for latest"
+            className="flex-1 min-w-0 bg-surface2 border border-white/[.08] rounded-full px-3.5 h-9 outline-none text-[12.5px] focus:border-brand-cyan/50"
+          />
+          <button
+            onClick={() =>
+              run("trace", async () => {
+                const r = await call(`/api/admin/deposits/trace?q=${encodeURIComponent(q.trim())}`);
+                setTrace(r.deposits ?? []);
+                return r.note ?? `${r.count} deposit${r.count === 1 ? "" : "s"} found.`;
+              })
+            }
+            disabled={!!busy}
+            className="h-9 px-3.5 rounded-full border border-white/14 text-[12.5px] font-grotesk font-semibold text-white/85 active:scale-95 disabled:opacity-50 shrink-0"
+          >
+            {busy === "trace" ? "Looking…" : "Find"}
+          </button>
+        </div>
+
+        {trace && trace.length > 0 && (
+          <div className="mt-2.5 flex flex-col gap-1.5 max-h-[280px] overflow-y-auto no-scrollbar">
+            {trace.map((t) => (
+              <div key={t.externalId} className="bg-surface2 rounded-xl px-3 py-2 text-[11.5px]">
+                <div className="flex justify-between gap-2">
+                  <span className="font-grotesk font-semibold">
+                    {t.amount} {t.asset}
+                  </span>
+                  <span className="text-white/45 shrink-0">{t.user}</span>
+                </div>
+                <div className={`mt-1 ${t.status === "review" || !t.transaction ? "text-[#FFC43D]" : "text-good"}`}>
+                  {t.verdict}
+                </div>
+                {t.balanceNow !== null && (
+                  <div className="text-white/40 mt-0.5">holds {t.balanceNow} now</div>
+                )}
+                <div className="text-white/25 mt-0.5 break-all">{t.externalId}</div>
               </div>
             ))}
           </div>
