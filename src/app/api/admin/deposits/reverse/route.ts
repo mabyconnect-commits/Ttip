@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { suspectDeposits, reverseDeposits, reverseDeposit } from "@/lib/settlement/deposit-reverse";
+import { suspectDeposits, reverseDeposits, reverseDeposit, correctDeposit } from "@/lib/settlement/deposit-reverse";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -71,9 +71,20 @@ export async function POST(req: Request) {
 
   const body = (await req.json().catch(() => ({}))) as {
     confirm?: boolean;
+    correct?: boolean;
     externalIds?: string[];
     note?: string;
   };
+
+  // Correct rather than reverse: set the balance to what it should have been.
+  if (body.correct) {
+    const ids = Array.isArray(body.externalIds) && body.externalIds.length
+      ? body.externalIds
+      : (await suspectDeposits(200)).filter((s) => s.correction).map((s) => s.externalId);
+    const results = [];
+    for (const id of ids.slice(0, 200)) results.push(await correctDeposit(id));
+    return NextResponse.json({ corrected: results.filter((r) => r.reversed).length, results });
+  }
 
   // An explicit list wins — it's the most deliberate thing the caller can do.
   if (Array.isArray(body.externalIds) && body.externalIds.length) {

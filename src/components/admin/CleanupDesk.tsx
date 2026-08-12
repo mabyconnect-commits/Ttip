@@ -20,6 +20,7 @@ interface Suspect {
   symbol: string;
   amount: number;
   balanceNow: number;
+  correction: { corrected: number; basis: string } | null;
 }
 interface Trace {
   externalId: string;
@@ -121,6 +122,23 @@ export function CleanupDesk() {
           >
             {busy === "fix-dep" ? "Reversing…" : "Reverse all"}
           </button>
+          <button
+            onClick={() =>
+              run("correct-dep", async () => {
+                const r = await call("/api/admin/deposits/reverse", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ correct: true }),
+                });
+                setSuspects([]);
+                return `Corrected ${r.corrected}. Balances now hold the real deposited amount.`;
+              })
+            }
+            disabled={!!busy || !suspects?.some((s) => s.correction)}
+            className="h-9 px-3.5 rounded-full bg-good/15 border border-good/40 text-[12.5px] font-grotesk font-semibold text-good active:scale-95 disabled:opacity-40"
+          >
+            {busy === "correct-dep" ? "Fixing…" : "Fix to real amount"}
+          </button>
         </div>
 
         {suspects && suspects.length > 0 && (
@@ -133,6 +151,16 @@ export function CleanupDesk() {
                 <div className="text-white/40 mt-0.5">
                   holds {s.balanceNow.toLocaleString("en-US")} now · {s.userId ?? "no user"}
                 </div>
+                {s.correction ? (
+                  <div className="text-good mt-1">
+                    should be {s.correction.corrected} {s.symbol}
+                    <span className="text-white/35"> — {s.correction.basis}</span>
+                  </div>
+                ) : (
+                  <div className="text-[#FFC43D] mt-1">
+                    can&apos;t work out the right amount — reverse it and credit by hand
+                  </div>
+                )}
               </div>
             ))}
           </div>

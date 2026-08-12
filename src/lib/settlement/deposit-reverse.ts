@@ -53,6 +53,85 @@ export function implausibleDeposit(symbol: string, amount: number): boolean {
   return amount > depositUnitCeiling();
 }
 
+/**
+ * How many decimal places a token uses on a chain.
+ *
+ * This is what the mis-credit threw away: 725,902 is not seven hundred
+ * thousand of anything, it is 0.725902 USDC with the point removed. USDT is the
+ * awkward one — six decimals nearly everywhere, EIGHTEEN on BNB Chain — which
+ * is exactly why the same bug looked mild on one chain and astronomical on
+ * another.
+ */
+const DECIMALS: Record<string, number> = {
+  USDC: 6,
+  USDT: 6,
+  TRX: 6,
+  SOL: 9,
+  BTC: 8,
+  LTC: 8,
+  DOGE: 8,
+  ETH: 18,
+  BNB: 18,
+  MATIC: 18,
+  AVAX: 18,
+};
+
+function decimalsFor(symbol: string, chainId?: number): number | null {
+  const s = (symbol ?? "").toUpperCase();
+  // USDT on BNB Chain is an 18-decimal contract, unlike everywhere else.
+  if (s === "USDT" && chainId === 56) return 18;
+  return DECIMALS[s] ?? null;
+}
+
+function firstPositive(...vals: unknown[]): number {
+  for (const v of vals) {
+    const n = typeof v === "string" ? Number(v) : typeof v === "number" ? v : NaN;
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return 0;
+}
+
+export interface Correction {
+  /** What the balance SHOULD have been. */
+  corrected: number;
+  /** Why we believe that, in words an operator can check. */
+  basis: string;
+}
+
+/**
+ * What this deposit should have credited.
+ *
+ * Two sources, best first. The provider's own formatted figure, kept in the
+ * stored payload, is exact — no arithmetic, no assumption. Failing that, divide
+ * by the token's decimals. If neither is available we return null and refuse to
+ * guess: a wrong correction is a second mis-credit on top of the first.
+ */
+export function suggestCorrection(row: {
+  asset: string;
+  amount: number;
+  chain: string | null;
+  raw: unknown;
+}): Correction | null {
+  const payload = (row.raw ?? {}) as Record<string, unknown>;
+  const d = ((payload.data as Record<string, unknown>) ?? payload) ?? {};
+
+  const formatted = firstPositive(
+    d.settlementAmountFormatted,
+    d.destinationAmountFormatted,
+    d.amountOutFormatted,
+    d.settledAmountFormatted,
+  );
+  if (formatted > 0 && formatted < row.amount) {
+    return { corrected: formatted, basis: "the provider's own formatted amount, from the stored payload" };
+  }
+
+  const dec = decimalsFor(row.asset, Number(row.chain) || undefined);
+  if (dec == null) return null;
+  const corrected = row.amount / 10 ** dec;
+  if (!(corrected > 0)) return null;
+  return { corrected, basis: `${row.asset.toUpperCase()} uses ${dec} decimals, so the raw figure ÷ 10^${dec}` };
+}
+
 export interface SuspectDeposit {
   externalId: string;
   userId: string | null;
@@ -62,6 +141,8 @@ export interface SuspectDeposit {
   chain: string | null;
   createdAt: Date;
   reason: string;
+  /** What it should have been, when we can work that out. */
+  correction: Correction | null;
 }
 
 /**
@@ -94,6 +175,7 @@ export async function suspectDeposits(limit = 100): Promise<SuspectDeposit[]> {
       chain: r.chain,
       createdAt: r.createdAt,
       reason: `${amount} ${r.asset} is above the ${depositUnitCeiling()} unit ceiling — almost certainly raw base units`,
+      correction: suggestCorrection({ asset: r.asset, amount, chain: r.chain, raw: r.raw }),
     });
   }
   return out;
@@ -185,4 +267,89 @@ export async function reverseDeposits(externalIds: string[], note?: string): Pro
   const out: ReversalResult[] = [];
   for (const id of externalIds.slice(0, 200)) out.push(await reverseDeposit(id, note));
   return out;
+}
+
+/**
+ * Set a mis-credited deposit to the amount it should have been — in one step.
+ *
+ * Reversing leaves the user at zero and someone then has to type the right
+ * figure into the balance desk by hand, which is slow and is itself a chance to
+ * fat-finger a number. This does both halves at once: take out what was wrongly
+ * credited, put in what was actually deposited, and write down both figures.
+ *
+ * The correction is worked out from the provider's own formatted amount where
+ * the payload kept one, and only falls back to dividing by the token's decimals
+ * otherwise. If neither is possible it refuses — a wrong correction would be a
+ * second mis-credit on top of the first.
+ */
+export async function correctDeposit(externalId: string): Promise<ReversalResult & { correctedTo?: number }> {
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const row = await tx.settlement.findUnique({ where: { externalId } });
+      if (!row) return { externalId, reversed: false, reason: "no such deposit" };
+      if (row.status !== "completed") return { externalId, reversed: false, reason: `already ${row.status}` };
+      if (!row.userId) return { externalId, reversed: false, reason: "no user on the deposit" };
+
+      const wrong = Number(row.amount);
+      const fix = suggestCorrection({ asset: row.asset, amount: wrong, chain: row.chain, raw: row.raw });
+      if (!fix) {
+        return { externalId, reversed: false, reason: `cannot determine the right amount for ${row.asset}` };
+      }
+
+      // Claim it, so a second click can't apply the correction twice.
+      const claimed = await tx.settlement.updateMany({
+        where: { externalId, status: "completed" },
+        data: { status: "corrected", amount: new Prisma.Decimal(fix.corrected) },
+      });
+      if (claimed.count !== 1) return { externalId, reversed: false, reason: "raced by another correction" };
+
+      const userId = row.userId;
+      const symbol = row.asset;
+      const balance = await tx.balance.findUnique({ where: { userId_symbol: { userId, symbol } } });
+      const held = balance ? Number(balance.amount) : 0;
+
+      // Take out the wrong figure, put back the right one. Floored at zero so a
+      // partly-spent phantom balance can't push the wallet negative.
+      const next = Math.max(0, held - wrong + fix.corrected);
+      const shortfall = Math.max(0, wrong - held);
+
+      if (balance) {
+        await tx.balance.update({ where: { userId_symbol: { userId, symbol } }, data: { amount: new Prisma.Decimal(next) } });
+      } else {
+        await tx.balance.create({
+          data: { userId, symbol, kind: "crypto", amount: new Prisma.Decimal(fix.corrected) },
+        });
+      }
+
+      // Treasury moves by the same delta, so the platform ledger stays honest.
+      await adjustTreasury(tx, symbol, fix.corrected - Math.min(held, wrong)).catch(() => {
+        /* internal ledger — never block a user-facing correction */
+      });
+
+      const txn = await tx.transaction.findFirst({
+        where: { userId, type: "deposit", meta: { path: ["externalId"], equals: externalId } },
+      });
+      if (txn) {
+        await tx.transaction.update({
+          where: { id: txn.id },
+          data: {
+            amountOut: new Prisma.Decimal(fix.corrected),
+            note: `Received ${symbol} (corrected)`,
+            meta: {
+              ...((txn.meta ?? {}) as Record<string, unknown>),
+              correctedAt: new Date().toISOString(),
+              creditedInError: wrong,
+              correctedTo: fix.corrected,
+              correctionBasis: fix.basis,
+            },
+          },
+        });
+      }
+
+      return { externalId, reversed: true, symbol, amount: wrong, correctedTo: fix.corrected, shortfall };
+    });
+  } catch (e) {
+    console.error("[deposit] correction failed", externalId, e);
+    return { externalId, reversed: false, reason: (e as Error).message };
+  }
 }
