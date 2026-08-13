@@ -269,6 +269,24 @@ export function CleanupDesk() {
           >
             {busy === "hook-set" ? "Registering…" : "Register webhook"}
           </button>
+          <button
+            onClick={() =>
+              run("hook-test", async () => {
+                const r = await call("/api/admin/deposits/webhook", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ test: true }),
+                });
+                return r.ok
+                  ? `✅ Delivery works. ${r.note}`
+                  : `❌ Failed at "${r.stage}": ${r.detail}${r.redirectsTo ? ` → ${r.redirectsTo}` : ""}`;
+              })
+            }
+            disabled={!!busy}
+            className="h-9 px-3.5 rounded-full bg-brand-cyan/15 border border-brand-cyan/40 text-[12.5px] font-grotesk font-semibold text-brand-cyan active:scale-95 disabled:opacity-50"
+          >
+            {busy === "hook-test" ? "Testing…" : "Test delivery"}
+          </button>
         </div>
       </div>
 
