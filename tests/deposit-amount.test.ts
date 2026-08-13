@@ -85,3 +85,39 @@ test("a big raw amount survives the parse without losing precision", () => {
   assert.equal(d.rawAmount, "10290000000000000000");
   assert.equal(scaleUnits(d.rawAmount!, 18), 10.29);
 });
+
+test("a settled deposit is recognised whatever the provider calls it", () => {
+  // This required the exact string "COMPLETED". Anything else made the deposit
+  // "pending", and creditDeposit then returned without writing ANYTHING — the
+  // only path that left no evidence at all, and the reason money could settle
+  // into treasury with no trace in the app.
+  for (const status of ["COMPLETED", "complete", "SUCCESS", "successful", "SETTLED", "CONFIRMED", "done", "PAID"]) {
+    const d = parseDextopusDeposit({
+      data: {
+        requestId: `r_${status}`,
+        depositAddress: "addr",
+        settlementAsset: "USDC",
+        settlementAmountFormatted: 1,
+        status,
+      },
+    });
+    assert.equal(d.status, "confirmed", `${status} should count as settled`);
+  }
+});
+
+test("a genuinely unfinished deposit is still pending", () => {
+  for (const status of ["PENDING", "PROCESSING", "FAILED", "REFUNDED", ""]) {
+    const d = parseDextopusDeposit({
+      data: { requestId: `r_${status}`, depositAddress: "addr", settlementAsset: "USDC", settlementAmountFormatted: 1, status },
+    });
+    assert.equal(d.status, "pending", `${status} must not credit`);
+  }
+});
+
+test("the event name alone still confirms it", () => {
+  const d = parseDextopusDeposit({
+    event: "deposit.completed",
+    data: { requestId: "r_event", depositAddress: "addr", settlementAsset: "USDC", settlementAmountFormatted: 1 },
+  });
+  assert.equal(d.status, "confirmed");
+});

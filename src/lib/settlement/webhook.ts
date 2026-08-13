@@ -146,7 +146,22 @@ export function parseDextopusDeposit(body: unknown): NormalizedDeposit {
 
   // Where the user actually sent from (origin) is what to show them.
   const chain = String(d.originChainId ?? d.settlementChainId ?? "");
-  const confirmed = String(d.status ?? "").toUpperCase() === "COMPLETED" || b.event === "deposit.completed";
+  // A settled deposit, by any of the names a provider might give it.
+  //
+  // This required the exact string "COMPLETED". Anything else — SUCCESS,
+  // SETTLED, COMPLETE, CONFIRMED — made the deposit "pending", and
+  // creditDeposit then returned "not yet confirmed" WITHOUT WRITING ANYTHING.
+  // No settlement, no transaction, no held row, nothing in any log. Money in
+  // treasury and not one trace of it in the app: the exact report, and the only
+  // gate here that leaves no evidence at all.
+  //
+  // The poller is worse hit than the webhook, because it reads REST records
+  // that carry no event name, so the status string is the only signal it has.
+  const DONE = new Set([
+    "COMPLETED", "COMPLETE", "SUCCESS", "SUCCESSFUL", "SETTLED", "CONFIRMED", "DONE", "FINISHED", "PAID",
+  ]);
+  const statusText = String(d.status ?? d.state ?? d.depositStatus ?? "").toUpperCase().trim();
+  const confirmed = DONE.has(statusText) || b.event === "deposit.completed";
   if (!externalId || !asset || !(amount > 0)) {
     throw new Error("Invalid Dextopus payload: requestId, a settlement/origin asset and a positive amount are required.");
   }

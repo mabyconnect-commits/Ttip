@@ -60,8 +60,35 @@ export async function creditDeposit(
   }
   if (!userId) return { credited: false, userId: null, reason: "no user for address" };
 
+  // NOT CONFIRMED IS STILL EVIDENCE. This used to return here having written
+  // nothing whatsoever — the single path in this function that left no trace,
+  // and the reason a deposit could settle into treasury while the app had
+  // literally no record it existed. Now it is recorded as pending, so it shows
+  // up in the trace and the poller can finish it when the provider confirms.
   if (deposit.status !== "confirmed") {
-    return { credited: false, userId, reason: "not yet confirmed" };
+    await prisma.settlement
+      .create({
+        data: {
+          userId,
+          kind: "deposit",
+          provider: deposit.provider,
+          externalId: deposit.externalId,
+          status: "pending",
+          asset: deposit.asset,
+          amount: new Prisma.Decimal(deposit.amount),
+          chain: deposit.chain,
+          address: deposit.address,
+          raw: (deposit.raw ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+        },
+      })
+      .catch((e) => {
+        // A repeat delivery of the same pending event is fine.
+        if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002")) {
+          console.error("[deposit] could not record pending deposit", deposit.externalId, e);
+        }
+      });
+    console.error(`[deposit] not confirmed yet: ${deposit.externalId} status=${deposit.status}`);
+    return { credited: false, userId, reason: "not yet confirmed — recorded as pending" };
   }
 
   const resolvedUserId = userId;

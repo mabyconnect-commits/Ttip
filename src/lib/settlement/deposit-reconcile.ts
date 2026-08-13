@@ -62,12 +62,19 @@ export async function reconcileDeposits(limitUsers = 25, onlyUserId?: string): P
       }
       if (deposit.status !== "confirmed") continue;
 
-      // Already recorded? Cheap check before doing anything heavier.
+      // Already CREDITED? A row that is merely pending must still be finished —
+      // skipping on "a row exists" is how a deposit recorded as pending would
+      // sit there for ever.
       const existing = await prisma.settlement.findUnique({
         where: { externalId: deposit.externalId },
-        select: { id: true },
+        select: { id: true, status: true },
       });
-      if (existing) continue;
+      if (existing && existing.status !== "pending") continue;
+      if (existing) {
+        // Clear the pending placeholder so creditDeposit's own idempotency
+        // guard can write the real completed row.
+        await prisma.settlement.delete({ where: { id: existing.id } }).catch(() => {});
+      }
 
       // Base units → tokens, exactly as the webhook does.
       const scaled = await scaleDepositAmount(deposit);
