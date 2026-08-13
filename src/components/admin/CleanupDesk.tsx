@@ -332,6 +332,23 @@ export function CleanupDesk() {
           >
             {busy === "held" ? "Loading…" : "Held only"}
           </button>
+          <button
+            onClick={() =>
+              run("sync", async () => {
+                const r = await call("/api/admin/deposits/trace", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ sync: true }),
+                });
+                const s = r.synced;
+                return `Asked Dextopus directly: ${s.seen} deposits across ${s.usersChecked} users, ${s.credited} newly credited.`;
+              })
+            }
+            disabled={!!busy}
+            className="h-9 px-3.5 rounded-full bg-brand-cyan/15 border border-brand-cyan/40 text-[12.5px] font-grotesk font-semibold text-brand-cyan active:scale-95 disabled:opacity-50 shrink-0"
+          >
+            {busy === "sync" ? "Syncing…" : "Sync now"}
+          </button>
         </div>
 
         {trace && trace.length > 0 && (

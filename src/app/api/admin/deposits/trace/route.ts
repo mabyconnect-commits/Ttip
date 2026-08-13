@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { releaseHeldDeposits, dismissHeldDeposits } from "@/lib/settlement";
+import { reconcileDeposits } from "@/lib/settlement/deposit-reconcile";
 
 export const dynamic = "force-dynamic";
 
@@ -134,7 +135,14 @@ export async function POST(req: Request) {
     credit?: string[];
     dismiss?: string[];
     note?: string;
+    sync?: boolean;
+    userId?: string;
   };
+
+  // Pull straight from Dextopus rather than waiting for the cron.
+  if (body.sync) {
+    return NextResponse.json({ synced: await reconcileDeposits(50, body.userId) });
+  }
 
   if (body.dismiss?.length) {
     return NextResponse.json(await dismissHeldDeposits(body.dismiss, body.note));

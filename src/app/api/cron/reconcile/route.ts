@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { reconcilePendingBuys, refreshPayoutStatus } from "@/lib/settlement";
 import { reconcileGiftCards } from "@/lib/settlement/giftcard-reconcile";
+import { reconcileDeposits } from "@/lib/settlement/deposit-reconcile";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -53,6 +54,13 @@ export async function GET(req: Request) {
     payoutsChecked++;
   }
 
+  // Deposits: ask Dextopus what actually landed. This is the backstop deposits
+  // never had — a missed webhook now costs minutes, not the deposit.
+  const deposits = await reconcileDeposits(25).catch((e) => {
+    console.error("[reconcile] deposits failed", e);
+    return { usersChecked: 0, seen: 0, credited: 0, skipped: 0 };
+  });
+
   // Gift cards: a code that wasn't ready at purchase is collected here, and an
   // order the provider never received releases the money back.
   const giftcards = await reconcileGiftCards(25).catch((e) => {
@@ -60,5 +68,5 @@ export async function GET(req: Request) {
     return { checked: 0, delivered: 0, refunded: 0 };
   });
 
-  return NextResponse.json({ ok: true, buys, payoutsChecked, giftcards });
+  return NextResponse.json({ ok: true, buys, payoutsChecked, deposits, giftcards });
 }

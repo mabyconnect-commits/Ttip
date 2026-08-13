@@ -463,6 +463,46 @@ export async function createDepositAddress(
 }
 
 /**
+ * Every deposit Dextopus has recorded for a user. THE missing backstop.
+ *
+ * Deposits were the only money flow here with a single delivery path: if the
+ * webhook didn't arrive, or arrived and was rejected, the deposit simply never
+ * existed as far as the app was concerned. Bills poll. Buys poll. Withdrawals
+ * poll. Payouts poll. Deposits had nothing — one dropped HTTP request and the
+ * user's money sat in treasury for ever.
+ *
+ * `GET /deposit/static/deposits?userId=` is the endpoint that fixes that, taken
+ * from the Sweepflow integration where it is exactly what their UI reads.
+ * Asking the provider what actually happened beats hoping a webhook lands.
+ */
+export async function listDeposits(params: { userId?: string; depositAddress?: string }): Promise<
+  Record<string, unknown>[]
+> {
+  const cfg = dextopusConfig();
+  if (!cfg) return [];
+  const q = new URLSearchParams();
+  if (params.userId) q.set("userId", params.userId);
+  if (params.depositAddress) q.set("depositAddress", params.depositAddress);
+  if (![...q.keys()].length) return [];
+
+  try {
+    const res = await fetch(`${cfg.baseUrl}/deposit/static/deposits?${q.toString()}`, {
+      headers: { "x-api-key": cfg.apiKey },
+    });
+    if (!res.ok) {
+      console.error("[dextopus] deposits list failed", res.status);
+      return [];
+    }
+    const body = (await res.json().catch(() => null)) as { success?: boolean; data?: unknown } | null;
+    if (!body || body.success === false) return [];
+    return Array.isArray(body.data) ? (body.data as Record<string, unknown>[]) : [];
+  } catch (e) {
+    console.error("[dextopus] deposits list threw", e);
+    return [];
+  }
+}
+
+/**
  * Register (or update) the deposit webhook URL + events with Dextopus.
  *
  * This function existed for months and was called from NOWHERE. Which means
