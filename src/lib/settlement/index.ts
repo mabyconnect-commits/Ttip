@@ -12,24 +12,9 @@ import { adjustTreasury } from "./treasury";
 import { chainName } from "../chains";
 import { notifyUser, pushMoney, type PushMessage } from "../push";
 import { COMPANY } from "../company";
-import { CRYPTO_BY_SYMBOL, FIAT_BY_CODE } from "../constants";
 import type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
 
-/**
- * Is this a real, listed asset ticker (BTC, USDC, NGN, …) — not a leaked
- * on-chain address or some other junk string?
- *
- * A balance is keyed by its symbol, so whatever lands in `deposit.asset` becomes
- * a spendable line on the user's home screen. When a Bitcoin deposit came in with
- * the receiving ADDRESS in the asset field, that minted a balance literally named
- * "bc1q…" holding a raw satoshi count — money that looked credited but was junk.
- * Deposits whose asset doesn't resolve to a listed ticker must be held for manual
- * review, never auto-credited.
- */
-function isListedAsset(symbol: string): boolean {
-  const s = (symbol ?? "").toUpperCase();
-  return Boolean(CRYPTO_BY_SYMBOL[s as keyof typeof CRYPTO_BY_SYMBOL] || FIAT_BY_CODE[s as keyof typeof FIAT_BY_CODE]);
-}
+import { resolveDepositAsset } from "./asset-resolve";
 
 export type { NormalizedDeposit, PayoutRequest, PayoutResult } from "./types";
 export { settlementMode, isLive, payoutProvider, billProvider, demoEnabled, settlementEnabled, settlementStatus } from "./config";
@@ -87,7 +72,12 @@ export async function creditDeposit(
   // spendable line. Record such a deposit for manual review (idempotently) and
   // credit nothing, so the user's funds surface to an admin instead of appearing
   // as fake balance.
-  if (!isListedAsset(deposit.asset)) {
+  // RESOLVE BEFORE REFUSING. Dextopus reports the settlement asset as a MINT
+  // ADDRESS, not a ticker — a real held deposit read "EPJFWDD5…", which is the
+  // Solana USDC mint. Holding an unrecognised asset is right; failing to
+  // recognise our own settlement mint is what swallowed the money.
+  const symbol = await resolveDepositAsset(deposit.asset, deposit.chainId);
+  if (!symbol) {
     try {
       await prisma.settlement.create({
         data: {
@@ -129,24 +119,24 @@ export async function creditDeposit(
       });
 
       await tx.balance.upsert({
-        where: { userId_symbol: { userId: resolvedUserId, symbol: deposit.asset } },
-        create: { userId: resolvedUserId, symbol: deposit.asset, kind: kindOf(deposit.asset), amount: new Prisma.Decimal(deposit.amount) },
+        where: { userId_symbol: { userId: resolvedUserId, symbol } },
+        create: { userId: resolvedUserId, symbol, kind: kindOf(symbol), amount: new Prisma.Decimal(deposit.amount) },
         update: { amount: { increment: deposit.amount } },
       });
 
       // The swept crypto is now held by the platform — record it in treasury so
       // the liquidity engine can later sell it into the fiat float.
-      await adjustTreasury(tx, deposit.asset, deposit.amount);
+      await adjustTreasury(tx, symbol, deposit.amount);
 
       await tx.transaction.create({
         data: {
           userId: resolvedUserId,
           type: "deposit",
           status: "completed",
-          assetOut: deposit.asset,
+          assetOut: symbol,
           amountOut: new Prisma.Decimal(deposit.amount),
           counterparty: "On-chain",
-          note: `Received ${deposit.asset} via ${chainName(deposit.chain)}`,
+          note: `Received ${symbol} via ${chainName(deposit.chain)}`,
           emoji: "📥",
           meta: {
             chain: chainName(deposit.chain),
@@ -165,11 +155,11 @@ export async function creditDeposit(
     // never inside it: a push service having a bad minute must not roll back a
     // deposit that has already been credited.
     if (result.credited) {
-      const fiat = await depositFiatLine(resolvedUserId, deposit.asset, deposit.amount);
+      const fiat = await depositFiatLine(resolvedUserId, symbol, deposit.amount);
       void notifyUser(resolvedUserId, {
-        title: `${deposit.asset} deposit`,
+        title: `${symbol} deposit`,
         body:
-          `You received ${pushMoney(deposit.amount, deposit.asset)}${fiat}` +
+          `You received ${pushMoney(deposit.amount, symbol)}${fiat}` +
           ` — credited to your ${COMPANY.product} wallet.`,
         url: "/home",
         tag: "deposit",
@@ -182,6 +172,89 @@ export async function creditDeposit(
     }
     throw e;
   }
+}
+
+/**
+ * Credit deposits that were held for review and CAN now be named.
+ *
+ * The rows already sitting at status "review" are real money: the webhook
+ * arrived, the settlement was recorded, and only the asset name defeated us.
+ * Now that a mint address resolves to its ticker, they can be paid.
+ *
+ * Anything that still cannot be named is LEFT held. This releases money that
+ * was always ours to credit and never invents an asset to clear a row.
+ */
+export async function releaseHeldDeposits(limit = 50): Promise<{ checked: number; credited: number }> {
+  const held = await prisma.settlement.findMany({
+    where: { kind: "deposit", status: "review" },
+    orderBy: { createdAt: "asc" },
+    take: Math.max(1, Math.min(limit, 200)),
+  });
+
+  let credited = 0;
+  for (const row of held) {
+    if (!row.userId) continue;
+    const chainId = Number(row.chain) || undefined;
+    const symbol = await resolveDepositAsset(row.asset, chainId).catch(() => null);
+    if (!symbol) continue;
+
+    const userId = row.userId;
+    const amount = Number(row.amount);
+    if (!(amount > 0)) continue;
+
+    try {
+      await prisma.$transaction(async (tx) => {
+        // Flip the SAME row — externalId is unique, so a deposit can never
+        // credit twice however many times this runs.
+        const claimed = await tx.settlement.updateMany({
+          where: { id: row.id, status: "review" },
+          data: { status: "completed", asset: symbol },
+        });
+        if (claimed.count !== 1) return;
+
+        await tx.balance.upsert({
+          where: { userId_symbol: { userId, symbol } },
+          create: { userId, symbol, kind: kindOf(symbol), amount: new Prisma.Decimal(amount) },
+          update: { amount: { increment: amount } },
+        });
+        await adjustTreasury(tx, symbol, amount);
+        await tx.transaction.create({
+          data: {
+            userId,
+            type: "deposit",
+            status: "completed",
+            assetOut: symbol,
+            amountOut: new Prisma.Decimal(amount),
+            counterparty: "On-chain",
+            note: `Received ${symbol} via ${chainName(row.chain ?? "")}`,
+            emoji: "\u{1F4E5}",
+            meta: {
+              chain: chainName(row.chain ?? ""),
+              chainId: row.chain,
+              externalId: row.externalId,
+              provider: row.provider,
+              providerAsset: row.asset,
+              releasedFromReview: true,
+            },
+          },
+        });
+      });
+    } catch (e) {
+      console.error(`[deposit] could not release held ${row.externalId}`, e);
+      continue;
+    }
+
+    credited++;
+    const fiatLine = await depositFiatLine(userId, symbol, amount);
+    void notifyUser(userId, {
+      title: `${symbol} deposit`,
+      body: `You received ${pushMoney(amount, symbol)}${fiatLine} \u2014 credited to your ${COMPANY.product} wallet.`,
+      url: "/home",
+      tag: "deposit",
+    });
+  }
+
+  return { checked: held.length, credited };
 }
 
 /**

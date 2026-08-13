@@ -289,6 +289,19 @@ export function CleanupDesk() {
           >
             {busy === "trace" ? "Looking…" : "Find"}
           </button>
+          <button
+            onClick={() =>
+              run("release", async () => {
+                const r = await call("/api/admin/deposits/trace?release=1");
+                setTrace(null);
+                return `Credited ${r.released.credited} of ${r.released.checked} held deposits.`;
+              })
+            }
+            disabled={!!busy}
+            className="h-9 px-3.5 rounded-full bg-good/15 border border-good/40 text-[12.5px] font-grotesk font-semibold text-good active:scale-95 disabled:opacity-50 shrink-0"
+          >
+            {busy === "release" ? "Crediting…" : "Credit held"}
+          </button>
         </div>
 
         {trace && trace.length > 0 && (

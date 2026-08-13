@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { releaseHeldDeposits } from "@/lib/settlement";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +36,14 @@ export async function GET(req: Request) {
   const me = await getUserId();
   if (!me || !(await isAdmin(me))) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const q = (new URL(req.url).searchParams.get("q") ?? "").trim();
+  const url = new URL(req.url);
+
+  // ?release=1 credits the held rows that can now be named.
+  if (url.searchParams.get("release") === "1") {
+    return NextResponse.json({ released: await releaseHeldDeposits(50) });
+  }
+
+  const q = (url.searchParams.get("q") ?? "").trim();
 
   // Narrow to one user when asked, otherwise the most recent deposits overall.
   let userId: string | undefined;

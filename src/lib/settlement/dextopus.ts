@@ -294,6 +294,19 @@ export async function resolveTokenAddress(
   return hit?.tokens.find((t) => t.symbol === value.toUpperCase())?.address;
 }
 
+/** A mint/contract address back to its ticker, via the provider's catalogue. */
+export async function symbolForTokenAddress(address: string, chainId?: number): Promise<string | undefined> {
+  const needle = (address ?? "").trim().toLowerCase();
+  if (!needle) return undefined;
+  const chains = await catalog();
+  const search = chainId ? chains.filter((c) => c.chainId === chainId) : chains;
+  for (const c of search.length ? search : chains) {
+    const hit = c.tokens.find((t) => t.address.toLowerCase() === needle);
+    if (hit?.symbol) return hit.symbol.toUpperCase();
+  }
+  return undefined;
+}
+
 /**
  * How many decimals a token uses, by contract address OR ticker.
  *
