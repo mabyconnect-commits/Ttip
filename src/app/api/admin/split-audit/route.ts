@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getUserId } from "@/lib/auth";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { adjust } from "@/lib/wallet";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -102,5 +104,156 @@ export async function GET(req: Request) {
     debits: rows,
     note:
       "Every one of these was taken without the account owner's approval — the old split route debited on the organizer's word alone. Ranked by who received the most. Nothing has been reversed.",
+  });
+}
+
+
+/**
+ * Give a victim their money back, and take it off whoever took it.
+ *
+ * Targeted at ONE beneficiary by username, because the audit showed the debits
+ * are not all abuse — an operator testing their own accounts appears in the
+ * same list as somebody who found the hole and used it five times. A blanket
+ * reversal would undo both.
+ *
+ * Each original debit is marked reversed inside the same transaction as the
+ * balance moves, so running this twice cannot pay a victim twice or take from
+ * the beneficiary twice.
+ *
+ * The beneficiary's balance floors at zero. If they have already spent or
+ * withdrawn it, the shortfall is reported rather than hidden — the victim is
+ * still made whole, and the loss becomes a number you can act on instead of a
+ * silent gap.
+ */
+export async function POST(req: Request) {
+  const me = await getUserId();
+  if (!me || !(await isAdmin(me))) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const body = (await req.json().catch(() => ({}))) as { beneficiary?: string; confirm?: boolean };
+  const beneficiary = (body.beneficiary ?? "").trim().replace(/^@/, "");
+  if (!beneficiary) return NextResponse.json({ error: "Name the account that received the money." }, { status: 400 });
+
+  const taker = await prisma.user.findFirst({
+    where: { username: beneficiary },
+    select: { id: true, username: true },
+  });
+  if (!taker) return NextResponse.json({ error: `No user @${beneficiary}` }, { status: 404 });
+
+  const debits = await prisma.transaction.findMany({
+    where: {
+      type: "ttip_out",
+      counterparty: "@" + beneficiary,
+      OR: [{ note: { startsWith: "Split:" } }, { note: "Bill split" }],
+    },
+    orderBy: { createdAt: "asc" },
+    take: 200,
+    include: { user: { select: { username: true } } },
+  });
+
+  const pending = debits.filter((d) => !(d.meta as { splitReversedAt?: string } | null)?.splitReversedAt);
+
+  if (!body.confirm) {
+    return NextResponse.json({
+      beneficiary,
+      wouldReverse: pending.length,
+      total: pending.reduce((n, d) => n + Number(d.amountOut ?? 0), 0),
+      charges: pending.map((d) => ({
+        when: d.createdAt,
+        victim: d.user?.username,
+        amount: Number(d.amountOut ?? 0),
+        fiat: d.assetOut,
+      })),
+      howToApply: 'POST again with { "beneficiary": "' + beneficiary + '", "confirm": true }',
+    });
+  }
+
+  const results = [];
+  let shortfallTotal = 0;
+
+  for (const d of pending) {
+    const amount = Number(d.amountOut ?? 0);
+    const fiat = d.assetOut ?? "NGN";
+    if (!(amount > 0) || !d.userId) continue;
+
+    try {
+      const outcome = await prisma.$transaction(async (tx) => {
+        // Claim the original debit so this can never run twice on it.
+        const claimed = await tx.transaction.updateMany({
+          where: { id: d.id, meta: { path: ["splitReversedAt"], equals: Prisma.DbNull } },
+          data: {
+            meta: {
+              ...((d.meta ?? {}) as Record<string, unknown>),
+              splitReversedAt: new Date().toISOString(),
+              splitReversedBy: me,
+            },
+          },
+        });
+        if (claimed.count !== 1) return { skipped: true, shortfall: 0 };
+
+        // Take it back, only as far as they actually still hold.
+        const held = await tx.balance.findUnique({
+          where: { userId_symbol: { userId: taker.id, symbol: fiat } },
+        });
+        const have = held ? Number(held.amount) : 0;
+        const take = Math.min(have, amount);
+        const shortfall = amount - take;
+
+        if (take > 0) {
+          await tx.balance.update({
+            where: { userId_symbol: { userId: taker.id, symbol: fiat } },
+            data: { amount: new Prisma.Decimal(have - take) },
+          });
+        }
+
+        // The victim is made whole in full, whatever the taker still had.
+        await adjust(tx, d.userId!, fiat, amount);
+
+        await tx.transaction.create({
+          data: {
+            userId: d.userId!,
+            type: "ttip_in",
+            status: "completed",
+            assetOut: fiat,
+            amountOut: new Prisma.Decimal(amount),
+            counterparty: "Ttip",
+            note: `Refund — unauthorised split charge by @${beneficiary}`,
+            emoji: "↩️",
+          },
+        });
+        await tx.transaction.create({
+          data: {
+            userId: taker.id,
+            type: "ttip_out",
+            status: "completed",
+            assetOut: fiat,
+            amountOut: new Prisma.Decimal(take),
+            counterparty: "Ttip",
+            note: `Reversed — unauthorised split charge${shortfall > 0 ? ` (${shortfall} unrecovered)` : ""}`,
+            emoji: "↩️",
+          },
+        });
+
+        return { skipped: false, shortfall };
+      });
+
+      if (outcome.skipped) continue;
+      shortfallTotal += outcome.shortfall;
+      results.push({ victim: d.user?.username, amount, fiat, shortfall: outcome.shortfall });
+    } catch (e) {
+      console.error("[split-audit] reversal failed", d.id, e);
+      results.push({ victim: d.user?.username, amount, fiat, error: (e as Error).message });
+    }
+  }
+
+  return NextResponse.json({
+    beneficiary,
+    reversed: results.filter((r) => !("error" in r)).length,
+    refundedTotal: results.reduce((n, r) => n + ("error" in r ? 0 : r.amount), 0),
+    unrecovered: shortfallTotal,
+    results,
+    note:
+      shortfallTotal > 0
+        ? `Victims were refunded in full. ${shortfallTotal} could not be taken back from @${beneficiary} — they had already spent it. That is a real loss to the platform.`
+        : "Fully recovered from the account that took it.",
   });
 }
