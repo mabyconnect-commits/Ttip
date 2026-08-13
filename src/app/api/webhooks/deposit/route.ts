@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { scaleDepositAmount } from "@/lib/settlement/deposit-amount";
+import { resolveDepositAsset } from "@/lib/settlement/asset-resolve";
 import {
   creditDeposit,
   parseDeposit,
@@ -93,8 +94,27 @@ export async function POST(req: Request) {
       // amount (deposit.settled). Relabelling an ORIGIN-amount credit to the
       // settlement asset is the mis-credit that turned 1.3 SOL into "1.3 USDC",
       // so an origin-pair credit keeps its own asset.
+      // THE ROOT CAUSE, closed at its source.
+      //
+      // DEXTOPUS_SETTLEMENT_ASSET carries two meanings at once. The address
+      // minting code needs it to be a TOKEN ADDRESS — resolveTokenAddress
+      // explicitly accepts one. This relabel was written assuming it is a
+      // TICKER. It is configured as the Solana USDC mint, so this line wrote
+      // "EPjFWdd5…" into deposit.asset as if it were a currency.
+      //
+      // Before 2026-08-09 that minted a junk balance row named after the mint.
+      // On 2026-08-09 a guard was added refusing any asset that isn't a listed
+      // ticker — correct in itself — and from that moment every settled deposit
+      // was held instead of credited. That is the day deposits stopped working,
+      // and it is exactly what users have been reporting since.
+      //
+      // So the address is resolved to its ticker HERE, and the settlement row
+      // records "USDC" rather than a 44-character mint. If it can't be resolved
+      // the raw value is left for creditDeposit to judge — never guessed at.
       if (deposit.settled && process.env.DEXTOPUS_SETTLEMENT_ASSET) {
-        deposit.asset = process.env.DEXTOPUS_SETTLEMENT_ASSET.toUpperCase();
+        const configured = process.env.DEXTOPUS_SETTLEMENT_ASSET.trim();
+        const ticker = await resolveDepositAsset(configured, deposit.chainId).catch(() => null);
+        deposit.asset = ticker ?? configured;
       }
       const result = await creditDeposit(deposit);
       return NextResponse.json({ ok: true, ...result });
