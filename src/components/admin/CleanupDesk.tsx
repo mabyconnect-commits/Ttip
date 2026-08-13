@@ -52,6 +52,8 @@ export function CleanupDesk() {
   const [q, setQ] = useState("");
   // Which held rows the operator has ticked. Nothing acts on the whole list.
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  // The provider's own payload, verbatim. The one thing never looked at.
+  const [raw, setRaw] = useState<string | null>(null);
 
   function toggle(id: string) {
     setPicked((prev) => {
@@ -349,6 +351,19 @@ export function CleanupDesk() {
           >
             {busy === "sync" ? "Syncing…" : "Sync now"}
           </button>
+          <button
+            onClick={() =>
+              run("raw", async () => {
+                const r = await call(`/api/admin/deposits/raw?q=${encodeURIComponent(q.trim())}`);
+                setRaw(JSON.stringify(r, null, 2));
+                return `${r.dextopusReturned} record(s) from Dextopus. ${r.readThis}`;
+              })
+            }
+            disabled={!!busy}
+            className="h-9 px-3.5 rounded-full bg-bad/15 border border-bad/40 text-[12.5px] font-grotesk font-semibold text-bad active:scale-95 disabled:opacity-50 shrink-0"
+          >
+            {busy === "raw" ? "Reading…" : "Raw data"}
+          </button>
         </div>
 
         {trace && trace.length > 0 && (
@@ -427,6 +442,26 @@ export function CleanupDesk() {
           </>
         )}
       </div>
+
+      {raw && (
+        <div className="mt-3">
+          <div className="flex justify-between items-center mb-1.5">
+            <span className="text-[11.5px] text-white/45">What Dextopus actually sends</span>
+            <button
+              onClick={() => {
+                navigator.clipboard?.writeText(raw);
+                setMsg("Copied — paste it back to Claude.");
+              }}
+              className="h-7 px-3 rounded-full border border-white/14 text-[11.5px] font-grotesk font-semibold text-white/80"
+            >
+              Copy all
+            </button>
+          </div>
+          <pre className="bg-surface2 rounded-xl p-3 text-[10px] leading-relaxed overflow-auto max-h-[320px] whitespace-pre-wrap break-all text-white/70">
+            {raw}
+          </pre>
+        </div>
+      )}
 
       {msg && <div className="mt-3 text-[12px] text-white/70 bg-surface2 rounded-xl px-3 py-2">{msg}</div>}
     </div>
