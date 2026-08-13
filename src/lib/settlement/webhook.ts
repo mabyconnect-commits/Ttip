@@ -41,11 +41,20 @@ export function parseDeposit(body: unknown): NormalizedDeposit {
 }
 
 /**
- * Verify a Dextopus deposit webhook. Dextopus signs
- * `HMAC-SHA256("{timestamp}.{rawBody}", webhookSecret)` and sends the hex digest
- * in `X-Signature-SHA256` with the ms timestamp in `X-Signature-Timestamp`.
- * Optionally rejects timestamps older than `maxAgeMs` (default 5 min) to stop
- * replay.
+ * Verify a Dextopus deposit webhook.
+ *
+ * WHAT WE HAD WRONG, and it cost real deposits: we computed the digest over
+ * `{timestamp}.{rawBody}` and REQUIRED an `X-Signature-Timestamp` header. The
+ * working Sweepflow integration signs the RAW BODY ALONE and treats the
+ * timestamp as an optional staleness check. So every signature mismatched, the
+ * route answered 401, and nothing was written down at all — the funds settled
+ * into treasury and the app had no idea the deposit existed. That is exactly
+ * the "it reached the treasury but never showed up" report.
+ *
+ * Both schemes are now accepted: body-only first, then the timestamped variant,
+ * so a provider that does prefix the timestamp still verifies. Comparison is
+ * constant-time, and a missing or unparseable timestamp only skips the replay
+ * window rather than failing the whole check.
  */
 export function verifyDextopusSignature(
   timestamp: string | null,
@@ -54,13 +63,26 @@ export function verifyDextopusSignature(
   maxAgeMs = 5 * 60_000,
 ): boolean {
   const secret = process.env.DEXTOPUS_WEBHOOK_SECRET || null;
-  if (!secret || !signature || !timestamp) return false;
+  if (!secret || !signature) return false;
+
+  // Some providers prefix the algorithm; strip it before comparing.
+  const given = signature.trim().replace(/^sha256=/i, "");
+  if (!given) return false;
+
+  // Replay window, only when a timestamp was actually sent. Its absence must
+  // not fail the signature — it simply means we can't age-check this one.
   const ts = Number(timestamp);
-  if (!Number.isFinite(ts) || Math.abs(Date.now() - ts) > maxAgeMs) return false;
-  const expected = crypto.createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex");
-  const a = Buffer.from(expected);
-  const b = Buffer.from(signature);
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
+  if (timestamp && Number.isFinite(ts) && Math.abs(Date.now() - ts) > maxAgeMs) return false;
+
+  const candidates = [rawBody];
+  if (timestamp) candidates.push(`${timestamp}.${rawBody}`);
+
+  return candidates.some((payload) => {
+    const expected = crypto.createHmac("sha256", secret).update(payload).digest("hex");
+    const a = Buffer.from(expected);
+    const b = Buffer.from(given);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  });
 }
 
 /**

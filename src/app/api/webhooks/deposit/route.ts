@@ -21,14 +21,44 @@ export const dynamic = "force-dynamic";
  *     parseDextopusDeposit (user resolved from the echoed userId).
  *   - Generic/sandbox: `x-ttip-signature`, payload maps via parseDeposit.
  */
+/**
+ * Health check. Paste the URL into a browser to see whether this deployment is
+ * actually wired up — the reference integration does the same, and it is the
+ * fastest way to tell a config problem from a code one without reading logs.
+ */
+export async function GET() {
+  return NextResponse.json({
+    ok: true,
+    service: "ttip-deposit-webhook",
+    hasDextopusSecret: Boolean(process.env.DEXTOPUS_WEBHOOK_SECRET),
+    hasGenericSecret: Boolean(process.env.DEPOSIT_WEBHOOK_SECRET),
+    settlementAssetConfigured: Boolean(process.env.DEXTOPUS_SETTLEMENT_ASSET),
+  });
+}
+
 export async function POST(req: Request) {
   const raw = await req.text();
-  const dextopusSig = req.headers.get("x-signature-sha256");
+  // Providers differ on the header name, and picking only one is how a
+  // correctly-signed webhook gets treated as unsigned and thrown away.
+  const dextopusSig =
+    req.headers.get("x-signature-sha256") ??
+    req.headers.get("x-dextopus-signature") ??
+    req.headers.get("x-webhook-signature") ??
+    req.headers.get("x-signature");
 
   try {
     if (dextopusSig) {
       const ts = req.headers.get("x-signature-timestamp");
       if (!verifyDextopusSignature(ts, raw, dextopusSig)) {
+        // Logged with enough detail to diagnose without leaking the secret. A
+        // silent 401 here is money vanishing: the funds settle into treasury and
+        // nothing is ever written down.
+        console.error("[deposit] signature rejected — deposit NOT recorded", {
+          bytes: raw.length,
+          haveSecret: Boolean(process.env.DEXTOPUS_WEBHOOK_SECRET),
+          receivedPrefix: dextopusSig.slice(0, 8),
+          hadTimestamp: Boolean(ts),
+        });
         return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
       }
       const payload = JSON.parse(raw);
