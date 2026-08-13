@@ -99,10 +99,20 @@ model WalletAddress {
   address  String
   provider String? // null = demo generator; "dextopus" = real provider-issued
 
+  /// When the deposit poller last asked the provider about this user.
+  ///
+  /// The poller took the 25 most recently created addresses, every run, for
+  /// ever. Newest wins is the worst possible order here: the 26th-oldest
+  /// depositor was never polled again, so their deposit could only ever be
+  /// rescued by an admin pressing Sync. Oldest-checked-first instead, so every
+  /// user comes round in turn and nobody is permanently invisible.
+  polledAt DateTime?
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, symbol, network])
   @@index([userId])
+  @@index([provider, polledAt])
 }
 
 /// Single-use password-reset tokens. Only a HASH of the token is stored, so a

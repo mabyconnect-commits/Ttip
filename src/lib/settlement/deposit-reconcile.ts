@@ -34,18 +34,18 @@ export async function reconcileDeposits(limitUsers = 25, onlyUserId?: string): P
   const result: DepositReconcileResult = { usersChecked: 0, seen: 0, credited: 0, skipped: 0 };
 
   // Users who actually have a Dextopus address — nobody else can have deposited.
-  const rows = onlyUserId
-    ? [{ userId: onlyUserId }]
-    : await prisma.walletAddress.findMany({
-        where: { provider: "dextopus" },
-        distinct: ["userId"],
-        select: { userId: true },
-        orderBy: { id: "desc" },
-        take: Math.max(1, Math.min(limitUsers, 200)),
-      });
+  const rows = onlyUserId ? [{ userId: onlyUserId }] : await nextUsersToPoll(limitUsers);
 
   for (const { userId } of rows) {
     result.usersChecked++;
+    // Stamped BEFORE the call, not after: a user whose provider request throws
+    // must still move to the back of the queue, or one failing account blocks
+    // the rotation for everybody behind it.
+    if (!onlyUserId) {
+      await prisma.walletAddress
+        .updateMany({ where: { userId, provider: "dextopus" }, data: { polledAt: new Date() } })
+        .catch(() => {});
+    }
     const records = await listDeposits({ userId }).catch(() => []);
 
     for (const record of records) {
@@ -97,4 +97,49 @@ export async function reconcileDeposits(limitUsers = 25, onlyUserId?: string): P
   }
 
   return result;
+}
+
+/**
+ * The next batch to ask about: never-polled first, then oldest-polled.
+ *
+ * A brand-new depositor is the most likely person to be waiting on a deposit
+ * right now, so they jump the queue; after that it is strict round-robin, which
+ * is the only ordering under which every user is guaranteed to be checked.
+ *
+ * Deduplicated here rather than with `distinct`, because Postgres DISTINCT ON
+ * demands the distinct column lead the ORDER BY, and the ordering is the whole
+ * point of this query.
+ */
+async function nextUsersToPoll(limitUsers: number): Promise<{ userId: string }[]> {
+  const take = Math.max(1, Math.min(limitUsers, 200));
+  const seen = new Set<string>();
+  const out: { userId: string }[] = [];
+
+  const add = (found: { userId: string }[]) => {
+    for (const row of found) {
+      if (seen.has(row.userId)) continue;
+      seen.add(row.userId);
+      out.push(row);
+      if (out.length >= take) return true;
+    }
+    return false;
+  };
+
+  // A user can hold several addresses, so over-fetch and let the dedupe decide.
+  const fresh = await prisma.walletAddress.findMany({
+    where: { provider: "dextopus", polledAt: null },
+    select: { userId: true },
+    orderBy: { id: "desc" },
+    take: take * 4,
+  });
+  if (add(fresh)) return out;
+
+  const stale = await prisma.walletAddress.findMany({
+    where: { provider: "dextopus", polledAt: { not: null } },
+    select: { userId: true },
+    orderBy: { polledAt: "asc" },
+    take: take * 4,
+  });
+  add(stale);
+  return out;
 }

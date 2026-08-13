@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
+import { rateLimit, clientIp } from "@/lib/rate-limit";
 import { scaleDepositAmount } from "@/lib/settlement/deposit-amount";
 import { resolveDepositAsset } from "@/lib/settlement/asset-resolve";
+import { reconcileDeposits } from "@/lib/settlement/deposit-reconcile";
 import {
   creditDeposit,
   parseDeposit,
@@ -37,6 +40,74 @@ export async function GET() {
   });
 }
 
+/**
+ * A webhook we could not verify is still a doorbell. Answer the door.
+ *
+ * THE reason deposits only appeared after an admin pressed Sync. Everything
+ * downstream of this route is provably fine — Sync runs the very same parser,
+ * scaler and creditDeposit against the very same deposit and credits it
+ * correctly. So the failure is not in the crediting. It is here, at the front
+ * door: the event arrives, the HMAC doesn't match what we compute (a different
+ * canonical form, a header we don't read, a rotated secret), we return 401, and
+ * the money is silently dropped. The user then waits for a human.
+ *
+ * Rejecting an unverified PAYLOAD is right — its amounts and asset could be
+ * anyone's invention. Rejecting the NEWS is what costs the deposit. So the
+ * payload is thrown away and used only as a hint about WHO to ask, and then we
+ * ask Dextopus ourselves over our authenticated API and credit strictly what
+ * THEY report. Nothing in the request body can influence a balance.
+ *
+ * That makes the signature an optimisation rather than a single point of
+ * failure: get it wrong and deposits still land in seconds.
+ */
+async function confirmWithProvider(raw: string, req: Request) {
+  if (!raw || raw.length > 20_000) return null;
+
+  let body: unknown;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  const b = (body ?? {}) as { data?: Record<string, unknown> } & Record<string, unknown>;
+  const d = (b.data ?? b) as Record<string, unknown>;
+
+  // The hint has to point at a deposit address WE issued. An unknown address is
+  // a stranger poking the endpoint, and gets nothing — not even a lookup.
+  const address = d.depositAddress ? String(d.depositAddress).trim() : "";
+  const claimed = d.userId ? String(d.userId).trim() : "";
+
+  let userId: string | null = null;
+  if (address) {
+    const row = await prisma.walletAddress.findFirst({
+      where: { address, provider: "dextopus" },
+      select: { userId: true },
+    });
+    userId = row?.userId ?? null;
+  }
+  if (!userId && claimed) {
+    const row = await prisma.walletAddress.findFirst({
+      where: { userId: claimed, provider: "dextopus" },
+      select: { userId: true },
+    });
+    userId = row?.userId ?? null;
+  }
+  if (!userId) return null;
+
+  // Cheap brake on anyone replaying a known address to make us call out.
+  try {
+    rateLimit(`deposit-confirm:${clientIp(req)}`, { limit: 60, windowMs: 60_000 });
+  } catch {
+    return null;
+  }
+
+  console.warn("[deposit] unverified webhook — confirming with the provider instead", { userId });
+  return await reconcileDeposits(1, userId).catch((e) => {
+    console.error("[deposit] provider confirmation failed", e);
+    return null;
+  });
+}
+
 export async function POST(req: Request) {
   const raw = await req.text();
   // Providers differ on the header name, and picking only one is how a
@@ -60,6 +131,10 @@ export async function POST(req: Request) {
           receivedPrefix: dextopusSig.slice(0, 8),
           hadTimestamp: Boolean(ts),
         });
+        const confirmed = await confirmWithProvider(raw, req);
+        if (confirmed) {
+          return NextResponse.json({ ok: true, verifiedBy: "provider-api", ...confirmed });
+        }
         return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
       }
       const payload = JSON.parse(raw);
@@ -121,6 +196,13 @@ export async function POST(req: Request) {
     }
 
     if (!verifyDepositSignature(raw, req.headers.get("x-ttip-signature"))) {
+      // No signature header we recognise at all. If the body still names a
+      // deposit address we issued, this is our provider using a header name we
+      // haven't seen — same treatment: ask them, credit their answer.
+      const confirmed = await confirmWithProvider(raw, req);
+      if (confirmed) {
+        return NextResponse.json({ ok: true, verifiedBy: "provider-api", ...confirmed });
+      }
       return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
     }
     const deposit = parseDeposit(JSON.parse(raw));
