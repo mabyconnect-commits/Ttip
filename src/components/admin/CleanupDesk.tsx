@@ -220,6 +220,47 @@ export function CleanupDesk() {
         )}
       </div>
 
+      {/* the delivery address Dextopus needs */}
+      <div className="mt-4 pt-3 border-t border-white/[.06]">
+        <div className="font-sans font-semibold text-[13px]">Deposit webhook</div>
+        <div className="text-[11.5px] text-white/45 mt-0.5">
+          Where Dextopus delivers deposit events. If this was never registered, deposits settle into treasury
+          and the app is never told — no rows, no logs, nothing to find.
+        </div>
+
+        <div className="flex gap-2 mt-2.5">
+          <button
+            onClick={() =>
+              run("hook-check", async () => {
+                const r = await call("/api/admin/deposits/webhook");
+                const now = r.currentlyRegistered
+                  ? `they report: ${String(r.currentlyRegistered.body).slice(0, 160)}`
+                  : "they returned nothing";
+                return `Would register ${r.wouldRegister} — ${now}`;
+              })
+            }
+            disabled={!!busy}
+            className="h-9 px-3.5 rounded-full border border-white/14 text-[12.5px] font-grotesk font-semibold text-white/85 active:scale-95 disabled:opacity-50"
+          >
+            {busy === "hook-check" ? "Checking…" : "Check"}
+          </button>
+          <button
+            onClick={() =>
+              run("hook-set", async () => {
+                const r = await call("/api/admin/deposits/webhook", { method: "POST" });
+                return r.ok
+                  ? `Registered ${r.url}. Send a small test deposit now.`
+                  : `Dextopus refused (${r.status}): ${String(r.body).slice(0, 200)}`;
+              })
+            }
+            disabled={!!busy}
+            className="h-9 px-3.5 rounded-full bg-good/15 border border-good/40 text-[12.5px] font-grotesk font-semibold text-good active:scale-95 disabled:opacity-40"
+          >
+            {busy === "hook-set" ? "Registering…" : "Register webhook"}
+          </button>
+        </div>
+      </div>
+
       {/* trace — read only, writes nothing */}
       <div className="mt-4 pt-3 border-t border-white/[.06]">
         <div className="font-sans font-semibold text-[13px]">Find a deposit</div>

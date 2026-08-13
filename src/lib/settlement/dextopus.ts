@@ -449,17 +449,52 @@ export async function createDepositAddress(
   return address ? { id: json.data?.id ?? "", address, originChainId, originAsset: originSymbol } : null;
 }
 
-/** Register (or update) the deposit webhook URL + events with Dextopus. */
-export async function configureWebhook(webhookUrl: string): Promise<boolean> {
+/**
+ * Register (or update) the deposit webhook URL + events with Dextopus.
+ *
+ * This function existed for months and was called from NOWHERE. Which means
+ * that unless someone registered the URL by hand in the dashboard, Dextopus had
+ * no address to deliver deposit events to: every deposit settled into treasury
+ * correctly and no webhook was ever fired, so the app never learned the money
+ * had arrived. No settlement row, no transaction, nothing in any log — because
+ * nothing was ever sent. It is now reachable from the admin panel.
+ *
+ * Returns the provider's own response, not just a boolean, because "it didn't
+ * work" without their message is what makes this take a week instead of a
+ * minute.
+ */
+export async function configureWebhook(
+  webhookUrl: string,
+): Promise<{ ok: boolean; status: number; body: string }> {
   const cfg = dextopusConfig();
-  if (!cfg) return false;
-  const res = await fetch(`${cfg.baseUrl}/deposit/static/webhook`, {
-    method: "POST",
-    headers: { "x-api-key": cfg.apiKey, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      webhookUrl,
-      events: ["deposit.created", "deposit.completed", "deposit.failed", "deposit.refunded"],
-    }),
-  });
-  return res.ok;
+  if (!cfg) return { ok: false, status: 0, body: "Dextopus is not configured on this deployment." };
+  try {
+    const res = await fetch(`${cfg.baseUrl}/deposit/static/webhook`, {
+      method: "POST",
+      headers: { "x-api-key": cfg.apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        webhookUrl,
+        events: ["deposit.created", "deposit.completed", "deposit.failed", "deposit.refunded"],
+      }),
+    });
+    const body = await res.text().catch(() => "");
+    return { ok: res.ok, status: res.status, body: body.slice(0, 600) };
+  } catch (e) {
+    return { ok: false, status: 0, body: (e as Error).message };
+  }
+}
+
+/** What Dextopus currently has registered, when they'll tell us. */
+export async function readWebhookConfig(): Promise<{ status: number; body: string } | null> {
+  const cfg = dextopusConfig();
+  if (!cfg) return null;
+  try {
+    const res = await fetch(`${cfg.baseUrl}/deposit/static/webhook`, {
+      headers: { "x-api-key": cfg.apiKey },
+    });
+    const body = await res.text().catch(() => "");
+    return { status: res.status, body: body.slice(0, 600) };
+  } catch (e) {
+    return { status: 0, body: (e as Error).message };
+  }
 }
