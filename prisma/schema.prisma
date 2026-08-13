@@ -59,6 +59,8 @@ model User {
   pushSubs         PushSubscription[]
   telegramDrafts   TelegramDraft[]
   giftCards        GiftCardOrder[]
+  splitsRequested  SplitRequest[]       @relation("SplitOrganizer")
+  splitsToPay      SplitRequest[]       @relation("SplitPayer")
   scheduledSends   ScheduledTransfer[]
   phoneLink        PhoneLink?
   createdAt        DateTime             @default(now())
@@ -574,6 +576,39 @@ model SmsCode {
 /// retries a delivery cannot send the money twice. And when someone says "I
 /// texted you and nothing happened", this is the only record that can answer
 /// them.
+/// A request to split a bill. NOT a debit.
+///
+/// The route this replaces moved money out of other people's wallets the moment
+/// an organizer named their username: no consent, no PIN, no cap. Anyone who
+/// knew a handle could empty that account into their own, and people did.
+///
+/// A split is now a REQUEST. It sits here until the person being asked opens it
+/// and pays with their own PIN. Nobody's balance moves because somebody else
+/// typed their name.
+model SplitRequest {
+  id          String @id @default(cuid())
+  /// Who is asking.
+  organizerId String
+  /// Who is being asked. Their balance is untouched until THEY pay.
+  payerId     String
+
+  amount   Decimal @db.Decimal(24, 8)
+  fiat     String
+  note     String?
+
+  /// pending → paid | declined | cancelled
+  status String @default("pending")
+
+  createdAt DateTime  @default(now())
+  paidAt    DateTime?
+
+  organizer User @relation("SplitOrganizer", fields: [organizerId], references: [id], onDelete: Cascade)
+  payer     User @relation("SplitPayer", fields: [payerId], references: [id], onDelete: Cascade)
+
+  @@index([payerId, status])
+  @@index([organizerId, createdAt])
+}
+
 model SmsCommand {
   id         String  @id @default(cuid())
   providerId String  @unique

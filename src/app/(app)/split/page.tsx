@@ -106,14 +106,15 @@ export default function SplitPage() {
         <Receipt
           onDone={() => { setReceipt(null); router.push("/feed"); }}
           badge="Split"
-          title="Split settled"
+          title="Requests sent"
           amount={formatFiat(receipt.total, receipt.fiat, { decimals: 0 })}
           fields={[
             { label: "Type", value: "Bill split" },
             { label: "Settled by", value: state.user.name },
             { label: "Total", value: formatFiat(receipt.total, receipt.fiat, { decimals: 0 }) },
-            { label: "Split between", value: `${receipt.settled} friends` },
+            { label: "Asked", value: `${receipt.requested} ${receipt.requested === 1 ? "person" : "people"}` },
             { label: "Each pays", value: formatFiat(receipt.share, receipt.fiat, { decimals: 0 }) },
+            { label: "Status", value: "Nobody is charged until they approve it themselves" },
           ]}
         />
       )}
