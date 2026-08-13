@@ -50,6 +50,17 @@ export function CleanupDesk() {
   const [cards, setCards] = useState<TestCard[] | null>(null);
   const [trace, setTrace] = useState<Trace[] | null>(null);
   const [q, setQ] = useState("");
+  // Which held rows the operator has ticked. Nothing acts on the whole list.
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+
+  function toggle(id: string) {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   async function call(url: string, init?: RequestInit) {
     const res = await fetch(url, { credentials: "include", ...init });
@@ -291,39 +302,94 @@ export function CleanupDesk() {
           </button>
           <button
             onClick={() =>
-              run("release", async () => {
-                const r = await call("/api/admin/deposits/trace?release=1");
-                setTrace(null);
-                return `Credited ${r.released.credited} of ${r.released.checked} held deposits.`;
+              run("held", async () => {
+                const r = await call("/api/admin/deposits/trace?held=1");
+                setTrace(r.deposits ?? []);
+                setPicked(new Set());
+                return r.count ? `${r.count} held — tick the ones to act on.` : "Nothing held.";
               })
             }
             disabled={!!busy}
-            className="h-9 px-3.5 rounded-full bg-good/15 border border-good/40 text-[12.5px] font-grotesk font-semibold text-good active:scale-95 disabled:opacity-50 shrink-0"
+            className="h-9 px-3.5 rounded-full border border-white/14 text-[12.5px] font-grotesk font-semibold text-white/85 active:scale-95 disabled:opacity-50 shrink-0"
           >
-            {busy === "release" ? "Crediting…" : "Credit held"}
+            {busy === "held" ? "Loading…" : "Held only"}
           </button>
         </div>
 
         {trace && trace.length > 0 && (
-          <div className="mt-2.5 flex flex-col gap-1.5 max-h-[280px] overflow-y-auto no-scrollbar">
-            {trace.map((t) => (
-              <div key={t.externalId} className="bg-surface2 rounded-xl px-3 py-2 text-[11.5px]">
-                <div className="flex justify-between gap-2">
-                  <span className="font-grotesk font-semibold">
-                    {t.amount} {t.asset}
-                  </span>
-                  <span className="text-white/45 shrink-0">{t.user}</span>
-                </div>
-                <div className={`mt-1 ${t.status === "review" || !t.transaction ? "text-[#FFC43D]" : "text-good"}`}>
-                  {t.verdict}
-                </div>
-                {t.balanceNow !== null && (
-                  <div className="text-white/40 mt-0.5">holds {t.balanceNow} now</div>
-                )}
-                <div className="text-white/25 mt-0.5 break-all">{t.externalId}</div>
-              </div>
-            ))}
-          </div>
+          <>
+            <div className="mt-2.5 flex flex-col gap-1.5 max-h-[280px] overflow-y-auto no-scrollbar">
+              {trace.map((t) => {
+                const held = t.status === "review";
+                const on = picked.has(t.externalId);
+                return (
+                  <button
+                    key={t.externalId}
+                    onClick={() => held && toggle(t.externalId)}
+                    disabled={!held}
+                    className={`text-left rounded-xl px-3 py-2 text-[11.5px] border ${
+                      on ? "bg-brand-cyan/[.12] border-brand-cyan" : "bg-surface2 border-transparent"
+                    } ${held ? "active:scale-[.99]" : "opacity-70"}`}
+                  >
+                    <div className="flex justify-between gap-2 items-start">
+                      <span className="font-grotesk font-semibold">
+                        {held && (
+                          <span className={`mr-1.5 ${on ? "text-brand-cyan" : "text-white/30"}`}>
+                            {on ? "☑" : "☐"}
+                          </span>
+                        )}
+                        {t.amount} {t.asset.length > 12 ? `${t.asset.slice(0, 10)}…` : t.asset}
+                      </span>
+                      <span className="text-white/45 shrink-0">{t.user}</span>
+                    </div>
+                    <div className={`mt-1 ${held || !t.transaction ? "text-[#FFC43D]" : "text-good"}`}>{t.verdict}</div>
+                    {t.balanceNow !== null && <div className="text-white/40 mt-0.5">holds {t.balanceNow} now</div>}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Two endings, and the operator picks which. Crediting a deposit
+                that was already paid by hand pays the user twice. */}
+            <div className="flex gap-2 mt-2.5">
+              <button
+                onClick={() =>
+                  run("credit-sel", async () => {
+                    const r = await call("/api/admin/deposits/trace", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ credit: [...picked] }),
+                    });
+                    setPicked(new Set());
+                    setTrace(null);
+                    return `Credited ${r.credited} of ${r.checked}.`;
+                  })
+                }
+                disabled={!!busy || picked.size === 0}
+                className="h-9 px-3.5 rounded-full bg-good/15 border border-good/40 text-[12.5px] font-grotesk font-semibold text-good active:scale-95 disabled:opacity-40"
+              >
+                {busy === "credit-sel" ? "Crediting…" : `Credit ${picked.size || ""}`}
+              </button>
+              <button
+                onClick={() =>
+                  run("dismiss-sel", async () => {
+                    const r = await call("/api/admin/deposits/trace", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ dismiss: [...picked], note: "already credited manually" }),
+                    });
+                    setPicked(new Set());
+                    setTrace(null);
+                    return `${r.dismissed} cleared from the queue. No balances were touched.`;
+                  })
+                }
+                disabled={!!busy || picked.size === 0}
+                className="h-9 px-3.5 rounded-full border border-white/14 text-[12.5px] font-grotesk font-semibold text-white/85 active:scale-95 disabled:opacity-40"
+              >
+                {busy === "dismiss-sel" ? "Clearing…" : "Already paid"}
+              </button>
+            </div>
+          </>
         )}
       </div>
 

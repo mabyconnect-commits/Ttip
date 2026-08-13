@@ -184,9 +184,18 @@ export async function creditDeposit(
  * Anything that still cannot be named is LEFT held. This releases money that
  * was always ours to credit and never invents an asset to clear a row.
  */
-export async function releaseHeldDeposits(limit = 50): Promise<{ checked: number; credited: number }> {
+export async function releaseHeldDeposits(
+  limit = 50,
+  externalIds?: string[],
+): Promise<{ checked: number; credited: number }> {
+  // NEVER credit the whole queue by default. Some of these have already been
+  // paid by hand from the balance desk, and crediting those again hands the
+  // user the money twice — with no record that it was a duplicate. An explicit
+  // list is the only safe instruction.
+  if (!externalIds?.length) return { checked: 0, credited: 0 };
+
   const held = await prisma.settlement.findMany({
-    where: { kind: "deposit", status: "review" },
+    where: { kind: "deposit", status: "review", externalId: { in: externalIds.slice(0, 200) } },
     orderBy: { createdAt: "asc" },
     take: Math.max(1, Math.min(limit, 200)),
   });
@@ -255,6 +264,27 @@ export async function releaseHeldDeposits(limit = 50): Promise<{ checked: number
   }
 
   return { checked: held.length, credited };
+}
+
+/**
+ * Take a held deposit off the queue WITHOUT crediting it.
+ *
+ * For the ones already paid by hand. The row is marked resolved rather than
+ * deleted: it is a record of money that genuinely arrived, and deleting it
+ * would leave the treasury holding funds with nothing to explain them. The
+ * queue clears, the history survives, and the note says who decided and why.
+ */
+export async function dismissHeldDeposits(
+  externalIds: string[],
+  note = "already credited manually",
+): Promise<{ dismissed: number }> {
+  if (!externalIds?.length) return { dismissed: 0 };
+  const done = await prisma.settlement.updateMany({
+    where: { kind: "deposit", status: "review", externalId: { in: externalIds.slice(0, 200) } },
+    data: { status: "settled_manually" },
+  });
+  console.error(`[deposit] ${done.count} held deposits dismissed — ${note}`);
+  return { dismissed: done.count };
 }
 
 /**

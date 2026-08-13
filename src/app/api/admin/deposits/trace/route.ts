@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { releaseHeldDeposits } from "@/lib/settlement";
+import { releaseHeldDeposits, dismissHeldDeposits } from "@/lib/settlement";
 
 export const dynamic = "force-dynamic";
 
@@ -38,11 +38,6 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
 
-  // ?release=1 credits the held rows that can now be named.
-  if (url.searchParams.get("release") === "1") {
-    return NextResponse.json({ released: await releaseHeldDeposits(50) });
-  }
-
   const q = (url.searchParams.get("q") ?? "").trim();
 
   // Narrow to one user when asked, otherwise the most recent deposits overall.
@@ -56,8 +51,11 @@ export async function GET(req: Request) {
     userId = user?.id;
   }
 
+  // ?held=1 narrows to the review queue — the rows that need a decision.
+  const heldOnly = url.searchParams.get("held") === "1";
+
   const rows = await prisma.settlement.findMany({
-    where: { kind: "deposit", ...(userId ? { userId } : {}) },
+    where: { kind: "deposit", ...(userId ? { userId } : {}), ...(heldOnly ? { status: "review" } : {}) },
     orderBy: { createdAt: "desc" },
     take: 25,
   });
@@ -116,4 +114,33 @@ export async function GET(req: Request) {
         ? "No deposit rows at all. The webhook never arrived, or it could not match the deposit address to a user — check the Vercel logs for /api/webhooks/deposit."
         : undefined,
   });
+}
+
+
+/**
+ * Act on a chosen few. Never on "everything".
+ *
+ *   { credit:  [externalId, …] } → credit those, resolving the asset
+ *   { dismiss: [externalId, …] } → take them off the queue, crediting nothing
+ *
+ * The split exists because some held deposits were already paid by hand. A
+ * blanket "credit all" would pay those users a second time.
+ */
+export async function POST(req: Request) {
+  const me = await getUserId();
+  if (!me || !(await isAdmin(me))) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const body = (await req.json().catch(() => ({}))) as {
+    credit?: string[];
+    dismiss?: string[];
+    note?: string;
+  };
+
+  if (body.dismiss?.length) {
+    return NextResponse.json(await dismissHeldDeposits(body.dismiss, body.note));
+  }
+  if (body.credit?.length) {
+    return NextResponse.json(await releaseHeldDeposits(200, body.credit));
+  }
+  return NextResponse.json({ error: "Nothing selected." }, { status: 400 });
 }
