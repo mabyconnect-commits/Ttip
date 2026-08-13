@@ -90,13 +90,16 @@ export function CleanupDesk() {
     <div className="bg-surface border border-white/[.06] rounded-2xl p-4 mt-3">
       <div className="font-grotesk font-semibold text-[14px]">Clean-up</div>
       <p className="text-[12px] text-white/45 mt-1 leading-relaxed">
-        Undo balances that were credited or charged in error. Check first, then apply — nothing moves until you
-        press the second button.
+        Repairs and diagnostics, one topic at a time. Tap a heading to open it — every action shows what it
+        would touch before it touches anything.
       </p>
 
       {/* mis-credited deposits */}
-      <div className="mt-4 pt-3 border-t border-white/[.06]">
-        <div className="font-sans font-semibold text-[13px]">Mis-credited deposits</div>
+      <details className="mt-4 pt-3 border-t border-white/[.06] group">
+        <summary className="font-sans font-semibold text-[13px] cursor-pointer list-none flex items-center justify-between gap-2 select-none">
+          <span>Mis-credited deposits</span>
+          <span className="text-white/30 text-[11px] font-normal group-open:hidden">Open</span>
+        </summary>
         <div className="text-[11.5px] text-white/45 mt-0.5">
           Deposits credited as raw base units — the ones showing as billions.
         </div>
@@ -178,11 +181,14 @@ export function CleanupDesk() {
             ))}
           </div>
         )}
-      </div>
+      </details>
 
       {/* test-mode gift cards */}
-      <div className="mt-4 pt-3 border-t border-white/[.06]">
-        <div className="font-sans font-semibold text-[13px]">Test-mode gift cards</div>
+      <details className="mt-4 pt-3 border-t border-white/[.06] group">
+        <summary className="font-sans font-semibold text-[13px] cursor-pointer list-none flex items-center justify-between gap-2 select-none">
+          <span>Test-mode gift cards</span>
+          <span className="text-white/30 text-[11px] font-normal group-open:hidden">Open</span>
+        </summary>
         <div className="text-[11.5px] text-white/45 mt-0.5">
           Cards sold before a real provider was configured. The codes are fake; the money was real.
         </div>
@@ -231,11 +237,14 @@ export function CleanupDesk() {
             ))}
           </div>
         )}
-      </div>
+      </details>
 
       {/* the delivery address Dextopus needs */}
-      <div className="mt-4 pt-3 border-t border-white/[.06]">
-        <div className="font-sans font-semibold text-[13px]">Deposit webhook</div>
+      <details className="mt-4 pt-3 border-t border-white/[.06] group">
+        <summary className="font-sans font-semibold text-[13px] cursor-pointer list-none flex items-center justify-between gap-2 select-none">
+          <span>Deposit webhook</span>
+          <span className="text-white/30 text-[11px] font-normal group-open:hidden">Open</span>
+        </summary>
         <div className="text-[11.5px] text-white/45 mt-0.5">
           Where Dextopus delivers deposit events. If this was never registered, deposits settle into treasury
           and the app is never told — no rows, no logs, nothing to find.
@@ -290,11 +299,14 @@ export function CleanupDesk() {
             {busy === "hook-test" ? "Testing…" : "Test delivery"}
           </button>
         </div>
-      </div>
+      </details>
 
       {/* trace — read only, writes nothing */}
-      <div className="mt-4 pt-3 border-t border-white/[.06]">
-        <div className="font-sans font-semibold text-[13px]">Find a deposit</div>
+      <details className="mt-4 pt-3 border-t border-white/[.06] group">
+        <summary className="font-sans font-semibold text-[13px] cursor-pointer list-none flex items-center justify-between gap-2 select-none">
+          <span>Find a deposit</span>
+          <span className="text-white/30 text-[11px] font-normal group-open:hidden">Open</span>
+        </summary>
         <div className="text-[11.5px] text-white/45 mt-0.5">
           &ldquo;It reached the treasury but never showed up.&rdquo; This says which of three things happened.
           Read only — it changes nothing.
@@ -441,7 +453,7 @@ export function CleanupDesk() {
             </div>
           </>
         )}
-      </div>
+      </details>
 
       {raw && (
         <div className="mt-3">

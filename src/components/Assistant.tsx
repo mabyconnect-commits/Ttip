@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { COMPANY } from "@/lib/company";
 import { PinPrompt } from "@/components/PinPrompt";
+import { usePathname } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import {
   listen,
@@ -106,6 +107,8 @@ const STARTERS = [
 
 export function Assistant() {
   const { action, toast } = useApp();
+  const pathname = usePathname();
+  const isAdminScreen = pathname?.startsWith("/account/admin") ?? false;
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<TransferDraft | BillDraft | null>(null);
   const [pinError, setPinError] = useState(false);
@@ -527,7 +530,10 @@ export function Assistant() {
           Offset by the home-indicator inset too, or on a notched phone the tab
           bar sits higher than the launcher expects and it lands on the quick
           actions. */}
-      {!open && (
+      {/* Not on the admin screens. Those are dense operator tools where a
+          floating button sits on top of the numbers being read — and nobody
+          asks Ada a question while reversing a mis-credit. */}
+      {!open && !isAdminScreen && (
         <div
           className="fixed left-1/2 -translate-x-1/2 w-full max-w-[480px] px-4 flex justify-end pointer-events-none z-40"
           style={{ bottom: "calc(96px + env(safe-area-inset-bottom))" }}
@@ -537,7 +543,7 @@ export function Assistant() {
             aria-label={`Ask ${NAME}`}
             className="pointer-events-auto grad-bg-135 w-[52px] h-[52px] rounded-full flex items-center justify-center text-[#04121A] shadow-[0_10px_28px_rgba(42,200,255,.35)] active:scale-95 transition"
           >
-            <Icon name="message" size={22} strokeWidth={2} />
+            <Icon name="message" size={22} strokeWidth={2} className="shrink-0" />
           </button>
         </div>
       )}
