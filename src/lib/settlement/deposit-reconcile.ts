@@ -61,7 +61,37 @@ export async function reconcileDeposits(limitUsers = 25, onlyUserId?: string): P
         .updateMany({ where: { userId, provider: "dextopus" }, data: { polledAt: new Date() } })
         .catch(() => {});
     }
-    const records = await listDeposits({ userId }).catch(() => []);
+    const records: Record<string, unknown>[] = await listDeposits({ userId }).catch(() => []);
+
+    // Ask by ADDRESS as well, never only by user id.
+    //
+    // Every question we put to Dextopus has been "what did user X deposit?",
+    // which silently assumes they echo our user id back on every record. If one
+    // record is missing that id — a chain where it isn't propagated, a sweep
+    // credited to the address alone — that deposit is invisible to us for ever,
+    // however often we poll. The address is the thing we actually know: we
+    // issued it, we showed it to the user, they sent money to it.
+    //
+    // So the addresses are asked about too, and anything only they return is
+    // merged in. Deduplicated on the provider's own id, and the credit path is
+    // idempotent regardless, so a deposit that comes back on both routes is
+    // still credited exactly once.
+    const addresses = await prisma.walletAddress.findMany({
+      where: { userId, provider: "dextopus" },
+      select: { address: true },
+    });
+    const seenIds = new Set(records.map((r) => String(r.requestId ?? r.depositId ?? r.id ?? "")));
+    for (const { address } of addresses) {
+      if (!address) continue;
+      const extra = await listDeposits({ depositAddress: address }).catch(() => []);
+      for (const rec of extra) {
+        const id = String(rec.requestId ?? rec.depositId ?? rec.id ?? "");
+        if (id && seenIds.has(id)) continue;
+        if (id) seenIds.add(id);
+        note("found-by-address-only: absent from the user's own deposit list");
+        records.push(rec);
+      }
+    }
 
     for (const record of records) {
       result.seen++;
