@@ -6,6 +6,7 @@ import { Icon } from "@/components/Icon";
 import { PayoutDesk } from "@/components/PayoutDesk";
 import { Campaigns } from "@/components/admin/Campaigns";
 import { UsersCard } from "@/components/admin/UsersCard";
+import { GrowthStats } from "@/components/admin/GrowthStats";
 import { BalanceDesk } from "@/components/admin/BalanceDesk";
 import { CleanupDesk } from "@/components/admin/CleanupDesk";
 import { AllTransactions } from "@/components/admin/AllTransactions";
@@ -195,6 +196,9 @@ export default function AdminFundingPage() {
 
             {tab === "overview" && (
             <>
+            {/* The growth numbers first — they are what the page is opened for. */}
+            <GrowthStats />
+
             <UsersCard />
 
             <BalanceDesk />

@@ -21,6 +21,19 @@ export async function getAppState(userId: string) {
   });
   if (!user) return null;
 
+  // "Opened the app", recorded once and cheaply.
+  //
+  // Every activity figure on the admin page counted TRANSACTIONS, which answers
+  // a different question: it sees nobody who opened Ttip, checked their balance
+  // and closed it. This is the state fetch the app makes on open, so it is the
+  // honest place to stamp it — throttled to ten minutes so a session that
+  // refetches doesn't write on every request, and never allowed to fail the
+  // page it's attached to.
+  const TEN_MINUTES = 600_000;
+  if (!user.lastSeenAt || Date.now() - user.lastSeenAt.getTime() > TEN_MINUTES) {
+    void prisma.user.update({ where: { id: userId }, data: { lastSeenAt: new Date() } }).catch(() => {});
+  }
+
   const portfolio = await buildPortfolio(user.balances, user.defaultFiat);
 
   // Free-swap allowance is per-day. Uses the shared helper rather than its own

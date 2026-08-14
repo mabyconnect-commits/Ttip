@@ -45,6 +45,14 @@ model User {
   bvnLast4         String? // last 4 digits of the BVN, for support/display
   nairaAccount     String? // dedicated virtual account number for naira funding
   nairaBank        String? // the bank that hosts the dedicated account
+  /// Last time this user actually opened the app.
+  ///
+  /// "Active" was measured by whether someone TRANSACTED, which is a different
+  /// question and a much smaller number — it counts nobody who opened Ttip,
+  /// looked at their balance and closed it again. Stamped from getAppState and
+  /// throttled, so it costs one write per user per ten minutes rather than one
+  /// per request.
+  lastSeenAt       DateTime?
   lastDropAt       DateTime?
   freeSwapDay      String? // YYYY-MM-DD the free-swap allowance was last counted
   lastTipDay       String? // YYYY-MM-DD of the last tip sent (for streaks)
@@ -76,6 +84,7 @@ model User {
   campaigns     Campaign[]      @relation("campaignInfluencer")
 
   @@index([username])
+  @@index([lastSeenAt])
 }
 
 model Balance {
