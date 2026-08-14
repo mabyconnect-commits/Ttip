@@ -68,6 +68,27 @@ export async function reconcileDeposits(limitUsers = 25, onlyUserId?: string): P
 
       // Reuse the webhook parser so the poller and the webhook can never
       // disagree about what a payload means.
+      // An address with nothing in it yet is not a failure.
+      //
+      // `GET /deposit/static/deposits` returns a row for every deposit address
+      // we have ever generated, carrying `originAmount: "0"` until something
+      // actually arrives — including the placeholder bc1qqqq…mql8k8. Ten of
+      // those hit the parser, which correctly refused a zero amount, and the
+      // poller filed all ten under "skipped": a count that reads exactly like
+      // ten lost deposits and is nothing of the sort.
+      //
+      // Recognise them for what they are, so "skipped" means something is
+      // wrong again.
+      const hasAmount = [
+        record.settlementAmount, record.settlementAmountFormatted,
+        record.originAmount, record.originAmountFormatted,
+        record.amountIn, record.amountOut, record.amount,
+      ].some((v) => v !== undefined && v !== null && Number(v) > 0);
+      if (!hasAmount) {
+        note("empty-slot: deposit address with nothing received yet");
+        continue;
+      }
+
       let deposit;
       try {
         deposit = parseDextopusDeposit({ data: record, event: undefined });
