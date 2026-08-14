@@ -67,12 +67,12 @@ export async function reconcileDeposits(limitUsers = 25, onlyUserId?: string): P
       // sit there for ever.
       const existing = await prisma.settlement.findUnique({
         where: { externalId: deposit.externalId },
-        select: { id: true, status: true },
+        select: { id: true, status: true, createdAt: true },
       });
-      if (existing && existing.status !== "pending") continue;
+      if (existing && !canRetry(existing)) continue;
       if (existing) {
-        // Clear the pending placeholder so creditDeposit's own idempotency
-        // guard can write the real completed row.
+        // Clear the placeholder so creditDeposit's own idempotency guard can
+        // write the real completed row.
         await prisma.settlement.delete({ where: { id: existing.id } }).catch(() => {});
       }
 
@@ -97,6 +97,35 @@ export async function reconcileDeposits(limitUsers = 25, onlyUserId?: string): P
   }
 
   return result;
+}
+
+/**
+ * Deposits held before this moment are the manual backlog. Leave them alone.
+ *
+ * "review" means the deposit was real but we couldn't name its asset, so it was
+ * parked for a human. Retrying those automatically would be right — except that
+ * some of the old ones were already paid out by hand from the balance desk, and
+ * there is no flag on the row saying so. Crediting one of those a second time
+ * hands the user free money with nothing to show it was a duplicate.
+ *
+ * So the backlog stays manual (Clean-up → Held only → pick → Credit), and
+ * anything held from here on is retried automatically. Nothing that arrives
+ * from now on can get permanently stuck, and nothing already settled by hand
+ * can be paid twice.
+ */
+const AUTO_RETRY_HELD_AFTER = new Date("2026-08-14T00:00:00Z");
+
+/**
+ * Can the poller have another go at a row it has already written?
+ *
+ * "pending" always: it is a placeholder we wrote ourselves, meaning the provider
+ * hadn't confirmed yet. "review" only for deposits newer than the backlog
+ * cutoff. Anything else — completed, settled_manually — is finished, and
+ * touching it is how a deposit gets paid twice.
+ */
+function canRetry(row: { status: string; createdAt: Date }): boolean {
+  if (row.status === "pending") return true;
+  return row.status === "review" && row.createdAt >= AUTO_RETRY_HELD_AFTER;
 }
 
 /**
