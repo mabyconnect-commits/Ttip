@@ -76,7 +76,7 @@ export async function reconcileDeposits(limitUsers = 25, onlyUserId?: string): P
         // The parser's own words, plus the keys the record actually had. A
         // REST record whose shape differs from the webhook's is invisible
         // otherwise — it just throws and is counted as "skipped".
-        note(`parse-failed [keys: ${Object.keys(record).join(",").slice(0, 260)}]`);
+        note(`parse-failed: ${(e as Error).message.slice(0, 240)}`);
         continue;
       }
       if (deposit.status !== "confirmed") {

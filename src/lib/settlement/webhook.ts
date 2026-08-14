@@ -176,7 +176,20 @@ export function parseDextopusDeposit(body: unknown): NormalizedDeposit {
   const statusText = String(d.status ?? d.state ?? d.depositStatus ?? "").toUpperCase().trim();
   const confirmed = DONE.has(statusText) || b.event === "deposit.completed";
   if (!externalId || !asset || !(amount > 0)) {
-    throw new Error("Invalid Dextopus payload: requestId, a settlement/origin asset and a positive amount are required.");
+    // Name the failing requirement, not the list of requirements.
+    //
+    // "requestId, an asset and a positive amount are required" told us nothing
+    // ten times in a row across real records that HAD all three keys — the
+    // whole reason this took another cycle. So the message reports which of the
+    // three actually failed, and the raw types behind it.
+    //
+    // Types and asset names only: no addresses, no user ids, no amounts. This
+    // text surfaces on an endpoint that isn't always behind a session.
+    const shape =
+      `idOk=${Boolean(externalId)} asset="${asset}" amountOk=${amount > 0}` +
+      ` [originAsset=${describe(d.originAsset)} originAmount=${describe(d.originAmount)}` +
+      ` settlementAsset=${describe(d.settlementAsset)} settlementAmount=${describe(d.settlementAmount)}]`;
+    throw new Error(`Invalid Dextopus payload: ${shape}`);
   }
   return {
     externalId,
@@ -197,6 +210,22 @@ export function parseDextopusDeposit(body: unknown): NormalizedDeposit {
     chainId: Number(d.originChainId ?? d.settlementChainId) || undefined,
     raw: body,
   };
+}
+
+/**
+ * A value's shape without its content — for error messages that travel.
+ *
+ * Asset names are reported literally because a ticker or mint is not personal
+ * data and is usually the answer. Numbers and long strings are reduced to their
+ * type and length so an amount or an address never leaves in an error string.
+ */
+function describe(v: unknown): string {
+  if (v === undefined) return "undefined";
+  if (v === null) return "null";
+  if (typeof v === "string") return v.length <= 12 ? `"${v}"` : `string(len ${v.length})`;
+  if (typeof v === "number") return `number(${v === 0 ? "zero" : v > 0 ? "positive" : "negative"})`;
+  if (typeof v === "object") return `object{${Object.keys(v as object).join("|").slice(0, 60)}}`;
+  return typeof v;
 }
 
 /** First strictly-positive finite number among the candidates, else 0. */
