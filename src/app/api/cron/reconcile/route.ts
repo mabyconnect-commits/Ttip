@@ -58,7 +58,7 @@ export async function GET(req: Request) {
   // never had — a missed webhook now costs minutes, not the deposit.
   const deposits = await reconcileDeposits(25).catch((e) => {
     console.error("[reconcile] deposits failed", e);
-    return { usersChecked: 0, seen: 0, credited: 0, skipped: 0 };
+    return { usersChecked: 0, seen: 0, credited: 0, skipped: 0, why: { "poller-threw": 1 } };
   });
 
   // Gift cards: a code that wasn't ready at purchase is collected here, and an

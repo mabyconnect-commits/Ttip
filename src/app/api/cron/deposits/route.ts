@@ -31,7 +31,7 @@ export async function GET(req: Request) {
 
   const deposits = await reconcileDeposits(25).catch((e) => {
     console.error("[cron] deposits failed", e);
-    return { usersChecked: 0, seen: 0, credited: 0, skipped: 0 };
+    return { usersChecked: 0, seen: 0, credited: 0, skipped: 0, why: { "poller-threw": 1 } };
   });
 
   return NextResponse.json({ ok: true, deposits });

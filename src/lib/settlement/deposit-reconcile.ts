@@ -28,10 +28,25 @@ export interface DepositReconcileResult {
   seen: number;
   credited: number;
   skipped: number;
+  /**
+   * Why the ones that weren't credited weren't credited, counted by reason.
+   *
+   * "seen 5, credited 0" is a fact without a cause, and chasing that cause
+   * through production logs is what turned a one-line bug into weeks. Every
+   * `continue` in the loop below now names itself here.
+   *
+   * Deliberately free of user data — no ids, no addresses, no amounts — because
+   * this is read from an endpoint that is not always behind a session.
+   */
+  why: Record<string, number>;
 }
 
 export async function reconcileDeposits(limitUsers = 25, onlyUserId?: string): Promise<DepositReconcileResult> {
-  const result: DepositReconcileResult = { usersChecked: 0, seen: 0, credited: 0, skipped: 0 };
+  const result: DepositReconcileResult = { usersChecked: 0, seen: 0, credited: 0, skipped: 0, why: {} };
+  const note = (reason: string) => {
+    const key = reason.slice(0, 80);
+    result.why[key] = (result.why[key] ?? 0) + 1;
+  };
 
   // Users who actually have a Dextopus address — nobody else can have deposited.
   const rows = onlyUserId ? [{ userId: onlyUserId }] : await nextUsersToPoll(limitUsers);
@@ -56,11 +71,21 @@ export async function reconcileDeposits(limitUsers = 25, onlyUserId?: string): P
       let deposit;
       try {
         deposit = parseDextopusDeposit({ data: record, event: undefined });
-      } catch {
+      } catch (e) {
         result.skipped++;
+        // The parser's own words, plus the keys the record actually had. A
+        // REST record whose shape differs from the webhook's is invisible
+        // otherwise — it just throws and is counted as "skipped".
+        note(`parse-failed: ${(e as Error).message.slice(0, 40)} [keys: ${Object.keys(record).join(",").slice(0, 120)}]`);
         continue;
       }
-      if (deposit.status !== "confirmed") continue;
+      if (deposit.status !== "confirmed") {
+        // The provider's own status word, verbatim. If it is one we simply
+        // don't recognise as success, this single line says so.
+        const raw = String((record as Record<string, unknown>).status ?? "").slice(0, 24);
+        note(`not-confirmed: provider status="${raw}"`);
+        continue;
+      }
 
       // Already CREDITED? A row that is merely pending must still be finished —
       // skipping on "a row exists" is how a deposit recorded as pending would
@@ -69,7 +94,10 @@ export async function reconcileDeposits(limitUsers = 25, onlyUserId?: string): P
         where: { externalId: deposit.externalId },
         select: { id: true, status: true, createdAt: true },
       });
-      if (existing && !canRetry(existing)) continue;
+      if (existing && !canRetry(existing)) {
+        note(`already-recorded: status="${existing.status}"`);
+        continue;
+      }
       if (existing) {
         // Clear the placeholder so creditDeposit's own idempotency guard can
         // write the real completed row.
@@ -81,6 +109,7 @@ export async function reconcileDeposits(limitUsers = 25, onlyUserId?: string): P
       if (!scaled.deposit) {
         console.error("[deposit] poller could not scale", deposit.externalId, scaled.reason);
         result.skipped++;
+        note(`scale-failed: ${scaled.reason ?? "unknown"}`);
         continue;
       }
 
@@ -91,8 +120,12 @@ export async function reconcileDeposits(limitUsers = 25, onlyUserId?: string): P
           return { credited: false, userId: null, reason: "threw" };
         },
       );
-      if (credit.credited) result.credited++;
-      else result.skipped++;
+      if (credit.credited) {
+        result.credited++;
+      } else {
+        result.skipped++;
+        note(`credit-refused: ${credit.reason ?? "no reason given"}`);
+      }
     }
   }
 
