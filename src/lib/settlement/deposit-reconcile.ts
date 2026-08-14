@@ -44,7 +44,7 @@ export interface DepositReconcileResult {
 export async function reconcileDeposits(limitUsers = 25, onlyUserId?: string): Promise<DepositReconcileResult> {
   const result: DepositReconcileResult = { usersChecked: 0, seen: 0, credited: 0, skipped: 0, why: {} };
   const note = (reason: string) => {
-    const key = reason.slice(0, 80);
+    const key = reason.slice(0, 300);
     result.why[key] = (result.why[key] ?? 0) + 1;
   };
 
@@ -76,7 +76,7 @@ export async function reconcileDeposits(limitUsers = 25, onlyUserId?: string): P
         // The parser's own words, plus the keys the record actually had. A
         // REST record whose shape differs from the webhook's is invisible
         // otherwise — it just throws and is counted as "skipped".
-        note(`parse-failed: ${(e as Error).message.slice(0, 40)} [keys: ${Object.keys(record).join(",").slice(0, 120)}]`);
+        note(`parse-failed [keys: ${Object.keys(record).join(",").slice(0, 260)}]`);
         continue;
       }
       if (deposit.status !== "confirmed") {

@@ -95,7 +95,20 @@ export function verifyDextopusSignature(
 export function parseDextopusDeposit(body: unknown): NormalizedDeposit {
   const b = (body ?? {}) as { event?: string; data?: Record<string, unknown> };
   const d = b.data ?? {};
-  const externalId = String(d.requestId ?? d.depositId ?? "");
+  // `id` is NOT a guess — it is what production told us.
+  //
+  // The poller reported, ten times over, against real records:
+  //
+  //   parse-failed: requestId, a settlement/origin asset and a positive amount
+  //   are required  [keys: id,userId,depositAddress,…]
+  //
+  // The WEBHOOK payload names this `requestId`. The REST list endpoint that the
+  // poller reads names it `id`. Same deposit, two shapes, and the parser only
+  // knew the first — so every polled record threw on line one and was counted
+  // as "skipped" with no reason attached. The webhook was rejected on signature
+  // and the poller couldn't read the format: both doors shut, money in treasury,
+  // nothing in the app.
+  const externalId = String(d.requestId ?? d.depositId ?? d.id ?? "");
 
   // What actually SETTLED into treasury — the amount we can honestly credit.
   // Dextopus can report it under several names; a settlement amount hiding under
