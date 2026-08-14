@@ -135,6 +135,22 @@ export async function reconcileDeposits(limitUsers = 25, onlyUserId?: string): P
         // don't recognise as success, this single line says so.
         const raw = String((record as Record<string, unknown>).status ?? "").slice(0, 24);
         note(`not-confirmed: provider status="${raw}"`);
+
+        // WRITE IT DOWN ANYWAY. A deposit sitting at PENDING on the provider's
+        // side is real money already sent by a real person, and until now the
+        // poller returned here having recorded nothing: no settlement, no trace,
+        // nothing for an admin to point at. The user sees an empty wallet and
+        // reports "I deposited and nothing happened" — and we had no way to
+        // answer, because the only honest answer, "it is confirming", existed
+        // nowhere in our database.
+        //
+        // creditDeposit's own unconfirmed path records it as pending and credits
+        // nothing, so this cannot pay anyone early. Scale first so the pending
+        // row shows tokens rather than base units.
+        const held = await scaleDepositAmount(deposit);
+        if (held.deposit) {
+          await creditDeposit({ ...held.deposit, userId: held.deposit.userId ?? userId }).catch(() => null);
+        }
         continue;
       }
 
