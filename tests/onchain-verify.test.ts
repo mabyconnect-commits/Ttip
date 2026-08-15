@@ -58,3 +58,13 @@ test("verifying across chains still refuses with a reason and never throws", asy
   assert.equal(r.verified, false);
   assert.ok((r.reason ?? "").length > 0);
 });
+
+test("a chain with no endpoints configured is refused, not assumed", async () => {
+  // Tron and Bitcoin have no RPC list at all. The failover loop must not treat
+  // "nothing to try" as "nothing wrong".
+  for (const net of ["trc20", "btc"]) {
+    const r = await verifyOnChain({ network: net, txHash: "0x" + "c".repeat(64), address: "0x" + "d".repeat(40) });
+    assert.equal(r.verified, false);
+    assert.match(r.reason ?? "", /no RPC/i);
+  }
+});

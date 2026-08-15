@@ -297,9 +297,12 @@ async function rescueStuckDeposit(
   const check = await verifyAcrossChains({ txHash, address: deposit.address, token, preferred });
   if (!check.verified) return { credited: false, note: `chain says no: ${check.reason ?? "unverified"}` };
 
-  // Credit the CHAIN's amount, in base units, scaled by the token's decimals.
+  // Credit the CHAIN's amount AND the chain's asset, in base units, scaled by
+  // that token's own decimals. Where the provider's record disagrees with the
+  // log, the log is what actually happened.
   const proven = await scaleDepositAmount({
     ...deposit,
+    asset: check.asset ?? deposit.asset,
     status: "confirmed",
     amountIsRaw: true,
     rawAmount: check.rawAmount,
