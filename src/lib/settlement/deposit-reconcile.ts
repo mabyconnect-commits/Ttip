@@ -4,6 +4,9 @@ import { listDeposits, listDepositsDetailed } from "./dextopus";
 import { parseDextopusDeposit } from "./webhook";
 import { scaleDepositAmount } from "./deposit-amount";
 import { creditDeposit } from "./index";
+import { verifyOnChain, canVerifyNetwork } from "./onchain-verify";
+import { couldBeAddress } from "./asset-resolve";
+import type { NormalizedDeposit } from "./types";
 
 /**
  * Ask Dextopus what actually landed, instead of waiting to be told.
@@ -139,6 +142,7 @@ export async function reconcileDeposits(limitUsers = 25, onlyUserId?: string): P
         // The provider's own status word, verbatim. If it is one we simply
         // don't recognise as success, this single line says so.
         const raw = String((record as Record<string, unknown>).status ?? "").slice(0, 24);
+        const statusText = raw.toUpperCase().trim();
         // How LONG it has been unconfirmed is the whole question.
         //
         // A deposit PENDING for two minutes is the system working. The same
@@ -171,6 +175,22 @@ export async function reconcileDeposits(limitUsers = 25, onlyUserId?: string): P
         const held = await scaleDepositAmount(deposit);
         if (held.deposit) {
           await creditDeposit({ ...held.deposit, userId: held.deposit.userId ?? userId }).catch(() => null);
+        }
+
+        // STUCK? Then stop asking the provider and ask the chain.
+        //
+        // Production had a deposit sitting at PENDING for over four days. That
+        // is not a confirmation delay — Solana settles in seconds — it is the
+        // provider's pipeline stuck, and while their flag is our only truth the
+        // user is told their money doesn't exist. The chain is the better
+        // witness and it is free to ask.
+        //
+        // Only past the grace period, so the normal path is untouched: a deposit
+        // that confirms in seconds never reaches this code.
+        if (Number.isFinite(ageH) && ageH * 60 >= stuckAfterMinutes() && statusText !== "REFUNDED") {
+          const rescued = await rescueStuckDeposit(deposit, userId, record);
+          note(`stuck-rescue: ${rescued.note}`);
+          if (rescued.credited) result.credited++;
         }
         continue;
       }
@@ -218,6 +238,99 @@ export async function reconcileDeposits(limitUsers = 25, onlyUserId?: string): P
   }
 
   return result;
+}
+
+/**
+ * How long a deposit may sit unconfirmed before we go and check the chain.
+ *
+ * Long enough that the ordinary path is completely untouched — Dextopus
+ * normally confirms in seconds — and short enough that a stuck deposit is a
+ * nuisance rather than a support ticket. Tunable without a deploy.
+ */
+function stuckAfterMinutes(): number {
+  const raw = Number((process.env.DEPOSIT_STUCK_AFTER_MINUTES ?? "").trim());
+  return Number.isFinite(raw) && raw > 0 ? raw : 20;
+}
+
+/**
+ * Credit a stuck deposit on the blockchain's word instead of the provider's.
+ *
+ * The safety here is the whole point, so it is worth being explicit about what
+ * makes this safe to do automatically:
+ *
+ *  - The chain is asked whether THIS transaction moved THIS token into THIS
+ *    address. Nothing in the provider's payload can influence the answer.
+ *  - The amount credited is the amount the chain reports, not the amount the
+ *    provider claimed. A wrong number in their record cannot become a balance.
+ *  - REFUNDED is excluded by the caller: money that was sent back must never be
+ *    credited, however well confirmed the original transfer was.
+ *  - creditDeposit stays idempotent on the provider's own id, so when Dextopus
+ *    finally does confirm, that later credit is a no-op rather than a second
+ *    payment.
+ *
+ * If any of that can't be established, it credits nothing and says why.
+ */
+async function rescueStuckDeposit(
+  deposit: NormalizedDeposit,
+  userId: string,
+  record: Record<string, unknown>,
+): Promise<{ credited: boolean; note: string }> {
+  const txHash = String(record.originTxHash ?? record.txHash ?? "").trim();
+  if (!txHash) return { credited: false, note: "no origin tx hash to check" };
+
+  // The provider's record carries no chain, but we issued the address — so our
+  // own table knows which network it belongs to.
+  const addr = deposit.address
+    ? await prisma.walletAddress.findFirst({
+        where: { address: deposit.address, provider: "dextopus" },
+        select: { network: true, symbol: true },
+      })
+    : null;
+  const network = networkId(addr?.network);
+  if (!network) return { credited: false, note: `unknown network for this address` };
+  if (!canVerifyNetwork(network)) return { credited: false, note: `${network} not verifiable on-chain` };
+
+  // A token contract/mint, or undefined for the chain's own coin.
+  const asset = (deposit.asset ?? "").trim();
+  const token = couldBeAddress(asset) ? asset : undefined;
+
+  const check = await verifyOnChain({ network, txHash, address: deposit.address, token });
+  if (!check.verified) return { credited: false, note: `chain says no: ${check.reason ?? "unverified"}` };
+
+  // Credit the CHAIN's amount, in base units, scaled by the token's decimals.
+  const proven = await scaleDepositAmount({
+    ...deposit,
+    status: "confirmed",
+    amountIsRaw: true,
+    rawAmount: check.rawAmount,
+    amount: Number(check.rawAmount ?? 0),
+  });
+  if (!proven.deposit) return { credited: false, note: `verified but unscalable: ${proven.reason ?? "?"}` };
+
+  const credit = await creditDeposit({
+    ...proven.deposit,
+    userId: proven.deposit.userId ?? userId,
+  }).catch((e) => ({ credited: false, userId: null, reason: `threw: ${(e as Error).message.slice(0, 40)}` }));
+
+  return credit.credited
+    ? { credited: true, note: "CREDITED from on-chain proof" }
+    : { credited: false, note: `verified but not credited: ${credit.reason ?? "?"}` };
+}
+
+/** Our stored network label → the id the RPC map is keyed by. */
+function networkId(network: string | null | undefined): string | null {
+  const n = (network ?? "").trim().toLowerCase();
+  if (!n) return null;
+  if (n.includes("sol")) return "sol";
+  if (n.includes("trc") || n.includes("tron")) return "trc20";
+  if (n.includes("bep") || n.includes("bnb") || n.includes("bsc")) return "bep20";
+  if (n.includes("erc") || n.includes("ethereum")) return "erc20";
+  if (n.includes("base")) return "base";
+  if (n.includes("arb")) return "arb";
+  if (n.includes("optimism") || n === "op") return "op";
+  if (n.includes("poly") || n.includes("matic")) return "poly";
+  if (n.includes("avax") || n.includes("avalanche")) return "avax";
+  return null;
 }
 
 /**
