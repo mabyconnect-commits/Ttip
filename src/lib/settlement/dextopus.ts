@@ -478,12 +478,32 @@ export async function createDepositAddress(
 export async function listDeposits(params: { userId?: string; depositAddress?: string }): Promise<
   Record<string, unknown>[]
 > {
+  return (await listDepositsDetailed(params)).records;
+}
+
+/**
+ * The same call, but able to say "I failed" instead of "there is nothing".
+ *
+ * `listDeposits` returns [] for a 429, a 500, an expired key and a user with
+ * genuinely no deposits — four completely different situations flattened into
+ * one indistinguishable answer. The poller then reported `seen: 0` and looked
+ * perfectly healthy while every request was being rejected. Rate limiting in
+ * particular is invisible that way, and rate limiting is exactly what a poller
+ * that runs every minute across every address is likely to hit.
+ *
+ * A silent empty list is the same class of bug as the silent `continue` that
+ * hid this for weeks. So the failure comes back as a value.
+ */
+export async function listDepositsDetailed(params: { userId?: string; depositAddress?: string }): Promise<{
+  records: Record<string, unknown>[];
+  error?: string;
+}> {
   const cfg = dextopusConfig();
-  if (!cfg) return [];
+  if (!cfg) return { records: [], error: "not configured" };
   const q = new URLSearchParams();
   if (params.userId) q.set("userId", params.userId);
   if (params.depositAddress) q.set("depositAddress", params.depositAddress);
-  if (![...q.keys()].length) return [];
+  if (![...q.keys()].length) return { records: [] };
 
   try {
     const res = await fetch(`${cfg.baseUrl}/deposit/static/deposits?${q.toString()}`, {
@@ -491,14 +511,17 @@ export async function listDeposits(params: { userId?: string; depositAddress?: s
     });
     if (!res.ok) {
       console.error("[dextopus] deposits list failed", res.status);
-      return [];
+      return { records: [], error: `HTTP ${res.status}` };
     }
-    const body = (await res.json().catch(() => null)) as { success?: boolean; data?: unknown } | null;
-    if (!body || body.success === false) return [];
-    return Array.isArray(body.data) ? (body.data as Record<string, unknown>[]) : [];
+    const body = (await res.json().catch(() => null)) as
+      | { success?: boolean; data?: unknown; message?: string }
+      | null;
+    if (!body) return { records: [], error: "unreadable response" };
+    if (body.success === false) return { records: [], error: String(body.message ?? "success:false").slice(0, 60) };
+    return { records: Array.isArray(body.data) ? (body.data as Record<string, unknown>[]) : [] };
   } catch (e) {
     console.error("[dextopus] deposits list threw", e);
-    return [];
+    return { records: [], error: `threw: ${(e as Error).message.slice(0, 50)}` };
   }
 }
 

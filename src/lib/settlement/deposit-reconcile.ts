@@ -1,6 +1,6 @@
 import "server-only";
 import { prisma } from "../db";
-import { listDeposits } from "./dextopus";
+import { listDeposits, listDepositsDetailed } from "./dextopus";
 import { parseDextopusDeposit } from "./webhook";
 import { scaleDepositAmount } from "./deposit-amount";
 import { creditDeposit } from "./index";
@@ -61,7 +61,12 @@ export async function reconcileDeposits(limitUsers = 25, onlyUserId?: string): P
         .updateMany({ where: { userId, provider: "dextopus" }, data: { polledAt: new Date() } })
         .catch(() => {});
     }
-    const records: Record<string, unknown>[] = await listDeposits({ userId }).catch(() => []);
+    const listed = await listDepositsDetailed({ userId }).catch((e) => ({
+      records: [] as Record<string, unknown>[],
+      error: `threw: ${(e as Error).message.slice(0, 50)}`,
+    }));
+    if (listed.error) note(`provider-error: ${listed.error}`);
+    const records: Record<string, unknown>[] = listed.records;
 
     // Ask by ADDRESS as well, never only by user id.
     //
@@ -134,7 +139,23 @@ export async function reconcileDeposits(limitUsers = 25, onlyUserId?: string): P
         // The provider's own status word, verbatim. If it is one we simply
         // don't recognise as success, this single line says so.
         const raw = String((record as Record<string, unknown>).status ?? "").slice(0, 24);
-        note(`not-confirmed: provider status="${raw}"`);
+        // How LONG it has been unconfirmed is the whole question.
+        //
+        // A deposit PENDING for two minutes is the system working. The same
+        // deposit PENDING for six hours is the provider stuck, and the user is
+        // told "it's confirming" while nothing is confirming. Those need
+        // completely different responses from us and read identically without
+        // an age.
+        const at = (record as Record<string, unknown>).createdAt;
+        const started = at ? new Date(String(at)).getTime() : NaN;
+        const ageH = Number.isFinite(started) ? (Date.now() - started) / 3_600_000 : NaN;
+        const age = !Number.isFinite(ageH)
+          ? "age unknown"
+          : ageH < 1 ? "under 1h"
+          : ageH < 6 ? "1-6h"
+          : ageH < 24 ? "6-24h"
+          : `${Math.floor(ageH / 24)}d+ STUCK`;
+        note(`not-confirmed: provider status="${raw}" (${age})`);
 
         // WRITE IT DOWN ANYWAY. A deposit sitting at PENDING on the provider's
         // side is real money already sent by a real person, and until now the
