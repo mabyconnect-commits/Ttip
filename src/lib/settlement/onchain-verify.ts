@@ -145,8 +145,8 @@ async function verifySolana(url: string, sig: string, address: string, token?: s
       err?: unknown;
       preBalances?: number[];
       postBalances?: number[];
-      preTokenBalances?: { owner?: string; mint?: string; uiTokenAmount?: { amount?: string } }[];
-      postTokenBalances?: { owner?: string; mint?: string; uiTokenAmount?: { amount?: string } }[];
+      preTokenBalances?: { owner?: string; mint?: string; accountIndex?: number; uiTokenAmount?: { amount?: string } }[];
+      postTokenBalances?: { owner?: string; mint?: string; accountIndex?: number; uiTokenAmount?: { amount?: string } }[];
     };
     transaction?: { message?: { accountKeys?: ({ pubkey?: string } | string)[] } };
   } | null;
@@ -154,23 +154,35 @@ async function verifySolana(url: string, sig: string, address: string, token?: s
   if (!tx) return { verified: false, reason: "transaction not found on chain" };
   if (tx.meta?.err) return { verified: false, reason: "transaction failed" };
 
+  const keys = (tx.transaction?.message?.accountKeys ?? []).map((k) =>
+    typeof k === "string" ? k : k?.pubkey ?? "",
+  );
+
   if (token) {
-    const before = new Map<string, bigint>();
+    // Match on the OWNER or on the account itself.
+    //
+    // Solana holds tokens in an associated token account owned by the wallet,
+    // and a provider may hand out either one as "the deposit address". Checking
+    // only `owner` misses the case where the address we issued IS the token
+    // account — which reads as "no token balance increase" on a deposit that
+    // plainly arrived.
+    const at = keys.indexOf(address);
+    const mine = (b: { owner?: string; accountIndex?: number }) =>
+      b.owner === address || (at >= 0 && b.accountIndex === at);
+
+    const before = new Map<number, bigint>();
     for (const b of tx.meta?.preTokenBalances ?? []) {
-      if (b.owner === address && b.mint === token) before.set(b.mint, BigInt(b.uiTokenAmount?.amount ?? "0"));
+      if (mine(b) && b.mint === token) before.set(b.accountIndex ?? -1, BigInt(b.uiTokenAmount?.amount ?? "0"));
     }
     for (const b of tx.meta?.postTokenBalances ?? []) {
-      if (b.owner !== address || b.mint !== token) continue;
+      if (!mine(b) || b.mint !== token) continue;
       const after = BigInt(b.uiTokenAmount?.amount ?? "0");
-      const delta = after - (before.get(b.mint) ?? 0n);
+      const delta = after - (before.get(b.accountIndex ?? -1) ?? 0n);
       if (delta > 0n) return { verified: true, rawAmount: delta.toString() };
     }
     return { verified: false, reason: "no token balance increase for this address" };
   }
 
-  const keys = (tx.transaction?.message?.accountKeys ?? []).map((k) =>
-    typeof k === "string" ? k : k?.pubkey ?? "",
-  );
   const i = keys.indexOf(address);
   if (i < 0) return { verified: false, reason: "address not in transaction" };
   const delta = BigInt(tx.meta?.postBalances?.[i] ?? 0) - BigInt(tx.meta?.preBalances?.[i] ?? 0);
@@ -182,4 +194,54 @@ async function verifySolana(url: string, sig: string, address: string, token?: s
 export function canVerifyNetwork(network: string): boolean {
   const net = (network ?? "").trim().toLowerCase();
   return net === "sol" || EVM.has(net);
+}
+
+/**
+ * Don't trust our own guess at the chain — ask all the plausible ones.
+ *
+ * The first live run refused a real stuck deposit with "transaction not found
+ * on chain", because the network was derived from the label on our own
+ * WalletAddress row. That label is our bookkeeping, not the truth: a user can
+ * send USDC to an EVM address on any of seven chains, and asking only the one
+ * we wrote down means a deposit on any of the other six is unprovable.
+ *
+ * The transaction hash says which FAMILY it belongs to — 0x + 64 hex is EVM,
+ * base58 is Solana — so ask every chain in that family and take the first that
+ * can prove it. Wrong-chain answers are misses, not false positives: a chain
+ * that never saw the transaction simply says so.
+ *
+ * Still free, still only for deposits already stuck.
+ */
+export async function verifyAcrossChains(params: {
+  txHash: string;
+  address: string;
+  token?: string;
+  /** Checked first when we have a good guess; the rest still follow. */
+  preferred?: string;
+}): Promise<OnchainCheck> {
+  const hash = (params.txHash ?? "").trim();
+  if (!hash) return { verified: false, reason: "no transaction hash" };
+
+  const isEvmHash = /^0x[0-9a-fA-F]{64}$/.test(hash);
+  const family = isEvmHash ? [...EVM] : ["sol"];
+
+  // An address that isn't 0x-shaped can't be an EVM recipient, and vice versa —
+  // skip the impossible rather than spend a request proving it.
+  const addrIsEvm = /^0x[0-9a-fA-F]{40}$/.test((params.address ?? "").trim());
+  if (isEvmHash && !addrIsEvm) return { verified: false, reason: "EVM hash but the address isn't an EVM address" };
+
+  const order = params.preferred && family.includes(params.preferred)
+    ? [params.preferred, ...family.filter((f) => f !== params.preferred)]
+    : family;
+
+  const reasons: string[] = [];
+  for (const network of order) {
+    const r = await verifyOnChain({ ...params, network });
+    if (r.verified) return r;
+    reasons.push(`${network}: ${r.reason ?? "no"}`);
+    // A transaction that exists but paid someone else is a definitive no —
+    // no other chain is going to change that, so stop rather than fan out.
+    if (r.reason?.includes("different address") || r.reason?.includes("reverted")) break;
+  }
+  return { verified: false, reason: reasons.slice(0, 3).join("; ").slice(0, 160) };
 }

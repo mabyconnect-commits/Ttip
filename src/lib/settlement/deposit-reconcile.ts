@@ -4,7 +4,7 @@ import { listDeposits, listDepositsDetailed } from "./dextopus";
 import { parseDextopusDeposit } from "./webhook";
 import { scaleDepositAmount } from "./deposit-amount";
 import { creditDeposit } from "./index";
-import { verifyOnChain, canVerifyNetwork } from "./onchain-verify";
+import { verifyAcrossChains } from "./onchain-verify";
 import { couldBeAddress } from "./asset-resolve";
 import type { NormalizedDeposit } from "./types";
 
@@ -286,15 +286,15 @@ async function rescueStuckDeposit(
         select: { network: true, symbol: true },
       })
     : null;
-  const network = networkId(addr?.network);
-  if (!network) return { credited: false, note: `unknown network for this address` };
-  if (!canVerifyNetwork(network)) return { credited: false, note: `${network} not verifiable on-chain` };
+  // Our own label is a hint, not the answer — the hash decides which chains to
+  // ask, and the preferred one is simply tried first.
+  const preferred = networkId(addr?.network) ?? undefined;
 
   // A token contract/mint, or undefined for the chain's own coin.
   const asset = (deposit.asset ?? "").trim();
   const token = couldBeAddress(asset) ? asset : undefined;
 
-  const check = await verifyOnChain({ network, txHash, address: deposit.address, token });
+  const check = await verifyAcrossChains({ txHash, address: deposit.address, token, preferred });
   if (!check.verified) return { credited: false, note: `chain says no: ${check.reason ?? "unverified"}` };
 
   // Credit the CHAIN's amount, in base units, scaled by the token's decimals.

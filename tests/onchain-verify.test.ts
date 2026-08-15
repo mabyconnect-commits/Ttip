@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { canVerifyNetwork, verifyOnChain } from "../src/lib/settlement/onchain-verify";
+import { canVerifyNetwork, verifyOnChain, verifyAcrossChains } from "../src/lib/settlement/onchain-verify";
 
 /**
  * The guards on crediting from the chain.
@@ -42,4 +42,19 @@ test("a refusal always carries a reason", async () => {
     assert.equal(r.verified, false);
     assert.ok((r.reason ?? "").length > 0, `no reason given for "${net}"`);
   }
+});
+
+test("an EVM hash sent to a non-EVM address is refused without spending a call", async () => {
+  const r = await verifyAcrossChains({
+    txHash: "0x" + "a".repeat(64),
+    address: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  });
+  assert.equal(r.verified, false);
+  assert.match(r.reason ?? "", /isn't an EVM address/i);
+});
+
+test("verifying across chains still refuses with a reason and never throws", async () => {
+  const r = await verifyAcrossChains({ txHash: "", address: "0x" + "b".repeat(40) });
+  assert.equal(r.verified, false);
+  assert.ok((r.reason ?? "").length > 0);
 });
