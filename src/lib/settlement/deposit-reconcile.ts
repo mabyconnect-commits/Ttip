@@ -365,6 +365,20 @@ async function rescueStuckDeposit(
     scaled = fallback.deposit;
   }
 
+  // Clear our own placeholder before crediting.
+  //
+  // Moments earlier in this same loop the deposit was recorded as `pending` so
+  // it would stop being invisible. That row holds the externalId, so the credit
+  // below hits the uniqueness guard and comes back "duplicate" — proof arrived,
+  // money still not paid, defeated by our own bookkeeping. Production said
+  // exactly that: "verified but not credited: duplicate".
+  //
+  // Only ever a `pending` row: a completed one means it is genuinely already
+  // paid, and that must keep blocking a second credit.
+  await prisma.settlement
+    .deleteMany({ where: { externalId: deposit.externalId, status: "pending" } })
+    .catch(() => {});
+
   const credit = await creditDeposit({
     ...scaled,
     userId: scaled.userId ?? userId,
