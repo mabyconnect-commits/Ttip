@@ -31,7 +31,7 @@ import "server-only";
  */
 const RPC: Record<string, (string | undefined)[]> = {
   sol: [process.env.RPC_SOLANA, "https://api.mainnet-beta.solana.com", "https://solana-rpc.publicnode.com"],
-  erc20: [process.env.RPC_ETHEREUM, "https://ethereum-rpc.publicnode.com", "https://eth.llamarpc.com", "https://rpc.ankr.com/eth"],
+  erc20: [process.env.RPC_ETHEREUM, "https://ethereum-rpc.publicnode.com", "https://eth.llamarpc.com", "https://rpc.ankr.com/eth" /* needs a key now; kept last so it is only a last resort */],
   bep20: [process.env.RPC_BSC, "https://bsc-dataseed.binance.org", "https://bsc-dataseed1.defibit.io", "https://binance.llamarpc.com", "https://bsc-rpc.publicnode.com"],
   poly: [process.env.RPC_POLYGON, "https://polygon-rpc.com", "https://polygon-bor-rpc.publicnode.com"],
   base: [process.env.RPC_BASE, "https://mainnet.base.org", "https://base-rpc.publicnode.com"],
@@ -60,9 +60,29 @@ export interface OnchainCheck {
    * wins — it is the thing that actually happened.
    */
   asset?: string;
+  /**
+   * The decimals for that asset, when the chain told us.
+   *
+   * Worth carrying rather than looking up again: the provider's catalogue does
+   * not list a chain's own coin, so a native deposit would be provable and then
+   * unscalable — verified, and still not credited.
+   */
+  decimals?: number;
   /** Why not, when not. Always populated on failure so nothing fails silently. */
   reason?: string;
 }
+
+/** A chain's own coin, and its decimals. Fixed by the chain, not by a catalogue. */
+const NATIVE: Record<string, { symbol: string; decimals: number }> = {
+  sol: { symbol: "SOL", decimals: 9 },
+  erc20: { symbol: "ETH", decimals: 18 },
+  bep20: { symbol: "BNB", decimals: 18 },
+  poly: { symbol: "MATIC", decimals: 18 },
+  base: { symbol: "ETH", decimals: 18 },
+  arb: { symbol: "ETH", decimals: 18 },
+  op: { symbol: "ETH", decimals: 18 },
+  avax: { symbol: "AVAX", decimals: 18 },
+};
 
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
@@ -105,8 +125,8 @@ export async function verifyOnChain(params: {
     try {
       const r =
         net === "sol"
-          ? await verifySolana(url, params.txHash, params.address, params.token)
-          : await verifyEvm(url, params.txHash, params.address, params.token);
+          ? await verifySolana(url, net, params.txHash, params.address, params.token)
+          : await verifyEvm(url, net, params.txHash, params.address, params.token);
       // "Not found" can mean this node simply doesn't hold the history — try
       // the next one before concluding the transaction doesn't exist. Any other
       // answer is the chain's real verdict and is returned as-is.
@@ -130,7 +150,13 @@ export async function verifyOnChain(params: {
  * token we read the ERC-20 Transfer log addressed to us — the value in the log,
  * not the value the provider claimed, because the log is what actually happened.
  */
-async function verifyEvm(url: string, txHash: string, address: string, token?: string): Promise<OnchainCheck> {
+async function verifyEvm(
+  url: string,
+  net: string,
+  txHash: string,
+  address: string,
+  token?: string,
+): Promise<OnchainCheck> {
   const receipt = (await rpc(url, "eth_getTransactionReceipt", [txHash])) as {
     status?: string;
     logs?: { address: string; topics: string[]; data: string }[];
@@ -157,27 +183,55 @@ async function verifyEvm(url: string, txHash: string, address: string, token?: s
     }
 
     const claimed = gains.find((g) => g.contract === contract);
-    if (claimed) return { verified: true, rawAmount: claimed.raw.toString(), asset: claimed.contract };
+    if (claimed) {
+      return {
+        verified: true,
+        rawAmount: claimed.raw.toString(),
+        asset: claimed.contract,
+        decimals: await erc20Decimals(url, claimed.contract),
+      };
+    }
 
     // Exactly one token reached us, so there is nothing to be confused about.
     // More than one and we cannot say which was the deposit — refuse.
     if (gains.length === 1) {
-      return { verified: true, rawAmount: gains[0].raw.toString(), asset: gains[0].contract };
+      return {
+        verified: true,
+        rawAmount: gains[0].raw.toString(),
+        asset: gains[0].contract,
+        decimals: await erc20Decimals(url, gains[0].contract),
+      };
     }
-    return {
-      verified: false,
-      reason: gains.length
-        ? `${gains.length} different tokens arrived — cannot tell which is the deposit`
-        : "no matching token transfer to this address",
-    };
+    if (gains.length > 1) {
+      return { verified: false, reason: `${gains.length} different tokens arrived — cannot tell which is the deposit` };
+    }
+    // No token moved — but the provider called this a token deposit. Fall
+    // through: they may simply be wrong about that, and a plain coin transfer
+    // is still a deposit. Production showed exactly this: "transaction exists,
+    // no matching token transfer", on money the user had certainly sent.
   }
 
   const tx = (await rpc(url, "eth_getTransactionByHash", [txHash])) as { to?: string; value?: string } | null;
   if (!tx) return { verified: false, reason: "transaction not found on chain" };
-  if ((tx.to ?? "").toLowerCase() !== want) return { verified: false, reason: "sent to a different address" };
+  if ((tx.to ?? "").toLowerCase() !== want) {
+    return { verified: false, reason: token ? "no token transfer, and the coin went elsewhere" : "sent to a different address" };
+  }
   const raw = BigInt(tx.value || "0x0").toString();
-  if (raw === "0") return { verified: false, reason: "zero value" };
-  return { verified: true, rawAmount: raw };
+  if (raw === "0") return { verified: false, reason: "no token transfer and zero coin value" };
+  const native = NATIVE[net];
+  return { verified: true, rawAmount: raw, asset: native?.symbol, decimals: native?.decimals };
+}
+
+/** `decimals()` on the token itself. One free call, and it removes all guessing. */
+async function erc20Decimals(url: string, contract: string): Promise<number | undefined> {
+  try {
+    const hex = (await rpc(url, "eth_call", [{ to: contract, data: "0x313ce567" }, "latest"])) as string | null;
+    if (!hex || hex === "0x") return undefined;
+    const d = Number(BigInt(hex));
+    return Number.isFinite(d) && d >= 0 && d <= 36 ? d : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -187,7 +241,13 @@ async function verifyEvm(url: string, txHash: string, address: string, token?: s
  * after. It cannot be fooled by an unusual instruction layout, and it reports
  * what the account actually received.
  */
-async function verifySolana(url: string, sig: string, address: string, token?: string): Promise<OnchainCheck> {
+async function verifySolana(
+  url: string,
+  net: string,
+  sig: string,
+  address: string,
+  token?: string,
+): Promise<OnchainCheck> {
   const tx = (await rpc(url, "getTransaction", [
     sig,
     { maxSupportedTransactionVersion: 0, encoding: "jsonParsed" },
@@ -196,8 +256,8 @@ async function verifySolana(url: string, sig: string, address: string, token?: s
       err?: unknown;
       preBalances?: number[];
       postBalances?: number[];
-      preTokenBalances?: { owner?: string; mint?: string; accountIndex?: number; uiTokenAmount?: { amount?: string } }[];
-      postTokenBalances?: { owner?: string; mint?: string; accountIndex?: number; uiTokenAmount?: { amount?: string } }[];
+      preTokenBalances?: { owner?: string; mint?: string; accountIndex?: number; uiTokenAmount?: { amount?: string; decimals?: number } }[];
+      postTokenBalances?: { owner?: string; mint?: string; accountIndex?: number; uiTokenAmount?: { amount?: string; decimals?: number } }[];
     };
     transaction?: { message?: { accountKeys?: ({ pubkey?: string } | string)[] } };
   } | null;
@@ -228,17 +288,21 @@ async function verifySolana(url: string, sig: string, address: string, token?: s
 
     // Every mint that INCREASED for this address, regardless of which one the
     // provider said it would be. Their record is a claim; this is the event.
-    const gains: { mint: string; delta: bigint }[] = [];
+    const gains: { mint: string; delta: bigint; decimals?: number }[] = [];
     for (const b of tx.meta?.postTokenBalances ?? []) {
       if (!mine(b)) continue;
       const after = BigInt(b.uiTokenAmount?.amount ?? "0");
       const delta = after - (before.get(b.accountIndex ?? -1) ?? 0n);
-      if (delta > 0n && b.mint) gains.push({ mint: b.mint, delta });
+      // Solana hands us the decimals with the balance — no second call, and no
+      // dependence on a catalogue that may not list this mint.
+      if (delta > 0n && b.mint) gains.push({ mint: b.mint, delta, decimals: b.uiTokenAmount?.decimals });
     }
 
     // The claimed mint, when the chain agrees it arrived.
     const claimed = gains.find((g) => g.mint === token);
-    if (claimed) return { verified: true, rawAmount: claimed.delta.toString(), asset: claimed.mint };
+    if (claimed) {
+      return { verified: true, rawAmount: claimed.delta.toString(), asset: claimed.mint, decimals: claimed.decimals };
+    }
 
     // Otherwise: exactly one token arrived at our address in this transaction,
     // so there is no ambiguity about what was received — credit what the chain
@@ -246,21 +310,22 @@ async function verifySolana(url: string, sig: string, address: string, token?: s
     // Two or more and we genuinely cannot tell which was the deposit, so we
     // refuse; guessing there would be inventing money.
     if (gains.length === 1) {
-      return { verified: true, rawAmount: gains[0].delta.toString(), asset: gains[0].mint };
+      return { verified: true, rawAmount: gains[0].delta.toString(), asset: gains[0].mint, decimals: gains[0].decimals };
     }
-    return {
-      verified: false,
-      reason: gains.length
-        ? `${gains.length} different tokens arrived — cannot tell which is the deposit`
-        : "no token balance increase for this address",
-    };
+    if (gains.length > 1) {
+      return { verified: false, reason: `${gains.length} different tokens arrived — cannot tell which is the deposit` };
+    }
+    // No token moved. The provider called this a token deposit, but plain SOL
+    // is a deposit too — fall through and check the coin balance rather than
+    // refusing money the user certainly sent.
   }
 
   const i = keys.indexOf(address);
   if (i < 0) return { verified: false, reason: "address not in transaction" };
   const delta = BigInt(tx.meta?.postBalances?.[i] ?? 0) - BigInt(tx.meta?.preBalances?.[i] ?? 0);
-  if (delta <= 0n) return { verified: false, reason: "no balance increase for this address" };
-  return { verified: true, rawAmount: delta.toString() };
+  if (delta <= 0n) return { verified: false, reason: "no token or coin balance increase for this address" };
+  const native = NATIVE[net];
+  return { verified: true, rawAmount: delta.toString(), asset: native?.symbol, decimals: native?.decimals };
 }
 
 /** Networks we can actually prove a deposit on. Anything else stays manual. */

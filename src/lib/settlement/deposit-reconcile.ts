@@ -2,7 +2,7 @@ import "server-only";
 import { prisma } from "../db";
 import { listDeposits, listDepositsDetailed } from "./dextopus";
 import { parseDextopusDeposit } from "./webhook";
-import { scaleDepositAmount } from "./deposit-amount";
+import { scaleDepositAmount, scaleUnits } from "./deposit-amount";
 import { creditDeposit } from "./index";
 import { verifyAcrossChains } from "./onchain-verify";
 import { couldBeAddress } from "./asset-resolve";
@@ -300,19 +300,33 @@ async function rescueStuckDeposit(
   // Credit the CHAIN's amount AND the chain's asset, in base units, scaled by
   // that token's own decimals. Where the provider's record disagrees with the
   // log, the log is what actually happened.
-  const proven = await scaleDepositAmount({
+  //
+  // The chain's decimals win when it gave them. A chain's own coin appears in no
+  // provider catalogue, so asking Dextopus to scale a native deposit fails —
+  // the deposit would be proven and then held as unscalable, which is the same
+  // uncredited money by a different route.
+  const base = {
     ...deposit,
     asset: check.asset ?? deposit.asset,
-    status: "confirmed",
+    status: "confirmed" as const,
     amountIsRaw: true,
     rawAmount: check.rawAmount,
     amount: Number(check.rawAmount ?? 0),
-  });
-  if (!proven.deposit) return { credited: false, note: `verified but unscalable: ${proven.reason ?? "?"}` };
+  };
+  let scaled: NormalizedDeposit | undefined;
+  if (check.decimals != null) {
+    const amount = scaleUnits(check.rawAmount ?? "", check.decimals);
+    if (amount != null) scaled = { ...base, amount, amountIsRaw: false };
+  }
+  if (!scaled) {
+    const fallback = await scaleDepositAmount(base);
+    if (!fallback.deposit) return { credited: false, note: `verified but unscalable: ${fallback.reason ?? "?"}` };
+    scaled = fallback.deposit;
+  }
 
   const credit = await creditDeposit({
-    ...proven.deposit,
-    userId: proven.deposit.userId ?? userId,
+    ...scaled,
+    userId: scaled.userId ?? userId,
   }).catch((e) => ({ credited: false, userId: null, reason: `threw: ${(e as Error).message.slice(0, 40)}` }));
 
   return credit.credited
