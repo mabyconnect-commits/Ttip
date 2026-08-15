@@ -365,19 +365,34 @@ async function rescueStuckDeposit(
     scaled = fallback.deposit;
   }
 
-  // Clear our own placeholder before crediting.
+  // What, exactly, is holding this externalId?
   //
-  // Moments earlier in this same loop the deposit was recorded as `pending` so
-  // it would stop being invisible. That row holds the externalId, so the credit
-  // below hits the uniqueness guard and comes back "duplicate" — proof arrived,
-  // money still not paid, defeated by our own bookkeeping. Production said
-  // exactly that: "verified but not credited: duplicate".
+  // Deleting only `pending` rows wasn't enough — production still answered
+  // "verified but not credited: duplicate" afterwards, so the row in the way is
+  // some other status and the bare word "duplicate" never said which. The three
+  // cases need three different answers and only one of them is a problem:
   //
-  // Only ever a `pending` row: a completed one means it is genuinely already
-  // paid, and that must keep blocking a second credit.
-  await prisma.settlement
-    .deleteMany({ where: { externalId: deposit.externalId, status: "pending" } })
-    .catch(() => {});
+  //   completed — the user HAS the money. Nothing is owed. Not an error, and
+  //               the row must stay exactly where it is.
+  //   pending   — our own placeholder. Clear it and pay.
+  //   review    — held because we couldn't name the asset. The chain has now
+  //               named it, so clear it and pay — but only inside the same
+  //               backlog cutoff the poller uses, because older held rows may
+  //               already have been paid by hand from the balance desk and
+  //               carry no flag saying so.
+  const blocking = await prisma.settlement.findUnique({
+    where: { externalId: deposit.externalId },
+    select: { status: true, createdAt: true },
+  });
+  if (blocking?.status === "completed") {
+    return { credited: false, note: "already credited — nothing owed" };
+  }
+  if (blocking && !canRetry(blocking)) {
+    return { credited: false, note: `blocked by an existing "${blocking.status}" row` };
+  }
+  if (blocking) {
+    await prisma.settlement.delete({ where: { externalId: deposit.externalId } }).catch(() => {});
+  }
 
   const credit = await creditDeposit({
     ...scaled,
