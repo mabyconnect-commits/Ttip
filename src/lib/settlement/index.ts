@@ -136,6 +136,7 @@ export async function creditDeposit(
           kind: "deposit",
           provider: deposit.provider,
           externalId: deposit.externalId,
+          reference: deposit.reference,
           status: "completed",
           asset: deposit.asset,
           amount: new Prisma.Decimal(deposit.amount),

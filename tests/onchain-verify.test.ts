@@ -68,3 +68,12 @@ test("a chain with no endpoints configured is refused, not assumed", async () =>
     assert.match(r.reason ?? "", /no RPC/i);
   }
 });
+
+test("address history is only claimed for chains that actually support it", async () => {
+  const { findIncomingOnChain } = await import("../src/lib/settlement/onchain-verify");
+  for (const net of ["erc20", "bep20", "trc20", "btc"]) {
+    const r = await findIncomingOnChain({ network: net, address: "x" });
+    assert.equal(r.verified, false);
+    assert.match(r.reason ?? "", /not supported/i);
+  }
+});

@@ -328,6 +328,65 @@ async function verifySolana(
   return { verified: true, rawAmount: delta.toString(), asset: native?.symbol, decimals: native?.decimals };
 }
 
+/**
+ * Find the incoming transfer ourselves, without the provider's hash.
+ *
+ * Production's verdict on a stuck Solana deposit was "the address IS in this
+ * transaction and its balance did NOT increase". That is not a failed deposit —
+ * it means `originTxHash` is Dextopus's own SWEEP, money moving OUT of the
+ * address, and we had been verifying the wrong transaction all along. Their
+ * hash describes their bookkeeping, not the user's payment.
+ *
+ * So the hash is abandoned as a starting point and the address is asked for its
+ * own recent history: the deposit address is the one fact in this whole system
+ * that has never been in doubt. We issued it and we showed it to the user.
+ *
+ * Returns the signature it used, so the caller can refuse to credit the same
+ * on-chain transfer twice.
+ */
+export async function findIncomingOnChain(params: {
+  network: string;
+  address: string;
+  /** Ignore anything older than this — a deposit record only claims one payment. */
+  notBefore?: number;
+  limit?: number;
+}): Promise<OnchainCheck & { signature?: string }> {
+  const net = (params.network ?? "").trim().toLowerCase();
+  if (net !== "sol") return { verified: false, reason: `address history not supported on ${net}` };
+
+  const urls = endpoints(net);
+  const take = Math.max(1, Math.min(params.limit ?? 15, 40));
+
+  for (const url of urls) {
+    try {
+      const sigs = (await rpc(url, "getSignaturesForAddress", [params.address, { limit: take }])) as
+        | { signature?: string; err?: unknown; blockTime?: number }[]
+        | null;
+      if (!Array.isArray(sigs) || !sigs.length) continue;
+
+      for (const s of sigs) {
+        if (!s.signature || s.err) continue;
+        if (params.notBefore && s.blockTime && s.blockTime * 1000 < params.notBefore) continue;
+        // Whatever arrived, arrived — the chain names it. One call covers both:
+        // the token branch falls through to the coin check when no token moved.
+        const r = await verifySolanaTokens(url, s.signature, params.address).catch(() => null);
+        if (r?.verified) return { ...r, signature: s.signature };
+      }
+      return { verified: false, reason: "no incoming transfer found in recent history" };
+    } catch {
+      // Try the next endpoint.
+    }
+  }
+  return { verified: false, reason: "no endpoint could read the address history" };
+}
+
+/** Token-only view of a Solana transaction, for the history scan. */
+async function verifySolanaTokens(url: string, sig: string, address: string): Promise<OnchainCheck> {
+  // Passing a token forces the token branch; a mint that matches nothing still
+  // falls through to "exactly one token arrived", which is what we want here.
+  return verifySolana(url, "sol", sig, address, "__any__");
+}
+
 /** Networks we can actually prove a deposit on. Anything else stays manual. */
 export function canVerifyNetwork(network: string): boolean {
   const net = (network ?? "").trim().toLowerCase();

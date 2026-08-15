@@ -41,6 +41,16 @@ export interface NormalizedDeposit {
   txHash?: string;
   /** Numeric chain id, for building the explorer URL. */
   chainId?: number;
+  /**
+   * Our own idempotency reference, distinct from the provider's externalId.
+   *
+   * Set to the on-chain signature when a deposit is credited from chain
+   * evidence rather than from the provider. `externalId` stops the SAME
+   * provider record crediting twice; this stops two different provider records
+   * both claiming the SAME on-chain transfer, which the externalId guard cannot
+   * see.
+   */
+  reference?: string;
   /** Raw payload, kept for audit. */
   raw?: unknown;
 }

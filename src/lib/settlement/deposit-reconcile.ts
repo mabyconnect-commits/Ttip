@@ -4,7 +4,7 @@ import { listDeposits, listDepositsDetailed } from "./dextopus";
 import { parseDextopusDeposit } from "./webhook";
 import { scaleDepositAmount, scaleUnits } from "./deposit-amount";
 import { creditDeposit } from "./index";
-import { verifyAcrossChains } from "./onchain-verify";
+import { verifyAcrossChains, findIncomingOnChain } from "./onchain-verify";
 import { couldBeAddress } from "./asset-resolve";
 import type { NormalizedDeposit } from "./types";
 
@@ -188,7 +188,7 @@ export async function reconcileDeposits(limitUsers = 25, onlyUserId?: string): P
         // Only past the grace period, so the normal path is untouched: a deposit
         // that confirms in seconds never reaches this code.
         if (Number.isFinite(ageH) && ageH * 60 >= stuckAfterMinutes() && statusText !== "REFUNDED") {
-          const rescued = await rescueStuckDeposit(deposit, userId, record);
+          const rescued = await rescueStuckDeposit(deposit, userId, record, started);
           note(`stuck-rescue: ${rescued.note}`);
           if (rescued.credited) result.credited++;
         }
@@ -274,6 +274,7 @@ async function rescueStuckDeposit(
   deposit: NormalizedDeposit,
   userId: string,
   record: Record<string, unknown>,
+  createdAtMs?: number,
 ): Promise<{ credited: boolean; note: string }> {
   const txHash = String(record.originTxHash ?? record.txHash ?? "").trim();
   if (!txHash) return { credited: false, note: "no origin tx hash to check" };
@@ -294,8 +295,47 @@ async function rescueStuckDeposit(
   const asset = (deposit.asset ?? "").trim();
   const token = couldBeAddress(asset) ? asset : undefined;
 
-  const check = await verifyAcrossChains({ txHash, address: deposit.address, token, preferred });
+  let check = await verifyAcrossChains({ txHash, address: deposit.address, token, preferred });
+  let signature: string | undefined;
+
+  // THE HASH IS THEIRS; THE ADDRESS IS OURS.
+  //
+  // Production said, of a stuck Solana deposit: the address IS in that
+  // transaction and its balance did NOT increase. That is not a failed
+  // deposit — `originTxHash` is Dextopus's own SWEEP, money moving OUT, so we
+  // had been verifying the wrong transaction entirely. Their hash describes
+  // their bookkeeping, not the user's payment.
+  //
+  // So when their hash proves nothing, stop using it and ask the address for
+  // its own history. The deposit address is the one fact here that has never
+  // been in doubt: we issued it, and we showed it to the user.
+  if (!check.verified && preferred === "sol") {
+    const found = await findIncomingOnChain({
+      network: "sol",
+      address: deposit.address,
+      // A deposit record claims one payment; don't reach back before it existed.
+      notBefore: createdAtMs ? createdAtMs - 6 * 3_600_000 : undefined,
+    });
+    if (found.verified) {
+      check = found;
+      signature = found.signature;
+    }
+  }
+
   if (!check.verified) return { credited: false, note: `chain says no: ${check.reason ?? "unverified"}` };
+
+  // Never pay the same on-chain transfer twice.
+  //
+  // externalId stops one provider record crediting twice. It cannot see two
+  // DIFFERENT records both pointing at the same transfer — which is exactly
+  // what a history scan can produce, since it isn't anchored to their id.
+  if (signature) {
+    const already = await prisma.settlement.findFirst({
+      where: { reference: signature },
+      select: { id: true },
+    });
+    if (already) return { credited: false, note: "that on-chain transfer is already credited" };
+  }
 
   // Credit the CHAIN's amount AND the chain's asset, in base units, scaled by
   // that token's own decimals. Where the provider's record disagrees with the
@@ -307,6 +347,7 @@ async function rescueStuckDeposit(
   // uncredited money by a different route.
   const base = {
     ...deposit,
+    reference: signature,
     asset: check.asset ?? deposit.asset,
     status: "confirmed" as const,
     amountIsRaw: true,
