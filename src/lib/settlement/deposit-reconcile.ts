@@ -486,49 +486,46 @@ async function nextUsersToPoll(limitUsers: number): Promise<{ userId: string }[]
  * how money gets paid twice.
  */
 export async function auditDepositLedger(limit = 60, days = 7): Promise<{
-  checked: number;
-  missingTransaction: number;
-  balanceZeroNow: number;
+  crypto: { checked: number; missingTransaction: number; byChain: Record<string, number> };
+  fiat: { checked: number; missingTransaction: number };
   windowDays: number;
 }> {
-  const out = { checked: 0, missingTransaction: 0, balanceZeroNow: 0, windowDays: days };
+  const out = {
+    crypto: { checked: 0, missingTransaction: 0, byChain: {} as Record<string, number> },
+    fiat: { checked: 0, missingTransaction: 0 },
+    windowDays: days,
+  };
 
-  // A WINDOW, because the measurement has to be trustworthy before the number
-  // means anything. `meta.externalId` has not always been written on the
-  // transaction, so scanning all history counts old rows that were fine at the
-  // time as failures — an audit that cries wolf is worse than none.
+  // SPLIT BY KIND OF MONEY, because they are different systems with different
+  // failure modes and one number covering both answers neither question. A
+  // bank deposit going wrong tells you nothing about crypto, and a single
+  // combined figure is how a crypto problem hid behind healthy naira volume.
   const since = new Date(Date.now() - days * 864e5);
 
   const settled = await prisma.settlement.findMany({
     where: { kind: "deposit", status: "completed", userId: { not: null }, createdAt: { gte: since } },
     orderBy: { createdAt: "desc" },
     take: Math.max(1, Math.min(limit, 200)),
-    select: { externalId: true, userId: true, asset: true, amount: true, createdAt: true },
+    select: { externalId: true, userId: true, provider: true, chain: true, address: true, createdAt: true },
   });
 
   for (const s of settled) {
     if (!s.userId) continue;
-    out.checked++;
+    // Crypto is anything that landed at an on-chain address. Provider names
+    // change; "there was an address" doesn't.
+    const isCrypto = Boolean(s.address) || s.provider === "dextopus";
+    const bucket = isCrypto ? out.crypto : out.fiat;
+    bucket.checked++;
 
-    // Matched on the provider id first, then on shape: same user, same amount,
-    // within a few minutes. A transaction written before we stamped externalId
-    // is still the user's deposit, and calling it missing would be wrong.
     const byId = await prisma.transaction.findFirst({
-      where: {
-        userId: s.userId,
-        type: "deposit",
-        meta: { path: ["externalId"], equals: s.externalId },
-      },
+      where: { userId: s.userId, type: "deposit", meta: { path: ["externalId"], equals: s.externalId } },
       select: { id: true },
     });
     let txn = byId;
     if (!txn) {
-      // NO AMOUNT EQUALITY. A bank deposit records the settlement at the GROSS
-      // figure and the transaction at NET, after the fee — they are meant to
-      // differ. Requiring them to match counted every fee-bearing naira deposit
-      // as a lost one, which is how this audit first reported 36 healthy
-      // deposits as broken. Same user, a deposit line, within a few minutes, is
-      // the honest test.
+      // No amount equality: a bank deposit books gross on the settlement and
+      // net on the transaction, and requiring them to match once reported 36
+      // perfectly healthy deposits as lost.
       txn = await prisma.transaction.findFirst({
         where: {
           userId: s.userId,
@@ -538,19 +535,14 @@ export async function auditDepositLedger(limit = 60, days = 7): Promise<{
         select: { id: true },
       });
     }
-    if (!txn) out.missingTransaction++;
-
-    // NOT called "missing". A zero balance is the expected result of a user
-    // spending, swapping or withdrawing what they deposited — reporting that as
-    // a fault would have me raising an alarm about the app working correctly.
-    // Only ever a hint, and only meaningful next to missingTransaction.
-    const symbol = await resolveDepositAsset(s.asset).catch(() => null);
-    if (symbol) {
-      const bal = await prisma.balance.findUnique({
-        where: { userId_symbol: { userId: s.userId, symbol } },
-        select: { amount: true },
-      });
-      if (!bal || Number(bal.amount) <= 0) out.balanceZeroNow++;
+    if (!txn) {
+      bucket.missingTransaction++;
+      // Which chain, so "is this Solana only?" is answered by data rather than
+      // by an impression.
+      if (isCrypto) {
+        const key = (s.chain || "unknown").toLowerCase();
+        out.crypto.byChain[key] = (out.crypto.byChain[key] ?? 0) + 1;
+      }
     }
   }
 
