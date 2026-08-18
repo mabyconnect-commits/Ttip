@@ -1,6 +1,7 @@
 import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
+import { canReplaceSettlement } from "./config";
 import { kindOf } from "../wallet";
 import { payoutProvider, isLive } from "./config";
 import { sandboxPayout } from "./sandbox";
@@ -129,7 +130,33 @@ export async function creditDeposit(
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      // Idempotency guard — unique externalId. A replay throws P2002 below.
+      // A ROW ALREADY EXISTING IS NOT THE SAME AS ALREADY PAID.
+      //
+      // This used to create unconditionally and let the unique constraint sort
+      // it out, which was right while the only row that could exist was a
+      // completed one. It stopped being right the moment unconfirmed deposits
+      // started being recorded as `pending` so they would stop being invisible:
+      // the poller writes that placeholder within a minute of the deposit
+      // appearing, and then the WEBHOOK — the fast path, the one that should
+      // credit in seconds — hits the constraint, reports "duplicate" and
+      // credits nothing. Money arrives, the user sees an empty wallet, and our
+      // own records say the deposit was handled.
+      //
+      // Decided in ONE place now, inside the transaction, so the webhook, the
+      // poller and the on-chain rescue can never disagree about it.
+      const existing = await tx.settlement.findUnique({
+        where: { externalId: deposit.externalId },
+        select: { id: true, status: true, createdAt: true },
+      });
+      if (existing) {
+        if (!canReplaceSettlement(existing)) {
+          return { credited: false, userId: resolvedUserId, reason: `already ${existing.status}` };
+        }
+        await tx.settlement.delete({ where: { id: existing.id } });
+      }
+
+      // Idempotency guard — unique externalId. A concurrent replay that slipped
+      // past the read above still throws P2002 and is caught below.
       await tx.settlement.create({
         data: {
           userId: resolvedUserId,

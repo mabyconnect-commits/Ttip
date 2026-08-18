@@ -262,3 +262,37 @@ export function paystackConfig(): PaystackConfig | null {
     baseUrl: process.env.PAYSTACK_BASE_URL || "https://api.paystack.co",
   };
 }
+
+/**
+ * Deposits held before this moment are the manual backlog. Leave them alone.
+ *
+ * A "review" row is real money we couldn't name the asset for. Retrying those
+ * automatically is right — except some of the OLD ones were already paid by
+ * hand from the balance desk, and the row carries no flag saying so. Crediting
+ * one of those a second time hands the user free money with nothing to show it
+ * was a duplicate.
+ *
+ * So the old backlog stays manual and anything held from here on retries
+ * itself. Lives here rather than beside either caller so that creditDeposit and
+ * the poller cannot drift apart on it.
+ */
+export const AUTO_RETRY_HELD_AFTER = new Date("2026-08-14T00:00:00Z");
+
+/**
+ * May a settlement row we already wrote be replaced by a real credit?
+ *
+ * THE single answer to "there is already a row for this deposit", used by every
+ * path that credits. It had been reimplemented per caller — and the webhook,
+ * the fastest and most important path of all, didn't implement it at all: it
+ * hit the unique constraint, returned "duplicate", and credited nothing.
+ *
+ *   completed / settled_manually / reversed — finished. Never touch it; that is
+ *     what stops a deposit being paid twice.
+ *   pending — our own placeholder, written so an unconfirmed deposit stops
+ *     being invisible. Always replaceable.
+ *   review — held for a name we now have, but only inside the backlog cutoff.
+ */
+export function canReplaceSettlement(row: { status: string; createdAt: Date }): boolean {
+  if (row.status === "pending") return true;
+  return row.status === "review" && row.createdAt >= AUTO_RETRY_HELD_AFTER;
+}

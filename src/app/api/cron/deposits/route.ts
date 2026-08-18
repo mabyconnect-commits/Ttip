@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { reconcileDeposits } from "@/lib/settlement/deposit-reconcile";
+import { reconcileDeposits, auditDepositLedger } from "@/lib/settlement/deposit-reconcile";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -34,5 +34,13 @@ export async function GET(req: Request) {
     return { usersChecked: 0, seen: 0, credited: 0, skipped: 0, why: { "poller-threw": 1 } };
   });
 
-  return NextResponse.json({ ok: true, deposits });
+  // And check our own books while we're here: a settlement marked completed
+  // that has no transaction and no balance behind it is money the user cannot
+  // see, however healthy the provider side looks.
+  const ledger = await auditDepositLedger().catch((e) => {
+    console.error("[cron] ledger audit failed", e);
+    return { checked: 0, missingTransaction: -1, missingBalance: -1 };
+  });
+
+  return NextResponse.json({ ok: true, deposits, ledger });
 }

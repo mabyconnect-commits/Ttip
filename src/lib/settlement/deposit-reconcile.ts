@@ -5,7 +5,8 @@ import { parseDextopusDeposit } from "./webhook";
 import { scaleDepositAmount, scaleUnits } from "./deposit-amount";
 import { creditDeposit } from "./index";
 import { verifyAcrossChains, findIncomingOnChain } from "./onchain-verify";
-import { couldBeAddress } from "./asset-resolve";
+import { couldBeAddress, resolveDepositAsset } from "./asset-resolve";
+import { canReplaceSettlement } from "./config";
 import type { NormalizedDeposit } from "./types";
 
 /**
@@ -202,15 +203,13 @@ export async function reconcileDeposits(limitUsers = 25, onlyUserId?: string): P
         where: { externalId: deposit.externalId },
         select: { id: true, status: true, createdAt: true },
       });
-      if (existing && !canRetry(existing)) {
+      if (existing && !canReplaceSettlement(existing)) {
         note(`already-recorded: status="${existing.status}"`);
         continue;
       }
-      if (existing) {
-        // Clear the placeholder so creditDeposit's own idempotency guard can
-        // write the real completed row.
-        await prisma.settlement.delete({ where: { id: existing.id } }).catch(() => {});
-      }
+      // NOT deleted here. creditDeposit clears a replaceable row inside its
+      // own transaction, so deleting first would open a window where the row is
+      // gone and the credit has not happened yet.
 
       // Base units → tokens, exactly as the webhook does.
       const scaled = await scaleDepositAmount(deposit);
@@ -290,7 +289,7 @@ async function rescueStuckDeposit(
   if (blocking?.status === "completed") {
     return { credited: false, note: "already credited — nothing owed" };
   }
-  if (blocking && !canRetry(blocking)) {
+  if (blocking && !canReplaceSettlement(blocking)) {
     return { credited: false, note: `blocked by an existing "${blocking.status}" row` };
   }
 
@@ -398,10 +397,6 @@ async function rescueStuckDeposit(
   //               backlog cutoff the poller uses, because older held rows may
   //               already have been paid by hand from the balance desk and
   //               carry no flag saying so.
-  // The placeholder was already judged safe to replace at the top of this
-  // function; clear it so the credit below isn't refused as a duplicate.
-  await prisma.settlement.delete({ where: { externalId: deposit.externalId } }).catch(() => {});
-
   const credit = await creditDeposit({
     ...scaled,
     userId: scaled.userId ?? userId,
@@ -426,35 +421,6 @@ function networkId(network: string | null | undefined): string | null {
   if (n.includes("poly") || n.includes("matic")) return "poly";
   if (n.includes("avax") || n.includes("avalanche")) return "avax";
   return null;
-}
-
-/**
- * Deposits held before this moment are the manual backlog. Leave them alone.
- *
- * "review" means the deposit was real but we couldn't name its asset, so it was
- * parked for a human. Retrying those automatically would be right — except that
- * some of the old ones were already paid out by hand from the balance desk, and
- * there is no flag on the row saying so. Crediting one of those a second time
- * hands the user free money with nothing to show it was a duplicate.
- *
- * So the backlog stays manual (Clean-up → Held only → pick → Credit), and
- * anything held from here on is retried automatically. Nothing that arrives
- * from now on can get permanently stuck, and nothing already settled by hand
- * can be paid twice.
- */
-const AUTO_RETRY_HELD_AFTER = new Date("2026-08-14T00:00:00Z");
-
-/**
- * Can the poller have another go at a row it has already written?
- *
- * "pending" always: it is a placeholder we wrote ourselves, meaning the provider
- * hadn't confirmed yet. "review" only for deposits newer than the backlog
- * cutoff. Anything else — completed, settled_manually — is finished, and
- * touching it is how a deposit gets paid twice.
- */
-function canRetry(row: { status: string; createdAt: Date }): boolean {
-  if (row.status === "pending") return true;
-  return row.status === "review" && row.createdAt >= AUTO_RETRY_HELD_AFTER;
 }
 
 /**
@@ -499,5 +465,67 @@ async function nextUsersToPoll(limitUsers: number): Promise<{ userId: string }[]
     take: take * 4,
   });
   add(stale);
+  return out;
+}
+
+/**
+ * Check our OWN books, not just the provider's.
+ *
+ * The report was: the deposit is credited, and the depositor still doesn't see
+ * it in their wallet. Every check built so far asks Dextopus what happened —
+ * none of them asks whether OUR side actually finished. A settlement row saying
+ * "completed" is not proof a user can see their money; the balance and the
+ * transaction are what they actually look at.
+ *
+ * creditDeposit writes all three inside one database transaction, so they
+ * cannot normally drift. "Cannot normally" is exactly the assumption worth
+ * testing on a live money system, and it costs one query to test it.
+ *
+ * Reports only. Repairing a mismatch automatically would mean crediting a
+ * balance from a settlement row without knowing why they disagree, and that is
+ * how money gets paid twice.
+ */
+export async function auditDepositLedger(limit = 60): Promise<{
+  checked: number;
+  missingTransaction: number;
+  missingBalance: number;
+}> {
+  const out = { checked: 0, missingTransaction: 0, missingBalance: 0 };
+
+  const settled = await prisma.settlement.findMany({
+    where: { kind: "deposit", status: "completed", userId: { not: null } },
+    orderBy: { createdAt: "desc" },
+    take: Math.max(1, Math.min(limit, 200)),
+    select: { externalId: true, userId: true, asset: true },
+  });
+
+  for (const s of settled) {
+    if (!s.userId) continue;
+    out.checked++;
+
+    // The line in their history. Its absence means the money was booked and
+    // never shown — precisely "credited but I can't see it".
+    const txn = await prisma.transaction.findFirst({
+      where: {
+        userId: s.userId,
+        type: "deposit",
+        meta: { path: ["externalId"], equals: s.externalId },
+      },
+      select: { id: true },
+    });
+    if (!txn) out.missingTransaction++;
+
+    // And the balance row itself. A deposit credited into an asset the user
+    // holds none of is a contradiction worth surfacing.
+    const symbol = await resolveDepositAsset(s.asset).catch(() => null);
+    if (symbol) {
+      const bal = await prisma.balance.findUnique({
+        where: { userId_symbol: { userId: s.userId, symbol } },
+        select: { amount: true },
+      });
+      if (!bal || Number(bal.amount) <= 0) out.missingBalance++;
+    }
+  }
+
   return out;
 }
