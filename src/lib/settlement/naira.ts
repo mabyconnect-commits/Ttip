@@ -106,7 +106,10 @@ export async function creditNairaDeposit(opts: {
           emoji: "🏦",
           // `fee` is what the revenue dashboard reads; `gross` keeps the
           // pre-fee amount on the record for support and reconciliation.
-          meta: { fee, gross: opts.amount, currency: opts.currency },
+          // externalId ties this line back to its settlement row. Without it the
+          // ledger audit can only guess by timing, and a deposit that is perfectly
+          // fine reads as one that never reached the user.
+          meta: { fee, gross: opts.amount, currency: opts.currency, externalId: opts.externalId },
         },
       });
       return { credited: true };

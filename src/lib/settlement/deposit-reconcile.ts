@@ -523,11 +523,16 @@ export async function auditDepositLedger(limit = 60, days = 7): Promise<{
     });
     let txn = byId;
     if (!txn) {
+      // NO AMOUNT EQUALITY. A bank deposit records the settlement at the GROSS
+      // figure and the transaction at NET, after the fee — they are meant to
+      // differ. Requiring them to match counted every fee-bearing naira deposit
+      // as a lost one, which is how this audit first reported 36 healthy
+      // deposits as broken. Same user, a deposit line, within a few minutes, is
+      // the honest test.
       txn = await prisma.transaction.findFirst({
         where: {
           userId: s.userId,
           type: "deposit",
-          amountOut: s.amount,
           createdAt: { gte: new Date(s.createdAt.getTime() - 300_000), lte: new Date(s.createdAt.getTime() + 300_000) },
         },
         select: { id: true },
