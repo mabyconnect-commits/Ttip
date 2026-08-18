@@ -39,7 +39,7 @@ export async function GET(req: Request) {
   // see, however healthy the provider side looks.
   const ledger = await auditDepositLedger().catch((e) => {
     console.error("[cron] ledger audit failed", e);
-    return { checked: 0, missingTransaction: -1, missingBalance: -1 };
+    return { checked: 0, missingTransaction: -1, balanceZeroNow: -1, windowDays: 0 };
   });
 
   return NextResponse.json({ ok: true, deposits, ledger });

@@ -485,27 +485,35 @@ async function nextUsersToPoll(limitUsers: number): Promise<{ userId: string }[]
  * balance from a settlement row without knowing why they disagree, and that is
  * how money gets paid twice.
  */
-export async function auditDepositLedger(limit = 60): Promise<{
+export async function auditDepositLedger(limit = 60, days = 7): Promise<{
   checked: number;
   missingTransaction: number;
-  missingBalance: number;
+  balanceZeroNow: number;
+  windowDays: number;
 }> {
-  const out = { checked: 0, missingTransaction: 0, missingBalance: 0 };
+  const out = { checked: 0, missingTransaction: 0, balanceZeroNow: 0, windowDays: days };
+
+  // A WINDOW, because the measurement has to be trustworthy before the number
+  // means anything. `meta.externalId` has not always been written on the
+  // transaction, so scanning all history counts old rows that were fine at the
+  // time as failures — an audit that cries wolf is worse than none.
+  const since = new Date(Date.now() - days * 864e5);
 
   const settled = await prisma.settlement.findMany({
-    where: { kind: "deposit", status: "completed", userId: { not: null } },
+    where: { kind: "deposit", status: "completed", userId: { not: null }, createdAt: { gte: since } },
     orderBy: { createdAt: "desc" },
     take: Math.max(1, Math.min(limit, 200)),
-    select: { externalId: true, userId: true, asset: true },
+    select: { externalId: true, userId: true, asset: true, amount: true, createdAt: true },
   });
 
   for (const s of settled) {
     if (!s.userId) continue;
     out.checked++;
 
-    // The line in their history. Its absence means the money was booked and
-    // never shown — precisely "credited but I can't see it".
-    const txn = await prisma.transaction.findFirst({
+    // Matched on the provider id first, then on shape: same user, same amount,
+    // within a few minutes. A transaction written before we stamped externalId
+    // is still the user's deposit, and calling it missing would be wrong.
+    const byId = await prisma.transaction.findFirst({
       where: {
         userId: s.userId,
         type: "deposit",
@@ -513,17 +521,31 @@ export async function auditDepositLedger(limit = 60): Promise<{
       },
       select: { id: true },
     });
+    let txn = byId;
+    if (!txn) {
+      txn = await prisma.transaction.findFirst({
+        where: {
+          userId: s.userId,
+          type: "deposit",
+          amountOut: s.amount,
+          createdAt: { gte: new Date(s.createdAt.getTime() - 300_000), lte: new Date(s.createdAt.getTime() + 300_000) },
+        },
+        select: { id: true },
+      });
+    }
     if (!txn) out.missingTransaction++;
 
-    // And the balance row itself. A deposit credited into an asset the user
-    // holds none of is a contradiction worth surfacing.
+    // NOT called "missing". A zero balance is the expected result of a user
+    // spending, swapping or withdrawing what they deposited — reporting that as
+    // a fault would have me raising an alarm about the app working correctly.
+    // Only ever a hint, and only meaningful next to missingTransaction.
     const symbol = await resolveDepositAsset(s.asset).catch(() => null);
     if (symbol) {
       const bal = await prisma.balance.findUnique({
         where: { userId_symbol: { userId: s.userId, symbol } },
         select: { amount: true },
       });
-      if (!bal || Number(bal.amount) <= 0) out.missingBalance++;
+      if (!bal || Number(bal.amount) <= 0) out.balanceZeroNow++;
     }
   }
 
